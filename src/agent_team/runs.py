@@ -76,7 +76,7 @@ def _run_manifest(
         "design = true",
         "plan = false",
         f"worktree = {'true' if worktree_gate else 'false'}",
-        "live_validation = true",
+        "live_validation = false",
         f"worker_closure = {'true' if worker_gate else 'false'}",
         "",
         "[artifacts]",
@@ -119,7 +119,9 @@ def init_run(
     if config.workflow.deep_discovery_default:
         artifacts.update({"design": "design.md", "decisions": "decisions.md"})
     if tier == "team":
-        artifacts.update({"tasks": "tasks.md", "review": "review.md"})
+        artifacts["tasks"] = "tasks.md"
+    if review_required:
+        artifacts["review"] = "review.md"
     if durable:
         artifacts["final_report"] = "final-report.md"
 
@@ -284,6 +286,10 @@ def validate_run(
         diagnostics.append(Diagnostic(f"{label}.review.verdict", "unsupported verdict", code="enum"))
     if tier == "team" and required is not True:
         diagnostics.append(Diagnostic(f"{label}.review.required", "team tier requires independent review", code="invariant"))
+    if isinstance(required, bool) and tier in TIERS and required != config.tiers[tier].independent_review:
+        diagnostics.append(Diagnostic(
+            f"{label}.review.required", "must match the selected tier's review policy", code="invariant"
+        ))
     if isinstance(limit, int) and not isinstance(limit, bool) and limit != config.workflow.review_cycle_limit:
         diagnostics.append(Diagnostic(f"{label}.review.limit", "must match project workflow.review_cycle_limit", code="invariant"))
     if required is False and verdict != "not-required":
@@ -330,8 +336,10 @@ def validate_run(
     required_artifacts = {"requirements", "plan"}
     if "design" in artifacts:
         required_artifacts.add("decisions")
+    if required is True:
+        required_artifacts.add("review")
     if tier == "team":
-        required_artifacts.update({"tasks", "review", "final_report"})
+        required_artifacts.update({"tasks", "final_report"})
     elif tier == "assisted":
         required_artifacts.add("final_report")
     for artifact in sorted(required_artifacts - set(artifacts)):
@@ -380,8 +388,30 @@ def validate_run(
             diagnostics.append(Diagnostic(f"{prefix}.report", "must be a contained reports/ path", code="path"))
         elif isinstance(role, str) and report != f"reports/{task_id}-{role}.md":
             diagnostics.append(Diagnostic(f"{prefix}.report", "must match reports/<task-id>-<role>.md", code="invariant"))
-        elif task.get("status") == "complete" and not (run_dir / report).is_file():
-            diagnostics.append(Diagnostic(f"{prefix}.report", "completed task report does not exist", code="missing"))
+        elif task.get("status") == "complete":
+            report_path = (run_dir / report).resolve()
+            if run_dir not in report_path.parents:
+                diagnostics.append(Diagnostic(
+                    f"{prefix}.report", "must remain inside the run directory", code="path"
+                ))
+            elif not report_path.is_file():
+                diagnostics.append(Diagnostic(
+                    f"{prefix}.report", "completed task report does not exist", code="missing"
+                ))
+            else:
+                try:
+                    report_content = report_path.read_text(encoding="utf-8")
+                except (OSError, UnicodeError) as exc:
+                    diagnostics.append(Diagnostic(f"{prefix}.report", str(exc), code="read"))
+                else:
+                    markers = required_markers(report_content)
+                    if markers:
+                        diagnostics.append(Diagnostic(
+                            f"{prefix}.report",
+                            f"contains {len(markers)} unresolved REQUIRED marker(s)",
+                            severity="error" if status == "complete" else "warning",
+                            code="required-marker",
+                        ))
     for task_id, deps in dependency_map.items():
         for dep in deps:
             if dep not in task_ids:
@@ -447,3 +477,20 @@ def validate_all_runs(root: Path, config: TeamConfig) -> list[Diagnostic]:
     for manifest in sorted(run_root.glob("*/run.toml")):
         diagnostics.extend(validate_run(manifest, config, allowed_roles))
     return diagnostics
+
+
+def load_run_model_preset(root: Path, config: TeamConfig, slug: str) -> str:
+    if not _SLUG.fullmatch(slug):
+        raise ValidationFailure([
+            Diagnostic("run", "must contain lowercase letters, digits, and single hyphens", code="format")
+        ])
+    run_root = (root / config.workflow.run_root).resolve()
+    manifest = (run_root / slug / "run.toml").resolve()
+    if run_root not in manifest.parents:
+        raise ValidationFailure([Diagnostic("run", "run path escapes configured run root", code="path")])
+    diagnostics = validate_run(manifest, config)
+    errors = [item for item in diagnostics if item.severity == "error"]
+    if errors:
+        raise ValidationFailure(errors)
+    data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    return data["model_preset"]

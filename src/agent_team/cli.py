@@ -19,7 +19,7 @@ from agent_team.diagnostics import Diagnostic, ValidationFailure, render_diagnos
 from agent_team.fs import atomic_write
 from agent_team.installer import install_files
 from agent_team.models import PRESETS, TARGETS, TIERS
-from agent_team.runs import init_run, validate_all_runs
+from agent_team.runs import init_run, load_run_model_preset, validate_all_runs
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -44,12 +44,14 @@ def _parser() -> argparse.ArgumentParser:
     render.add_argument("--target", choices=TARGETS, required=True)
     render.add_argument("--scope", choices=("project", "user"), default="project")
     render.add_argument("--output", type=Path, required=True)
+    render.add_argument("--run", dest="run_slug", help="use the model preset from this run")
 
     install = subcommands.add_parser("install", help="preview or apply native agent installation")
     install.add_argument("--target", choices=TARGETS, required=True)
     install.add_argument("--scope", choices=("project", "user"))
     install.add_argument("--apply", action="store_true")
     install.add_argument("--force", action="store_true")
+    install.add_argument("--run", dest="run_slug", help="use the model preset from this run")
 
     doctor = subcommands.add_parser("doctor", help="check the environment and project")
     doctor.add_argument("--format", choices=("text", "json"), default="text")
@@ -110,9 +112,16 @@ def _run_init(root: Path, args: argparse.Namespace) -> int:
 
 def _render(root: Path, args: argparse.Namespace) -> int:
     config = load_team_config(root)
-    files = render_target(args.target, config, root)
+    model_preset = (
+        load_run_model_preset(root, config, args.run_slug)
+        if args.run_slug else config.default_model_preset
+    )
+    files = render_target(args.target, config, root, model_preset)
     written = write_rendered(args.output, files)
-    print(f"rendered {len(written)} files for {args.target} into {args.output.resolve()}")
+    print(
+        f"rendered {len(written)} files for {args.target} "
+        f"with {model_preset} preset into {args.output.resolve()}"
+    )
     return 0
 
 
@@ -120,7 +129,11 @@ def _install(root: Path, args: argparse.Namespace) -> int:
     config = load_team_config(root)
     scope = args.scope or config.install.default_scope
     target_root = root if scope == "project" else Path.home()
-    files = render_target(args.target, config, root)
+    model_preset = (
+        load_run_model_preset(root, config, args.run_slug)
+        if args.run_slug else config.default_model_preset
+    )
+    files = render_target(args.target, config, root, model_preset)
     actions = install_files(
         target=args.target,
         target_root=target_root,
@@ -130,7 +143,7 @@ def _install(root: Path, args: argparse.Namespace) -> int:
         backups=config.install.backups,
     )
     mode = "applied" if args.apply else "preview"
-    print(f"{mode} for {args.target} ({scope} scope):")
+    print(f"{mode} for {args.target} ({scope} scope, {model_preset} preset):")
     for action in actions:
         print(f"  {action.action:9} {action.path} — {action.reason}")
     if not args.apply:

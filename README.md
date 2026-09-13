@@ -10,14 +10,16 @@ run artifacts, strict validation, and preview-first safe installation.
 nix develop
 agent-team init
 agent-team validate
-agent-team render --target codex --output ./dist/codex
-agent-team install --target codex
-agent-team install --target codex --apply
+agent-team run init --slug my-change --model-preset balanced
+agent-team render --target codex --run my-change --output ./dist/codex
+agent-team install --target codex --run my-change
+agent-team install --target codex --run my-change --apply
 ```
 
 `install` is a preview unless `--apply` is provided. Existing unmanaged files
 and drifted managed files are refused unless `--force` is explicit; forced
-replacement creates a backup.
+replacement creates a backup. Passing `--run <slug>` to `render` or `install`
+applies that run's model preset; without it, the project default is used.
 
 For project-scoped Codex installs, trust the project in Codex and start a fresh
 session after `--apply`. Codex intentionally skips project `.codex/` agents in

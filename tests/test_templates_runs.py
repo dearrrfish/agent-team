@@ -34,6 +34,7 @@ class TemplateAndRunTests(unittest.TestCase):
             manifest_data = tomllib.loads((run_dir / "run.toml").read_text(encoding="utf-8"))
             self.assertEqual(manifest_data["max_workers"], 4)
             self.assertTrue(manifest_data["reports_required"])
+            self.assertFalse(manifest_data["gates"]["live_validation"])
             diagnostics = validate_run(run_dir / "run.toml", config)
             self.assertFalse(any(item.severity == "error" for item in diagnostics))
             self.assertTrue(any(item.code == "required-marker" for item in diagnostics))
@@ -116,6 +117,46 @@ report = "reports/T-{number:03d}-implementer.md"
 ''')
             diagnostics = validate_run(manifest, config)
             self.assertTrue(any(item.code == "worker-limit" for item in diagnostics))
+
+    def test_completed_task_report_required_markers_are_validated(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            config = load_team_config(root)
+            run_dir = init_run(root, config, "report-markers", None, "team", "balanced")
+            manifest = run_dir / "run.toml"
+            with manifest.open("a", encoding="utf-8") as handle:
+                handle.write('''
+[[tasks]]
+id = "T-001"
+group = "TG-01"
+role = "implementer"
+instance = "one"
+status = "complete"
+deps = []
+report = "reports/T-001-implementer.md"
+''')
+            report = run_dir / "reports" / "T-001-implementer.md"
+            report.write_text("<!-- REQUIRED: add verification evidence -->\n", encoding="utf-8")
+            diagnostics = validate_run(manifest, config)
+            self.assertTrue(any(
+                item.path.endswith(".tasks.0.report")
+                and item.code == "required-marker"
+                and item.severity == "warning"
+                for item in diagnostics
+            ))
+            manifest.write_text(
+                manifest.read_text(encoding="utf-8").replace(
+                    'status = "discovery"', 'status = "complete"'
+                ),
+                encoding="utf-8",
+            )
+            diagnostics = validate_run(manifest, config)
+            self.assertTrue(any(
+                item.path.endswith(".tasks.0.report")
+                and item.code == "required-marker"
+                and item.severity == "error"
+                for item in diagnostics
+            ))
 
 
 if __name__ == "__main__":

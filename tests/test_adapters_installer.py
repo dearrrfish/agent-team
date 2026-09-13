@@ -43,6 +43,13 @@ class AdapterAndInstallerTests(unittest.TestCase):
             self.assertIn("do not silently spawn a generic agent", coordination_skill)
             self.assertIn("read `max_workers`", coordination_skill)
             self.assertIn("Team tier always requires reports", coordination_skill)
+            self.assertIn("`--run <slug>`", coordination_skill)
+
+            quality_codex = render_target("codex", config, root, "quality")
+            quality_coordinator = tomllib.loads(quality_codex[next(
+                path for path in quality_codex if str(path).endswith("coordinator.toml")
+            )])
+            self.assertEqual(quality_coordinator["model"], "gpt-6-astra")
 
             claude = render_target("claude", config, root)
             claude_explorer = claude[next(path for path in claude if str(path).endswith("explorer.md"))]
@@ -64,6 +71,23 @@ class AdapterAndInstallerTests(unittest.TestCase):
             written[0].write_text("changed", encoding="utf-8")
             with self.assertRaises(ValidationFailure):
                 write_rendered(output, files)
+
+    def test_render_preflights_all_conflicts_before_writing(self) -> None:
+        with self._project() as directory, tempfile.TemporaryDirectory() as output_directory:
+            root = Path(directory)
+            output = Path(output_directory)
+            config = load_team_config(root)
+            files = render_target("codex", config, root)
+            ordered = list(files)
+            conflict = output / Path(ordered[-1])
+            conflict.parent.mkdir(parents=True)
+            conflict.write_text("user content", encoding="utf-8")
+
+            with self.assertRaises(ValidationFailure):
+                write_rendered(output, files)
+
+            self.assertFalse((output / Path(ordered[0])).exists())
+            self.assertEqual(conflict.read_text(encoding="utf-8"), "user content")
 
     def test_install_preview_apply_idempotence_drift_and_backup(self) -> None:
         with self._project() as directory, tempfile.TemporaryDirectory() as target_directory:

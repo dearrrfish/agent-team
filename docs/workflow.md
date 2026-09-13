@@ -18,12 +18,24 @@ review justifies the coordination overhead.
 agent-team run init --slug replace-parser --title "Replace parser" --tier team
 ```
 
+To apply the run's selected cost/quality routing to native agents, pass its slug
+when rendering or installing:
+
+```console
+agent-team render --target codex --run replace-parser --output ./dist/codex
+agent-team install --target codex --run replace-parser --apply
+```
+
 The run manifest is authoritative for lifecycle, gates, task dependency state,
 the effective `max_workers` concurrency ceiling, report persistence, and review
 counters. Dispatch excess ready tasks in later waves so the number of `running`
 tasks never exceeds `max_workers`. Markdown is authoritative for rationale,
 contracts, evidence, and verdict text. Update `updated_at` whenever the manifest
 changes.
+
+New runs start with `live_validation = false`. Set it to true only after the
+run's exact verification commands have completed successfully and the evidence
+has been recorded in the final report.
 
 Statuses advance through `discovery`, `planned`, `implementing`, `reviewing`,
 and `complete`; `blocked` and `cancelled` are terminal. Validation enforces the

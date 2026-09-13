@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -29,13 +30,23 @@ class CliTests(unittest.TestCase):
             validation = self._run(root, "validate", "--format", "json")
             self.assertEqual(validation.returncode, 0, validation.stderr)
             self.assertTrue(json.loads(validation.stdout)["ok"])
-            run = self._run(root, "run", "init", "--slug", "cli-run", "--tier", "assisted")
+            run = self._run(
+                root, "run", "init", "--slug", "cli-run", "--tier", "assisted",
+                "--model-preset", "quality",
+            )
             self.assertEqual(run.returncode, 0, run.stderr)
-            render = self._run(root, "render", "--target", "codex", "--output", "dist")
+            render = self._run(
+                root, "render", "--target", "codex", "--output", "dist", "--run", "cli-run"
+            )
             self.assertEqual(render.returncode, 0, render.stderr)
-            preview = self._run(root, "install", "--target", "codex")
+            coordinator = tomllib.loads(
+                (root / "dist" / ".codex" / "agents" / "coordinator.toml").read_text(encoding="utf-8")
+            )
+            self.assertEqual(coordinator["model"], "gpt-6-astra")
+            preview = self._run(root, "install", "--target", "codex", "--run", "cli-run")
             self.assertEqual(preview.returncode, 0, preview.stderr)
             self.assertIn("preview only", preview.stdout)
+            self.assertIn("quality preset", preview.stdout)
             doctor = self._run(root, "doctor", "--format", "json")
             self.assertEqual(doctor.returncode, 0, doctor.stderr)
 

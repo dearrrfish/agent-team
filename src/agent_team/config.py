@@ -260,6 +260,12 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
             diagnostics.append(Diagnostic(f"tiers.{tier}.write_isolation", f"must be {isolation[tier]}", code="invariant"))
         if tier == "team" and not review:
             diagnostics.append(Diagnostic("tiers.team.independent_review", "must be true", code="invariant"))
+        if tier in {"assisted", "team"} and not durable:
+            diagnostics.append(Diagnostic(
+                f"tiers.{tier}.durable_artifacts",
+                f"{tier} tier requires durable artifacts",
+                code="invariant",
+            ))
         tiers[tier] = TierConfig(max_workers, durable, review, write_isolation)
 
     install_data = _mapping(_required(data, "install", "", diagnostics), "install", diagnostics)

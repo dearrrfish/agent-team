@@ -112,10 +112,20 @@ def load_skills(config: TeamConfig, root: Path) -> Iterable[tuple[str, str]]:
     return tuple(sorted(selected.items()))
 
 
-def render_target(target: str, config: TeamConfig, root: Path) -> dict[PurePosixPath, str]:
+def render_target(
+    target: str,
+    config: TeamConfig,
+    root: Path,
+    model_preset: str | None = None,
+) -> dict[PurePosixPath, str]:
     if target not in config.enabled_targets:
         raise ValidationFailure([Diagnostic("target", f"{target} is not enabled", code="disabled")])
+    preset_name = model_preset or config.default_model_preset
     profile = load_target_profile(target, config.target_profiles[target], root)
+    if preset_name not in profile.presets:
+        raise ValidationFailure([Diagnostic(
+            "model_preset", f"{preset_name} is not defined by the {target} profile", code="enum"
+        )])
     roles = load_roles(config, root)
     output: dict[PurePosixPath, str] = {}
     for role in roles:
@@ -124,7 +134,7 @@ def render_target(target: str, config: TeamConfig, root: Path) -> dict[PurePosix
         else:
             suffix = ".toml" if target == "codex" else ".md"
             relative = PurePosixPath(profile.agent_destination, f"{role.role_id}{suffix}")
-        output[relative] = _render_agent(target, role, profile, config.default_model_preset)
+        output[relative] = _render_agent(target, role, profile, preset_name)
     for skill_id, content in load_skills(config, root):
         relative = PurePosixPath(profile.skill_destination, skill_id, "SKILL.md")
         output[relative] = content
@@ -135,13 +145,35 @@ def write_rendered(output_root: Path, files: dict[PurePosixPath, str]) -> list[P
     from agent_team.fs import atomic_write
 
     output_root = output_root.resolve()
-    written: list[Path] = []
+    planned: list[tuple[Path, str]] = []
+    diagnostics: list[Diagnostic] = []
     for relative, content in files.items():
         destination = (output_root / Path(relative)).resolve()
         if destination != output_root and output_root not in destination.parents:
-            raise ValidationFailure([Diagnostic(str(relative), "render path escapes output root", code="path")])
-        if destination.exists() and destination.read_text(encoding="utf-8") != content:
-            raise ValidationFailure([Diagnostic(str(destination), "refusing to overwrite existing rendered file", code="conflict")])
+            diagnostics.append(Diagnostic(str(relative), "render path escapes output root", code="path"))
+            continue
+        if destination.exists():
+            if not destination.is_file():
+                diagnostics.append(Diagnostic(
+                    str(destination), "render destination is not a regular file", code="conflict"
+                ))
+                continue
+            try:
+                existing = destination.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as exc:
+                diagnostics.append(Diagnostic(str(destination), str(exc), code="read"))
+                continue
+            if existing != content:
+                diagnostics.append(Diagnostic(
+                    str(destination), "refusing to overwrite existing rendered file", code="conflict"
+                ))
+                continue
+        planned.append((destination, content))
+    if diagnostics:
+        raise ValidationFailure(diagnostics)
+
+    written: list[Path] = []
+    for destination, content in planned:
         if not destination.exists():
             atomic_write(destination, content)
         written.append(destination)

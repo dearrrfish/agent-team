@@ -122,6 +122,26 @@ deps = []
             diagnostics = validate_run(manifest, config)
             self.assertTrue(any(item.path.endswith(".tasks") and item.code == "gate" for item in diagnostics))
 
+    def test_assisted_review_policy_generates_and_requires_review_artifact(self) -> None:
+        config_text = DEFAULT_TEAM_TOML.replace(
+            "[tiers.assisted]\nmax_workers = 2\ndurable_artifacts = true\nindependent_review = false",
+            "[tiers.assisted]\nmax_workers = 2\ndurable_artifacts = true\nindependent_review = true",
+        )
+        with self._project(config_text) as directory:
+            root = Path(directory)
+            config = load_team_config(root)
+            run_dir = init_run(root, config, "assisted-review", None, "assisted", "balanced")
+            self.assertTrue((run_dir / "review.md").is_file())
+            manifest = run_dir / "run.toml"
+            text = manifest.read_text(encoding="utf-8")
+            self.assertIn('review = "review.md"', text)
+            manifest.write_text(text.replace('review = "review.md"\n', ""), encoding="utf-8")
+            diagnostics = validate_run(manifest, config)
+            self.assertTrue(any(
+                item.path.endswith(".artifacts.review") and item.code == "required"
+                for item in diagnostics
+            ))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -49,6 +49,16 @@ class ConfigTests(unittest.TestCase):
         self.assertIn("tiers.assisted.max_workers", paths)
         self.assertIn("workflow.run_root", paths)
 
+    def test_assisted_and_team_require_durable_artifacts(self) -> None:
+        data = tomllib.loads(DEFAULT_TEAM_TOML)
+        data["tiers"]["assisted"]["durable_artifacts"] = False
+        data["tiers"]["team"]["durable_artifacts"] = False
+        with self.assertRaises(ValidationFailure) as context:
+            parse_team_config(data, Path("/tmp/project"))
+        paths = {item.path for item in context.exception.diagnostics}
+        self.assertIn("tiers.assisted.durable_artifacts", paths)
+        self.assertIn("tiers.team.durable_artifacts", paths)
+
     def test_builtin_roles_obey_write_and_review_contracts(self) -> None:
         roles = {role.role_id: role for role in load_builtin_roles()}
         self.assertEqual(set(roles), {"coordinator", "explorer", "design-agent", "implementer", "ops", "reviewer"})

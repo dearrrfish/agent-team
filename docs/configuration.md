@@ -6,6 +6,10 @@ errors. Resolution order is packaged target defaults, a whole project target
 profile replacement, project policy, then explicit run flags. Environment
 variables never override workflow policy.
 
+`run init --model-preset PRESET` records an explicit run selection. Pass the
+run to `render` or `install` with `--run SLUG` to render native agent profiles
+from that selection; omitting `--run` uses `default_model_preset`.
+
 ## Project policy
 
 Top-level fields identify the team, select `adaptive`, `solo`, `assisted`, or
@@ -15,7 +19,9 @@ preset, enable native targets, and declare role and skill sources.
 `[workflow]` controls the contained run directory, review-cycle limit (1–3),
 deep-discovery default, worktree decision gate, and worker-report persistence.
 Tier tables define worker count, artifact and review requirements, and their
-fixed write-isolation policy. Assisted permits 1–2 workers; team permits 2–8.
+fixed write-isolation policy. Assisted permits 1–2 workers and team permits
+2–8; both require durable artifacts. Enabling independent review for any tier
+adds a required `review.md` artifact and approval gate.
 
 `[install]` defaults to project scope, always refuses implicit overwrite,
 requires backups, and cannot modify native client settings in schema v1.
