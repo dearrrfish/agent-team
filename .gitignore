@@ -1,0 +1,51 @@
+# ==========================================
+# Claude Code & Codex AI Agent Runtime Files
+# ==========================================
+
+# Claude Code session data, agent worktrees, and local state
+.claude/
+!.claude/CLAUDE.md
+
+# Codex local agent states and CLI caches
+.codex/
+.agents/
+
+# Per-project plugin local settings, tokens, and YAML frontmatter overlays
+# (Plugins use these for user-configurable local environments)
+.claude/*.local.md
+.codex/*.local.md
+
+# Automated task runner directories and lockfiles
+.task/
+task.lock
+
+# ==========================================
+# Build Artifacts & Generated Files
+# ==========================================
+
+# If you use build scripts (e.g., Jinja2) to compile cross-tool SKILL.md files
+# Uncomment the line below if you only edit a /src directory
+# dist/
+# plugins/*/skills/
+
+# Node/NPM dependencies (if packaging MCP servers or custom plugin tools)
+node_modules/
+npm-debug.log*
+
+# Python virtual environments (frequently used for MCP Python tools)
+.venv/
+venv/
+ENV/
+__pycache__/
+*.pyc
+
+# ==========================================
+# OS & IDE Caches
+# ==========================================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# local only
+*.local*
