@@ -1,0 +1,15 @@
+schema_version = 1
+id = "ops"
+description = "Owns Nix, CI, infrastructure, deployment configuration, and live safety."
+instructions = "instructions.md"
+model_class = "deep"
+effort = "high"
+write_policy = "workspace"
+delegation = false
+max_turns = 32
+report_kind = "agent-report"
+capabilities = ["filesystem.read", "filesystem.write", "shell", "docs.read", "web.read"]
+
+[activation]
+use_when = "The task changes Nix, CI, infrastructure, deployment, or operational validation."
+avoid_when = "The task is application-only and has no operational surface."

@@ -1,0 +1,32 @@
+schema_version = 1
+id = "antigravity"
+adapter = "antigravity"
+agent_destination = ".agents/agents"
+skill_destination = ".agents/skills"
+models_without_effort = []
+
+[features]
+supports_effort = false
+supports_worktree_isolation = false
+team_runtime = "subagents"
+
+[presets.economy]
+coordinator_model = "flash"
+[presets.economy.models]
+fast = "flash"
+balanced = "flash"
+deep = "pro"
+
+[presets.balanced]
+coordinator_model = "pro"
+[presets.balanced.models]
+fast = "flash"
+balanced = "pro"
+deep = "pro"
+
+[presets.quality]
+coordinator_model = "pro"
+[presets.quality.models]
+fast = "flash"
+balanced = "pro"
+deep = "pro"

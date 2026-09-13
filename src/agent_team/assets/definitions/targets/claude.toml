@@ -1,0 +1,47 @@
+schema_version = 1
+id = "claude"
+adapter = "claude"
+agent_destination = ".claude/agents"
+skill_destination = ".claude/skills"
+models_without_effort = ["haiku"]
+
+[features]
+supports_effort = true
+supports_worktree_isolation = true
+team_runtime = "subagents"
+
+[presets.economy]
+coordinator_model = "sonnet"
+coordinator_effort = "medium"
+[presets.economy.models]
+fast = "haiku"
+balanced = "sonnet"
+deep = "sonnet"
+[presets.economy.effort]
+low = "low"
+medium = "medium"
+high = "medium"
+
+[presets.balanced]
+coordinator_model = "sonnet"
+coordinator_effort = "high"
+[presets.balanced.models]
+fast = "haiku"
+balanced = "sonnet"
+deep = "sonnet"
+[presets.balanced.effort]
+low = "low"
+medium = "medium"
+high = "high"
+
+[presets.quality]
+coordinator_model = "opus"
+coordinator_effort = "high"
+[presets.quality.models]
+fast = "sonnet"
+balanced = "sonnet"
+deep = "opus"
+[presets.quality.effort]
+low = "medium"
+medium = "high"
+high = "xhigh"

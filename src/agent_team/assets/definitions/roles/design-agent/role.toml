@@ -1,0 +1,15 @@
+schema_version = 1
+id = "design-agent"
+description = "Audits requirements and produces implementation-ready architecture."
+instructions = "instructions.md"
+model_class = "deep"
+effort = "high"
+write_policy = "deny"
+delegation = false
+max_turns = 24
+report_kind = "agent-report"
+capabilities = ["filesystem.read", "shell", "docs.read", "web.read"]
+
+[activation]
+use_when = "Requirements have material gaps, cross-cutting contracts, or architectural tradeoffs."
+avoid_when = "The change is already bounded and implementation-ready."

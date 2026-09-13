@@ -1,0 +1,15 @@
+schema_version = 1
+id = "implementer"
+description = "Implements a bounded change and verifies its acceptance criteria."
+instructions = "instructions.md"
+model_class = "balanced"
+effort = "high"
+write_policy = "workspace"
+delegation = false
+max_turns = 32
+report_kind = "agent-report"
+capabilities = ["filesystem.read", "filesystem.write", "shell", "docs.read"]
+
+[activation]
+use_when = "A task has explicit ownership, contracts, deliverables, and acceptance criteria."
+avoid_when = "Requirements are unresolved or the task overlaps another writer."

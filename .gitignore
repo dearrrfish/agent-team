@@ -38,6 +38,11 @@ venv/
 ENV/
 __pycache__/
 *.pyc
+.ruff_cache/
+.pytest_cache/
+build/
+dist/
+*.egg-info/
 
 # ==========================================
 # OS & IDE Caches
@@ -49,3 +54,7 @@ Thumbs.db
 
 # local only
 *.local*
+.worktrees/
+.agent-team/runs/
+.agent-team/backups/
+.agent-team/install-state.json

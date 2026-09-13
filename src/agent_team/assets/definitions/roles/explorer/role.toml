@@ -1,0 +1,15 @@
+schema_version = 1
+id = "explorer"
+description = "Performs read-only repository and factual research."
+instructions = "instructions.md"
+model_class = "fast"
+effort = "medium"
+write_policy = "deny"
+delegation = false
+max_turns = 16
+report_kind = "agent-report"
+capabilities = ["filesystem.read", "shell", "docs.read", "web.read"]
+
+[activation]
+use_when = "Repository facts, entry points, conventions, or external primary sources must be found."
+avoid_when = "The task requires file changes or final architecture decisions."

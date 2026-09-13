@@ -1,0 +1,45 @@
+schema_version = 1
+id = "default"
+name = "Native agent team"
+description = "Portable role-based agent team"
+default_tier = "adaptive"
+default_model_preset = "balanced"
+enabled_targets = ["codex", "claude", "antigravity"]
+role_sources = ["builtin:roles"]
+skill_sources = ["builtin:skills"]
+
+[target_profiles]
+codex = "builtin:codex"
+claude = "builtin:claude"
+antigravity = "builtin:antigravity"
+
+[workflow]
+run_root = ".agent-team/runs"
+review_cycle_limit = 2
+deep_discovery_default = false
+require_worktree_decision = true
+persist_agent_reports = true
+
+[tiers.solo]
+max_workers = 0
+durable_artifacts = false
+independent_review = false
+write_isolation = "coordinator-only"
+
+[tiers.assisted]
+max_workers = 2
+durable_artifacts = true
+independent_review = false
+write_isolation = "serialized"
+
+[tiers.team]
+max_workers = 4
+durable_artifacts = true
+independent_review = true
+write_isolation = "file-disjoint-or-worktree"
+
+[install]
+default_scope = "project"
+overwrite = "refuse"
+backups = true
+modify_native_settings = false

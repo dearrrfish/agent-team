@@ -1,0 +1,15 @@
+schema_version = 1
+id = "coordinator"
+description = "Owns user alignment, delegation, integration, and completion."
+instructions = "instructions.md"
+model_class = "deep"
+effort = "high"
+write_policy = "workspace"
+delegation = false
+max_turns = 64
+report_kind = "agent-report"
+capabilities = ["filesystem.read", "filesystem.write", "shell", "docs.read", "web.read"]
+
+[activation]
+use_when = "Coordinating a multi-step run or integrating delegated work."
+avoid_when = "A bounded worker role already owns the task."

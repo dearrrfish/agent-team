@@ -1,0 +1,15 @@
+schema_version = 1
+id = "reviewer"
+description = "Performs an independent, read-only correctness and risk review."
+instructions = "instructions.md"
+model_class = "deep"
+effort = "high"
+write_policy = "deny"
+delegation = false
+max_turns = 24
+report_kind = "review-cycle"
+capabilities = ["filesystem.read", "shell", "docs.read"]
+
+[activation]
+use_when = "A team run reaches its review gate or a high-risk change needs an independent verdict."
+avoid_when = "The reviewer authored the implementation or required artifacts are absent."

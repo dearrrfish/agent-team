@@ -1,0 +1,82 @@
+import subprocess
+import tempfile
+import tomllib
+import unittest
+from pathlib import Path
+
+from agent_team.config import (
+    DEFAULT_TEAM_TOML,
+    load_builtin_roles,
+    load_target_profile,
+    load_team_config,
+    parse_team_config,
+    project_root,
+)
+from agent_team.diagnostics import ValidationFailure
+
+
+class ConfigTests(unittest.TestCase):
+    def _project(self) -> tempfile.TemporaryDirectory[str]:
+        temporary = tempfile.TemporaryDirectory()
+        root = Path(temporary.name)
+        (root / ".agent-team").mkdir()
+        (root / ".agent-team" / "team.toml").write_text(DEFAULT_TEAM_TOML, encoding="utf-8")
+        return temporary
+
+    def test_default_config_is_strict_and_complete(self) -> None:
+        with self._project() as directory:
+            config = load_team_config(Path(directory))
+            self.assertEqual(config.default_tier, "adaptive")
+            self.assertEqual(config.tiers["team"].max_workers, 4)
+            self.assertTrue(config.tiers["team"].independent_review)
+            self.assertFalse(config.install.modify_native_settings)
+
+    def test_unknown_key_is_rejected_with_dotted_path(self) -> None:
+        data = tomllib.loads(DEFAULT_TEAM_TOML)
+        data["install"]["surprise"] = True
+        with self.assertRaises(ValidationFailure) as context:
+            parse_team_config(data, Path("/tmp/project"))
+        self.assertIn("install.surprise", str(context.exception))
+
+    def test_tier_bounds_and_path_containment_are_enforced(self) -> None:
+        data = tomllib.loads(DEFAULT_TEAM_TOML)
+        data["tiers"]["assisted"]["max_workers"] = 3
+        data["workflow"]["run_root"] = "../elsewhere"
+        with self.assertRaises(ValidationFailure) as context:
+            parse_team_config(data, Path("/tmp/project"))
+        paths = {item.path for item in context.exception.diagnostics}
+        self.assertIn("tiers.assisted.max_workers", paths)
+        self.assertIn("workflow.run_root", paths)
+
+    def test_builtin_roles_obey_write_and_review_contracts(self) -> None:
+        roles = {role.role_id: role for role in load_builtin_roles()}
+        self.assertEqual(set(roles), {"coordinator", "explorer", "design-agent", "implementer", "ops", "reviewer"})
+        self.assertEqual(roles["explorer"].write_policy, "deny")
+        self.assertNotIn("filesystem.write", roles["reviewer"].capabilities)
+        self.assertEqual(roles["reviewer"].report_kind, "review-cycle")
+        self.assertFalse(any(role.delegation for role in roles.values()))
+
+    def test_builtin_target_profiles_cover_all_presets(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            config = load_team_config(root)
+            codex = load_target_profile("codex", config.target_profiles["codex"], root)
+            claude = load_target_profile("claude", config.target_profiles["claude"], root)
+            antigravity = load_target_profile("antigravity", config.target_profiles["antigravity"], root)
+            self.assertEqual(codex.presets["balanced"].models["deep"], "gpt-5.6-sol")
+            self.assertEqual(codex.presets["quality"].models["deep"], "gpt-6-astra")
+            self.assertEqual(codex.presets["balanced"].coordinator_effort, "medium")
+            self.assertIn("haiku", claude.models_without_effort)
+            self.assertFalse(antigravity.supports_effort)
+
+    def test_project_root_falls_back_to_git_toplevel(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            nested = root / "nested" / "directory"
+            nested.mkdir(parents=True)
+            self.assertEqual(project_root(nested), root.resolve())
+
+
+if __name__ == "__main__":
+    unittest.main()
