@@ -294,6 +294,18 @@ def validate_run(
         diagnostics.append(Diagnostic(f"{label}.review.limit", "must match project workflow.review_cycle_limit", code="invariant"))
     if required is False and verdict != "not-required":
         diagnostics.append(Diagnostic(f"{label}.review.verdict", "must be not-required when review is disabled", code="invariant"))
+    if required is True and verdict == "not-required":
+        diagnostics.append(Diagnostic(f"{label}.review.verdict", "cannot be not-required when review is required", code="invariant"))
+    if (
+        required is True
+        and verdict in {"approved", "changes-requested", "blocked"}
+        and isinstance(used, int)
+        and not isinstance(used, bool)
+        and used == 0
+    ):
+        diagnostics.append(Diagnostic(
+            f"{label}.review.used", "must record at least one cycle for this verdict", code="invariant"
+        ))
 
     gates = _table(data, "gates", label, diagnostics)
     gate_names = {"requirements", "design", "plan", "worktree", "live_validation", "worker_closure"}
@@ -334,6 +346,8 @@ def validate_run(
                 code="required-marker",
             ))
     required_artifacts = {"requirements", "plan"}
+    if config.workflow.deep_discovery_default:
+        required_artifacts.update({"design", "decisions"})
     if "design" in artifacts:
         required_artifacts.add("decisions")
     if required is True:
@@ -351,7 +365,9 @@ def validate_run(
         tasks = []
     task_allowed = {"id", "group", "role", "instance", "status", "deps", "report"}
     task_ids: set[str] = set()
+    instances: set[str] = set()
     dependency_map: dict[str, tuple[str, ...]] = {}
+    task_statuses: dict[str, str] = {}
     for index, task in enumerate(tasks):
         prefix = f"{label}.tasks.{index}"
         _unknown(task, task_allowed, prefix, diagnostics)
@@ -368,12 +384,19 @@ def validate_run(
         instance = task.get("instance")
         if not isinstance(instance, str) or not instance.strip():
             diagnostics.append(Diagnostic(f"{prefix}.instance", "must be a non-empty string", code="required"))
+        elif instance in instances:
+            diagnostics.append(Diagnostic(f"{prefix}.instance", "worker instance must be unique", code="duplicate"))
+        else:
+            instances.add(instance)
         known_roles = allowed_roles or set(ROLE_IDS)
         role = task.get("role")
         if role not in known_roles:
             diagnostics.append(Diagnostic(f"{prefix}.role", "unsupported role", code="enum"))
-        if task.get("status") not in _TASK_STATUSES:
+        task_status = task.get("status")
+        if task_status not in _TASK_STATUSES:
             diagnostics.append(Diagnostic(f"{prefix}.status", "unsupported task status", code="enum"))
+        else:
+            task_statuses[task_id] = task_status
         deps = task.get("deps", [])
         if not isinstance(deps, list) or not all(isinstance(dep, str) for dep in deps):
             diagnostics.append(Diagnostic(f"{prefix}.deps", "must be an array of task IDs", code="type"))
@@ -416,6 +439,15 @@ def validate_run(
         for dep in deps:
             if dep not in task_ids:
                 diagnostics.append(Diagnostic(f"{label}.tasks.{task_id}.deps", f"unknown dependency {dep}", code="reference"))
+            elif (
+                task_statuses.get(task_id) in {"ready", "running", "complete"}
+                and task_statuses.get(dep) != "complete"
+            ):
+                diagnostics.append(Diagnostic(
+                    f"{label}.tasks.{task_id}.deps",
+                    f"dependency {dep} must be complete before task is {task_statuses[task_id]}",
+                    code="dependency-state",
+                ))
     visiting: set[str] = set()
     visited: set[str] = set()
 

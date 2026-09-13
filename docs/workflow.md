@@ -42,12 +42,17 @@ and `complete`; `blocked` and `cancelled` are terminal. Validation enforces the
 gates required by the claimed phase. A team run cannot complete without closed
 tasks, reports, resolved required markers, all gates, and an approved review.
 
-Task IDs use `T-NNN`; dependencies must form a DAG. Completed tasks must have a
-contained `reports/` artifact when `reports_required` is true. Setting
+Task IDs use `T-NNN`; dependencies must form a DAG, and a task cannot become
+`ready`, `running`, or `complete` until every dependency is `complete`. Worker
+instance names are unique within a run. Completed tasks must have a contained
+`reports/` artifact when `reports_required` is true. Setting
 `workflow.persist_agent_reports = false` disables assisted-tier reports, while
 solo runs have no worker reports and team runs always persist them as part of
 the team-tier contract. Decision records are append-only and use `D-NNN`;
 superseding decisions reference the earlier ID.
+
+A required review cannot record an outcome verdict until at least one review
+cycle has been counted in `review.used`.
 
 ## Rendering and installation
 

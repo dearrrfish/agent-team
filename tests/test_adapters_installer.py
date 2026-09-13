@@ -2,7 +2,7 @@ import json
 import tempfile
 import tomllib
 import unittest
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from agent_team.adapters import render_target, write_rendered
 from agent_team.config import DEFAULT_TEAM_TOML, load_team_config
@@ -44,12 +44,22 @@ class AdapterAndInstallerTests(unittest.TestCase):
             self.assertIn("read `max_workers`", coordination_skill)
             self.assertIn("Team tier always requires reports", coordination_skill)
             self.assertIn("`--run <slug>`", coordination_skill)
+            self.assertIn("all of its dependencies", coordination_skill)
+
+            review_skill = codex[next(
+                path for path in codex if str(path).endswith("team-review/SKILL.md")
+            )]
+            self.assertIn("Increment `review.used`", review_skill)
 
             quality_codex = render_target("codex", config, root, "quality")
             quality_coordinator = tomllib.loads(quality_codex[next(
                 path for path in quality_codex if str(path).endswith("coordinator.toml")
             )])
             self.assertEqual(quality_coordinator["model"], "gpt-6-astra")
+            self.assertIn("Use when:", coordinator["description"])
+            self.assertIn("Avoid when:", coordinator["description"])
+            self.assertIn("within at most 64 turns", coordinator["developer_instructions"])
+            self.assertIn("`agent-report` report contract", coordinator["developer_instructions"])
 
             claude = render_target("claude", config, root)
             claude_explorer = claude[next(path for path in claude if str(path).endswith("explorer.md"))]
@@ -88,6 +98,27 @@ class AdapterAndInstallerTests(unittest.TestCase):
 
             self.assertFalse((output / Path(ordered[0])).exists())
             self.assertEqual(conflict.read_text(encoding="utf-8"), "user content")
+
+    def test_render_and_install_preflight_non_directory_parents(self) -> None:
+        files = {
+            PurePosixPath("a.txt"): "generated",
+            PurePosixPath("z/child.txt"): "generated",
+        }
+        for operation in ("render", "install"):
+            with self.subTest(operation=operation), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / "z").write_text("parent blocker", encoding="utf-8")
+                with self.assertRaises(ValidationFailure) as context:
+                    if operation == "render":
+                        write_rendered(root, files)
+                    else:
+                        install_files(
+                            target="codex", target_root=root, files=files,
+                            apply=True, force=False, backups=True,
+                        )
+                self.assertTrue(any(item.code == "parent" for item in context.exception.diagnostics))
+                self.assertFalse((root / "a.txt").exists())
+                self.assertEqual((root / "z").read_text(encoding="utf-8"), "parent blocker")
 
     def test_install_preview_apply_idempotence_drift_and_backup(self) -> None:
         with self._project() as directory, tempfile.TemporaryDirectory() as target_directory:

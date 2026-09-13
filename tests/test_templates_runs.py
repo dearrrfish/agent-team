@@ -92,6 +92,52 @@ report = "reports/T-002-implementer.md"
             self.assertTrue(any(item.code == "cycle" for item in diagnostics))
             self.assertTrue(any(item.code == "reference" for item in diagnostics))
 
+    def test_task_state_requires_completed_dependencies_and_unique_instances(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            config = load_team_config(root)
+            run_dir = init_run(root, config, "task-state", None, "team", "balanced")
+            manifest = run_dir / "run.toml"
+            with manifest.open("a", encoding="utf-8") as handle:
+                handle.write('''
+[[tasks]]
+id = "T-001"
+group = "TG-01"
+role = "implementer"
+instance = "duplicate"
+status = "pending"
+deps = []
+report = "reports/T-001-implementer.md"
+
+[[tasks]]
+id = "T-002"
+group = "TG-01"
+role = "implementer"
+instance = "duplicate"
+status = "running"
+deps = ["T-001"]
+report = "reports/T-002-implementer.md"
+''')
+            diagnostics = validate_run(manifest, config)
+            self.assertTrue(any(item.code == "dependency-state" for item in diagnostics))
+            self.assertTrue(any(item.code == "duplicate" and item.path.endswith(".instance") for item in diagnostics))
+
+    def test_review_verdict_requires_a_recorded_cycle(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            config = load_team_config(root)
+            run_dir = init_run(root, config, "review-cycle", None, "team", "balanced")
+            manifest = run_dir / "run.toml"
+            text = manifest.read_text(encoding="utf-8").replace(
+                'verdict = "pending"', 'verdict = "approved"'
+            )
+            manifest.write_text(text, encoding="utf-8")
+            diagnostics = validate_run(manifest, config)
+            self.assertTrue(any(
+                item.path.endswith(".review.used") and item.code == "invariant"
+                for item in diagnostics
+            ))
+
     def test_running_tasks_cannot_exceed_configured_worker_limit(self) -> None:
         config_text = DEFAULT_TEAM_TOML.replace(
             "[tiers.team]\nmax_workers = 4",

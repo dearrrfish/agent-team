@@ -9,7 +9,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from agent_team.diagnostics import Diagnostic, ValidationFailure
-from agent_team.fs import atomic_write
+from agent_team.fs import atomic_write, non_directory_parent
 
 
 @dataclass(frozen=True)
@@ -90,6 +90,24 @@ def install_files(
     force: bool, backups: bool,
 ) -> list[InstallAction]:
     target_root = target_root.resolve()
+    path_diagnostics: list[Diagnostic] = []
+    destinations = [
+        (relative.as_posix(), (target_root / Path(relative)).resolve())
+        for relative in files
+    ]
+    destinations.append((str(_state_path(target_root)), _state_path(target_root).resolve()))
+    for label, destination in destinations:
+        if destination != target_root and target_root not in destination.parents:
+            path_diagnostics.append(Diagnostic(label, "install path escapes target root", code="path"))
+            continue
+        blocker = non_directory_parent(target_root, destination)
+        if blocker is not None:
+            path_diagnostics.append(Diagnostic(
+                label, f"parent path is not a directory: {blocker}", code="parent"
+            ))
+    if path_diagnostics:
+        raise ValidationFailure(path_diagnostics)
+
     state = _load_state(target_root)
     actions = _classify(target_root, files, state)
     invalid = [action for action in actions if action.action == "directory"]
@@ -108,6 +126,17 @@ def install_files(
             Diagnostic(action.path, "forced replacement requires backups", code="backup")
             for action in conflicts
         ])
+    if conflicts and force:
+        backup_root = (target_root / ".agent-team" / "backups").resolve()
+        if backup_root != target_root and target_root not in backup_root.parents:
+            raise ValidationFailure([
+                Diagnostic(str(backup_root), "backup path escapes target root", code="path")
+            ])
+        blocker = non_directory_parent(target_root, backup_root / "placeholder")
+        if blocker is not None:
+            raise ValidationFailure([
+                Diagnostic(str(backup_root), f"parent path is not a directory: {blocker}", code="parent")
+            ])
     if not apply:
         return actions
 

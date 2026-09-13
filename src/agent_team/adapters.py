@@ -7,6 +7,7 @@ from pathlib import Path, PurePosixPath
 
 from agent_team.config import load_roles, load_target_profile
 from agent_team.diagnostics import Diagnostic, ValidationFailure
+from agent_team.fs import non_directory_parent
 from agent_team.models import RoleDefinition, TargetProfile, TeamConfig
 from agent_team.templates import asset_text, render_template
 
@@ -59,12 +60,21 @@ def _render_agent(target: str, role: RoleDefinition, profile: TargetProfile, pre
     # VERIFY: Exercise native agent discovery when noninteractive validators are
     # available; Antigravity CLI is not installed in the current environment.
     model, effort = _mapped_role(profile, preset_name, role)
-    instructions = role.instructions.rstrip() + "\n"
+    description = (
+        f"{role.description} Use when: {role.use_when} Avoid when: {role.avoid_when}"
+    )
+    instructions = role.instructions.rstrip() + (
+        "\n\n# Portable runtime contract\n\n"
+        f"- Finish within at most {role.max_turns} turns.\n"
+        f"- Return results using the `{role.report_kind}` report contract.\n"
+        f"- Use only these declared capabilities: {', '.join(role.capabilities)}.\n"
+        "- Do not delegate to another agent.\n"
+    )
     if target == "codex":
         template = asset_text("templates", "agents", "codex.toml.tpl")
         return render_template(template, {
             "role_id": role.role_id,
-            "description": _quoted_content(role.description),
+            "description": _quoted_content(description),
             "model": _quoted_content(model),
             "effort_line": f'model_reasoning_effort = "{effort}"\n' if effort else "",
             "sandbox_mode": "read-only" if role.write_policy == "deny" else "workspace-write",
@@ -74,7 +84,7 @@ def _render_agent(target: str, role: RoleDefinition, profile: TargetProfile, pre
         template = asset_text("templates", "agents", "claude.md.tpl")
         return render_template(template, {
             "role_id": role.role_id,
-            "description": json.dumps(role.description, ensure_ascii=False),
+            "description": json.dumps(description, ensure_ascii=False),
             "model": model,
             "effort_line": f"effort: {effort}\n" if effort else "",
             "tools": _tools(role, target),
@@ -84,7 +94,7 @@ def _render_agent(target: str, role: RoleDefinition, profile: TargetProfile, pre
     template = asset_text("templates", "agents", "antigravity.md.tpl")
     return render_template(template, {
         "role_id": role.role_id,
-        "description": json.dumps(role.description, ensure_ascii=False),
+        "description": json.dumps(description, ensure_ascii=False),
         "model": model,
         "tools": _tools(role, target),
         "instructions": instructions,
@@ -151,6 +161,12 @@ def write_rendered(output_root: Path, files: dict[PurePosixPath, str]) -> list[P
         destination = (output_root / Path(relative)).resolve()
         if destination != output_root and output_root not in destination.parents:
             diagnostics.append(Diagnostic(str(relative), "render path escapes output root", code="path"))
+            continue
+        blocker = non_directory_parent(output_root, destination)
+        if blocker is not None:
+            diagnostics.append(Diagnostic(
+                str(relative), f"parent path is not a directory: {blocker}", code="parent"
+            ))
             continue
         if destination.exists():
             if not destination.is_file():

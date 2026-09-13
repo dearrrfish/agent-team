@@ -1,4 +1,5 @@
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -49,7 +50,12 @@ class CustomizationTests(unittest.TestCase):
             config = load_team_config(root)
             self.assertIn("analyst", {role.role_id for role in load_roles(config, root)})
             rendered = render_target("codex", config, root)
-            self.assertTrue(any(str(path).endswith("analyst.toml") for path in rendered))
+            analyst_path = next(path for path in rendered if str(path).endswith("analyst.toml"))
+            analyst = tomllib.loads(rendered[analyst_path])
+            self.assertIn("Use when: A bounded analysis", analyst["description"])
+            self.assertIn("Avoid when: The task requires changes", analyst["description"])
+            self.assertIn("within at most 12 turns", analyst["developer_instructions"])
+            self.assertIn("`agent-report` report contract", analyst["developer_instructions"])
 
     def test_deep_discovery_adds_design_artifact_and_opens_gate(self) -> None:
         config_text = DEFAULT_TEAM_TOML.replace(
@@ -65,6 +71,19 @@ class CustomizationTests(unittest.TestCase):
             self.assertIn('design = "design.md"', manifest)
             self.assertIn('decisions = "decisions.md"', manifest)
             self.assertIn("design = false", manifest)
+
+            manifest_path = run_dir / "run.toml"
+            bypass = manifest.replace("design = false", "design = true")
+            bypass = bypass.replace('design = "design.md"\n', "")
+            bypass = bypass.replace('decisions = "decisions.md"\n', "")
+            manifest_path.write_text(bypass, encoding="utf-8")
+            diagnostics = validate_run(manifest_path, config)
+            required_paths = {
+                item.path.rsplit(".", 1)[-1]
+                for item in diagnostics
+                if item.code == "required"
+            }
+            self.assertTrue({"design", "decisions"}.issubset(required_paths))
 
     def test_report_persistence_is_optional_except_for_team_runs(self) -> None:
         config_text = DEFAULT_TEAM_TOML.replace(

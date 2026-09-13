@@ -10,6 +10,9 @@ track dependencies and write ownership, require structured reports, and verify
 results before integration. Stop dispatch when coordination costs exceed the
 remaining task value.
 
+Mark a task `ready` or `running` only after all of its dependencies are
+`complete`, and keep worker instance names unique within the run.
+
 Before dispatch, read `max_workers` and `reports_required` from the current
 `run.toml`. Never allow the number of running workers to exceed `max_workers`;
 use additional waves when ready work exceeds the limit. Persist each worker's

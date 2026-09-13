@@ -38,7 +38,10 @@ roles must remain available.
 Role metadata selects semantic model class (`fast`, `balanced`, `deep`), effort
 (`low`, `medium`, `high`), write policy (`deny`, `workspace`), capabilities,
 activation guidance, turn limit, and report kind. Delegation must be false.
-Read-only roles cannot request `filesystem.write`.
+Read-only roles cannot request `filesystem.write`. Adapters include activation
+guidance in the native description and append the portable turn, report,
+capability, and no-delegation contract to native instructions. Where a target
+has no hard turn-limit field, the limit remains an explicit agent instruction.
 
 ## Target profiles and model presets
 

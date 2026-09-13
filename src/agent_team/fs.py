@@ -18,3 +18,15 @@ def atomic_write(path: Path, content: str) -> None:
     finally:
         if temporary.exists():
             temporary.unlink()
+
+
+def non_directory_parent(root: Path, destination: Path) -> Path | None:
+    """Return the first existing non-directory on destination's contained path."""
+    current = root
+    if current.exists() and not current.is_dir():
+        return current
+    for part in destination.relative_to(root).parts[:-1]:
+        current /= part
+        if current.exists() and not current.is_dir():
+            return current
+    return None
