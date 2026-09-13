@@ -30,10 +30,16 @@ class AdapterAndInstallerTests(unittest.TestCase):
             codex = render_target("codex", config, root)
             explorer = tomllib.loads(codex[next(path for path in codex if str(path).endswith("explorer.toml"))])
             coordinator = tomllib.loads(codex[next(path for path in codex if str(path).endswith("coordinator.toml"))])
+            coordination_skill = codex[next(
+                path for path in codex if str(path).endswith("team-coordinate/SKILL.md")
+            )]
             self.assertEqual(explorer["model"], "gpt-5.6-luna")
             self.assertEqual(explorer["sandbox_mode"], "read-only")
             self.assertEqual(coordinator["model"], "gpt-5.6-sol")
             self.assertEqual(coordinator["model_reasoning_effort"], "medium")
+            self.assertIn("Name the native custom-agent role explicitly", coordination_skill)
+            self.assertIn("confirm the project is trusted", coordination_skill)
+            self.assertIn("do not silently spawn a generic agent", coordination_skill)
 
             claude = render_target("claude", config, root)
             claude_explorer = claude[next(path for path in claude if str(path).endswith("explorer.md"))]

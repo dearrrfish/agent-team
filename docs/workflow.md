@@ -54,6 +54,62 @@ drifted managed content. `--force` permits replacement only with a timestamped
 backup. Installation does not edit client settings or enable experimental
 features.
 
+### Native discovery prerequisites
+
+After a project-scoped Codex install, trust the project and start a fresh Codex
+session. Codex loads project `.codex/` layers only for trusted projects; an
+untrusted project deliberately hides its custom agents. The installer does not
+change trust or other native client settings.
+
+When dispatching, name the custom role separately from its instance or task
+name. The native profile is authoritative for model, reasoning effort,
+permissions, and role instructions. If a named role is unavailable, stop and
+diagnose installation, trust, working directory, and session freshness instead
+of substituting a generic child.
+
+### Common usage prompts
+
+These examples use Codex skill syntax. Other targets should use their native
+skill invocation syntax while retaining the explicit roles and boundaries.
+
+Create a plan before coding:
+
+```text
+Act as the main-thread coordinator and use $team-plan for <feature>. Run
+agent-team run init --slug <slug> --tier <tier>, complete requirements.md,
+plan.md, and tasks.md, and propose the first implementation wave before editing
+product code.
+```
+
+Run parallel implementation:
+
+```text
+Act as the main-thread coordinator and use $team-coordinate. Read
+.agent-team/runs/<slug>/plan.md and tasks.md. Split the next wave into
+file-disjoint scopes and spawn implementer or ops custom agents only where their
+files do not overlap. Give each worker a unique instance name, task ID, exact
+files, acceptance criteria, verification commands, and report path. Wait for all
+workers, then consolidate their evidence and update the run state.
+```
+
+Run a focused review:
+
+```text
+Use reviewer to review the changes against .agent-team/runs/<slug>/. Keep the
+agent read-only. Return findings with file evidence, verification gaps, and an
+approve, changes-requested, or blocked verdict. Do not fix findings in the
+review agent.
+```
+
+Request read-only discovery and design advice:
+
+```text
+Use explorer to map the relevant code paths, then use design-agent to audit the
+proposed design in .agent-team/runs/<slug>/ for missing decisions, interface
+risks, and operational concerns. Wait for both and reconcile their findings in
+the main thread.
+```
+
 ## Deep discovery
 
 When `deep_discovery_default` is enabled, run initialization adds `design.md` and
