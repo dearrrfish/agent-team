@@ -1,4 +1,5 @@
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -30,6 +31,9 @@ class TemplateAndRunTests(unittest.TestCase):
             run_dir = init_run(root, config, "native-team", "Native Team", "team", "balanced")
             expected = {"run.toml", "requirements.md", "plan.md", "tasks.md", "review.md", "final-report.md", "reports"}
             self.assertEqual({path.name for path in run_dir.iterdir()}, expected)
+            manifest_data = tomllib.loads((run_dir / "run.toml").read_text(encoding="utf-8"))
+            self.assertEqual(manifest_data["max_workers"], 4)
+            self.assertTrue(manifest_data["reports_required"])
             diagnostics = validate_run(run_dir / "run.toml", config)
             self.assertFalse(any(item.severity == "error" for item in diagnostics))
             self.assertTrue(any(item.code == "required-marker" for item in diagnostics))
@@ -86,6 +90,32 @@ report = "reports/T-002-implementer.md"
             diagnostics = validate_run(manifest, config)
             self.assertTrue(any(item.code == "cycle" for item in diagnostics))
             self.assertTrue(any(item.code == "reference" for item in diagnostics))
+
+    def test_running_tasks_cannot_exceed_configured_worker_limit(self) -> None:
+        config_text = DEFAULT_TEAM_TOML.replace(
+            "[tiers.team]\nmax_workers = 4",
+            "[tiers.team]\nmax_workers = 2",
+        )
+        with self._project() as directory:
+            root = Path(directory)
+            (root / ".agent-team" / "team.toml").write_text(config_text, encoding="utf-8")
+            config = load_team_config(root)
+            run_dir = init_run(root, config, "worker-limit", None, "team", "balanced")
+            manifest = run_dir / "run.toml"
+            with manifest.open("a", encoding="utf-8") as handle:
+                for number in range(1, 4):
+                    handle.write(f'''
+[[tasks]]
+id = "T-{number:03d}"
+group = "TG-01"
+role = "implementer"
+instance = "worker-{number}"
+status = "running"
+deps = []
+report = "reports/T-{number:03d}-implementer.md"
+''')
+            diagnostics = validate_run(manifest, config)
+            self.assertTrue(any(item.code == "worker-limit" for item in diagnostics))
 
 
 if __name__ == "__main__":

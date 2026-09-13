@@ -1,3 +1,4 @@
+import json
 import tempfile
 import tomllib
 import unittest
@@ -40,6 +41,8 @@ class AdapterAndInstallerTests(unittest.TestCase):
             self.assertIn("Name the native custom-agent role explicitly", coordination_skill)
             self.assertIn("confirm the project is trusted", coordination_skill)
             self.assertIn("do not silently spawn a generic agent", coordination_skill)
+            self.assertIn("read `max_workers`", coordination_skill)
+            self.assertIn("Team tier always requires reports", coordination_skill)
 
             claude = render_target("claude", config, root)
             claude_explorer = claude[next(path for path in claude if str(path).endswith("explorer.md"))]
@@ -80,11 +83,21 @@ class AdapterAndInstallerTests(unittest.TestCase):
                 target="codex", target_root=target_root, files=files,
                 apply=True, force=False, backups=True,
             )
+            state_path = target_root / ".agent-team" / "install-state.json"
+            initial_state = state_path.read_bytes()
+            initial_mtime = state_path.stat().st_mtime_ns
             second = install_files(
                 target="codex", target_root=target_root, files=files,
                 apply=False, force=False, backups=True,
             )
             self.assertTrue(all(action.action == "unchanged" for action in second))
+            applied_second = install_files(
+                target="codex", target_root=target_root, files=files,
+                apply=True, force=False, backups=True,
+            )
+            self.assertTrue(all(action.action == "unchanged" for action in applied_second))
+            self.assertEqual(state_path.read_bytes(), initial_state)
+            self.assertEqual(state_path.stat().st_mtime_ns, initial_mtime)
 
             relative = next(iter(files))
             changed = target_root / Path(relative)
@@ -102,6 +115,18 @@ class AdapterAndInstallerTests(unittest.TestCase):
             backups = list((target_root / ".agent-team" / "backups").rglob(changed.name))
             self.assertEqual(len(backups), 1)
             self.assertEqual(backups[0].read_text(encoding="utf-8"), "local drift")
+            forced_state = json.loads(state_path.read_text(encoding="utf-8"))
+            backup_reference = forced_state["files"][relative.as_posix()]["backup"]
+            self.assertIsInstance(backup_reference, str)
+            install_files(
+                target="codex", target_root=target_root, files=files,
+                apply=True, force=False, backups=True,
+            )
+            unchanged_state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                unchanged_state["files"][relative.as_posix()]["backup"],
+                backup_reference,
+            )
 
     def test_unmanaged_conflict_is_refused(self) -> None:
         with self._project() as directory, tempfile.TemporaryDirectory() as target_directory:

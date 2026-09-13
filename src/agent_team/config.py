@@ -559,7 +559,8 @@ def resolve_tier(config: TeamConfig, root: Path, requested: str | None) -> str:
     }
     count = 0
     for path in root.rglob("*"):
-        if path.is_file() and not any(part in ignored for part in path.parts):
+        relative_parts = path.relative_to(root).parts
+        if path.is_file() and not any(part in ignored for part in relative_parts):
             count += 1
             if count > 200:
                 return "team"

@@ -11,6 +11,7 @@ from agent_team.config import (
     load_team_config,
     parse_team_config,
     project_root,
+    resolve_tier,
 )
 from agent_team.diagnostics import ValidationFailure
 
@@ -76,6 +77,16 @@ class ConfigTests(unittest.TestCase):
             nested = root / "nested" / "directory"
             nested.mkdir(parents=True)
             self.assertEqual(project_root(nested), root.resolve())
+
+    def test_adaptive_tier_counts_files_relative_to_a_worktree_root(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / ".worktrees" / "feature"
+            (root / ".agent-team").mkdir(parents=True)
+            (root / ".agent-team" / "team.toml").write_text(DEFAULT_TEAM_TOML, encoding="utf-8")
+            for index in range(26):
+                (root / f"source-{index}.py").write_text("pass\n", encoding="utf-8")
+            config = load_team_config(root)
+            self.assertEqual(resolve_tier(config, root, None), "assisted")
 
 
 if __name__ == "__main__":

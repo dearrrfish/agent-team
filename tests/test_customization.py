@@ -60,9 +60,43 @@ class CustomizationTests(unittest.TestCase):
             config = load_team_config(root)
             run_dir = init_run(root, config, "deep-run", None, "assisted", "balanced")
             self.assertTrue((run_dir / "design.md").is_file())
+            self.assertTrue((run_dir / "decisions.md").is_file())
             manifest = (run_dir / "run.toml").read_text(encoding="utf-8")
             self.assertIn('design = "design.md"', manifest)
+            self.assertIn('decisions = "decisions.md"', manifest)
             self.assertIn("design = false", manifest)
+
+    def test_report_persistence_is_optional_except_for_team_runs(self) -> None:
+        config_text = DEFAULT_TEAM_TOML.replace(
+            "persist_agent_reports = true", "persist_agent_reports = false"
+        )
+        with self._project(config_text) as directory:
+            root = Path(directory)
+            config = load_team_config(root)
+            assisted = init_run(root, config, "no-reports", None, "assisted", "balanced")
+            self.assertFalse((assisted / "reports").exists())
+            assisted_manifest = assisted / "run.toml"
+            self.assertIn("reports_required = false", assisted_manifest.read_text(encoding="utf-8"))
+            with assisted_manifest.open("a", encoding="utf-8") as handle:
+                handle.write('''
+[[tasks]]
+id = "T-001"
+group = "TG-01"
+role = "implementer"
+instance = "one"
+status = "complete"
+deps = []
+''')
+            diagnostics = validate_run(assisted_manifest, config)
+            self.assertFalse(any(item.path.endswith(".report") for item in diagnostics))
+
+            team = init_run(root, config, "team-reports", None, "team", "balanced")
+            self.assertTrue((team / "reports").is_dir())
+            self.assertIn("reports_required = true", (team / "run.toml").read_text(encoding="utf-8"))
+
+            solo = init_run(root, config, "solo-no-reports", None, "solo", "balanced")
+            self.assertFalse((solo / "reports").exists())
+            self.assertIn("reports_required = false", (solo / "run.toml").read_text(encoding="utf-8"))
 
     def test_invalid_profile_path_is_rejected_before_loading(self) -> None:
         config_text = DEFAULT_TEAM_TOML.replace(

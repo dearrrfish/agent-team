@@ -43,7 +43,8 @@ def _run_manifest(
     *, slug: str, title: str, created_at: str, tier: str, model_preset: str,
     host: str, repository: str, baseline: str, branch: str,
     worktree_decision: str, review_required: bool, review_limit: int,
-    artifacts: dict[str, str], worktree_gate: bool, worker_gate: bool,
+    max_workers: int, reports_required: bool, artifacts: dict[str, str],
+    worktree_gate: bool, worker_gate: bool,
 ) -> str:
     lines = [
         "schema_version = 1",
@@ -53,6 +54,8 @@ def _run_manifest(
         f"updated_at = {_toml_string(created_at)}",
         'status = "discovery"',
         f"tier = {_toml_string(tier)}",
+        f"max_workers = {max_workers}",
+        f"reports_required = {'true' if reports_required else 'false'}",
         f"model_preset = {_toml_string(model_preset)}",
         f"host = {_toml_string(host)}",
         "",
@@ -107,11 +110,14 @@ def init_run(
     timestamp = utc_now()
     durable = config.tiers[tier].durable_artifacts
     review_required = config.tiers[tier].independent_review
+    reports_required = tier == "team" or (
+        tier == "assisted" and config.workflow.persist_agent_reports
+    )
     artifacts: dict[str, str] = {}
     if durable or tier == "solo":
         artifacts.update({"requirements": "requirements.md", "plan": "plan.md"})
     if config.workflow.deep_discovery_default:
-        artifacts["design"] = "design.md"
+        artifacts.update({"design": "design.md", "decisions": "decisions.md"})
     if tier == "team":
         artifacts.update({"tasks": "tasks.md", "review": "review.md"})
     if durable:
@@ -133,6 +139,7 @@ def init_run(
     template_for = {
         "requirements": "requirements.md.tpl",
         "design": "design.md.tpl",
+        "decisions": "decisions.md.tpl",
         "plan": "plan.md.tpl",
         "tasks": "tasks.md.tpl",
         "review": "review.md.tpl",
@@ -141,7 +148,7 @@ def init_run(
     for key, relative in artifacts.items():
         template = asset_text("templates", "workflow", template_for[key])
         atomic_write(destination / relative, render_template(template, variables))
-    if durable:
+    if reports_required:
         (destination / "reports").mkdir()
 
     git_file = root / ".git"
@@ -160,6 +167,8 @@ def init_run(
         worktree_decision=worktree_decision,
         review_required=review_required,
         review_limit=config.workflow.review_cycle_limit,
+        max_workers=config.tiers[tier].max_workers,
+        reports_required=reports_required,
         artifacts=artifacts,
         worktree_gate=worktree_gate,
         worker_gate=tier == "solo",
@@ -204,7 +213,7 @@ def validate_run(
         return [Diagnostic(label, str(exc), code="toml")]
     _unknown(
         data,
-        {"schema_version", "slug", "title", "created_at", "updated_at", "status", "tier", "model_preset", "host", "git", "review", "gates", "artifacts", "tasks"},
+        {"schema_version", "slug", "title", "created_at", "updated_at", "status", "tier", "max_workers", "reports_required", "model_preset", "host", "git", "review", "gates", "artifacts", "tasks"},
         label, diagnostics,
     )
     if data.get("schema_version") != 1:
@@ -221,6 +230,24 @@ def validate_run(
     tier = data.get("tier")
     if tier not in TIERS:
         diagnostics.append(Diagnostic(f"{label}.tier", "unsupported workflow tier", code="enum"))
+    max_workers = data.get("max_workers")
+    if not isinstance(max_workers, int) or isinstance(max_workers, bool) or max_workers < 0:
+        diagnostics.append(Diagnostic(f"{label}.max_workers", "must be a non-negative integer", code="range"))
+    elif tier in TIERS and max_workers != config.tiers[tier].max_workers:
+        diagnostics.append(Diagnostic(
+            f"{label}.max_workers", "must match the selected tier's configured limit", code="invariant"
+        ))
+    reports_required = data.get("reports_required")
+    if not isinstance(reports_required, bool):
+        diagnostics.append(Diagnostic(f"{label}.reports_required", "must be a boolean", code="type"))
+    elif tier in TIERS:
+        expected_reports = tier == "team" or (
+            tier == "assisted" and config.workflow.persist_agent_reports
+        )
+        if reports_required != expected_reports:
+            diagnostics.append(Diagnostic(
+                f"{label}.reports_required", "must match the effective project reporting policy", code="invariant"
+            ))
     if data.get("model_preset") not in {"economy", "balanced", "quality"}:
         diagnostics.append(Diagnostic(f"{label}.model_preset", "unsupported model preset", code="enum"))
     for key in ("created_at", "updated_at"):
@@ -301,6 +328,8 @@ def validate_run(
                 code="required-marker",
             ))
     required_artifacts = {"requirements", "plan"}
+    if "design" in artifacts:
+        required_artifacts.add("decisions")
     if tier == "team":
         required_artifacts.update({"tasks", "review", "final_report"})
     elif tier == "assisted":
@@ -345,7 +374,9 @@ def validate_run(
             diagnostics.append(Diagnostic(f"{prefix}.deps", "dependency IDs must be unique", code="duplicate"))
         dependency_map[task_id] = tuple(deps)
         report = task.get("report")
-        if not isinstance(report, str) or not report.startswith("reports/") or ".." in Path(report).parts:
+        if report is None and reports_required is False:
+            pass
+        elif not isinstance(report, str) or not report.startswith("reports/") or ".." in Path(report).parts:
             diagnostics.append(Diagnostic(f"{prefix}.report", "must be a contained reports/ path", code="path"))
         elif isinstance(role, str) and report != f"reports/{task_id}-{role}.md":
             diagnostics.append(Diagnostic(f"{prefix}.report", "must match reports/<task-id>-<role>.md", code="invariant"))
@@ -373,6 +404,15 @@ def validate_run(
 
     for task_id in dependency_map:
         visit(task_id)
+
+    if isinstance(max_workers, int) and not isinstance(max_workers, bool):
+        running_workers = sum(task.get("status") == "running" for task in tasks)
+        if running_workers > max_workers:
+            diagnostics.append(Diagnostic(
+                f"{label}.tasks",
+                f"{running_workers} running workers exceeds max_workers = {max_workers}",
+                code="worker-limit",
+            ))
 
     phase_gates = {
         "planned": ("requirements", "design", "plan"),

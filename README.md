@@ -32,6 +32,10 @@ role instructions.
 - `team`: file-disjoint or worktree-isolated workers, durable reports, and
   mandatory independent review.
 
+Each run records the selected tier's `max_workers` as a hard concurrency limit.
+`workflow.persist_agent_reports` controls optional assisted-tier reports, while
+solo runs have no worker reports and team runs always require them.
+
 Run `agent-team doctor` for environment checks and `agent-team --help` for the
 complete command surface.
 

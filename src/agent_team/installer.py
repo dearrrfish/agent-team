@@ -113,19 +113,24 @@ def install_files(
 
     timestamp = _timestamp()
     backup_stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    state_changed = False
     for action in actions:
         relative = PurePosixPath(action.path)
         destination = (target_root / Path(relative)).resolve()
         if destination != target_root and target_root not in destination.parents:
             raise ValidationFailure([Diagnostic(action.path, "install path escapes target root", code="path")])
+        if action.action == "unchanged":
+            continue
         content = files[relative]
-        backup_reference: str | None = None
+        previous = state["files"].get(relative.as_posix(), {})
+        previous_backup = previous.get("backup")
+        backup_reference = previous_backup if isinstance(previous_backup, str) else None
         if action.action in {"conflict", "drift"}:
             backup = target_root / ".agent-team" / "backups" / backup_stamp / Path(relative)
             backup.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(destination, backup)
             backup_reference = str(backup.relative_to(target_root))
-        if action.action not in {"unchanged", "adopt"}:
+        if action.action != "adopt":
             atomic_write(destination, content)
         state["files"][relative.as_posix()] = {
             "target": target,
@@ -133,7 +138,9 @@ def install_files(
             "installed_at": timestamp,
             "backup": backup_reference,
         }
-    atomic_write(_state_path(target_root), json.dumps(state, indent=2, sort_keys=True) + "\n")
+        state_changed = True
+    if state_changed:
+        atomic_write(_state_path(target_root), json.dumps(state, indent=2, sort_keys=True) + "\n")
     return actions
 
 

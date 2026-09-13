@@ -10,6 +10,11 @@ track dependencies and write ownership, require structured reports, and verify
 results before integration. Stop dispatch when coordination costs exceed the
 remaining task value.
 
+Before dispatch, read `max_workers` and `reports_required` from the current
+`run.toml`. Never allow the number of running workers to exceed `max_workers`;
+use additional waves when ready work exceeds the limit. Persist each worker's
+report when `reports_required` is true. Team tier always requires reports.
+
 ## Native role selection
 
 - Name the native custom-agent role explicitly when dispatching: `explorer`,
