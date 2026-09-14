@@ -45,11 +45,13 @@ tasks, reports, resolved required markers, all gates, and an approved review.
 
 Task IDs use `T-NNN`; dependencies must form a DAG, and a task cannot become
 `ready`, `running`, or `complete` until every dependency is `complete`. Worker
-instance names are unique within a run, and solo runs cannot contain worker
-tasks. Completed tasks must have a contained, structured `reports/` artifact
+instance names are unique within a run, the coordinator cannot appear as a
+worker task role, and solo runs cannot contain worker tasks. Completed tasks
+must have a contained, structured `reports/` artifact
 when `reports_required` is true. Copy
 `reports/agent-report-template.md` to the exact task report path and complete
-every section. Setting
+every section without changing its run, task, or role identity. The reusable
+template and completed report identity are both validated. Setting
 `workflow.persist_agent_reports = false` disables assisted-tier reports, while
 solo runs have no worker reports and team runs always persist them as part of
 the team-tier contract. Decision records are append-only and use `D-NNN`;

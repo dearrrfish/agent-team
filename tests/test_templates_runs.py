@@ -95,6 +95,29 @@ deps = []
             diagnostics = validate_run(manifest, config)
             self.assertTrue(any(item.code == "tier" for item in diagnostics))
 
+    def test_worker_tasks_reject_coordinator_role(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            config = load_team_config(root)
+            run_dir = init_run(root, config, "coordinator-worker", None, "assisted", "balanced")
+            manifest = run_dir / "run.toml"
+            with manifest.open("a", encoding="utf-8") as handle:
+                handle.write('''
+[[tasks]]
+id = "T-001"
+group = "TG-01"
+role = "coordinator"
+instance = "invalid-worker"
+status = "pending"
+deps = []
+report = "reports/T-001-coordinator.md"
+''')
+            diagnostics = validate_run(manifest, config)
+            self.assertTrue(any(
+                item.path.endswith(".tasks.0.role") and item.code == "enum"
+                for item in diagnostics
+            ))
+
     def test_task_dag_rejects_unknown_dependency_and_cycle(self) -> None:
         with self._project() as directory:
             root = Path(directory)
@@ -310,6 +333,16 @@ report = "reports/T-001-implementer.md"
             template = (run_dir / "reports" / "agent-report-template.md").read_text(
                 encoding="utf-8"
             )
+            placeholder_report = template
+            for marker in required_markers(placeholder_report):
+                placeholder_report = placeholder_report.replace(marker, "Recorded evidence.")
+            report.write_text(placeholder_report, encoding="utf-8")
+            diagnostics = validate_run(manifest, config)
+            self.assertTrue(any(
+                item.path.endswith(".tasks.0.report") and item.code == "report-contract"
+                for item in diagnostics
+            ))
+
             complete_report = template.replace("<task-id>", "T-001").replace(
                 "<role>", "implementer"
             )
@@ -319,6 +352,13 @@ report = "reports/T-001-implementer.md"
             diagnostics = validate_run(manifest, config)
             self.assertFalse(any(
                 item.path.endswith(".tasks.0.report") for item in diagnostics
+            ))
+
+            (run_dir / "reports" / "agent-report-template.md").write_text("", encoding="utf-8")
+            diagnostics = validate_run(manifest, config)
+            self.assertTrue(any(
+                item.path.endswith(".reports") and item.code == "report-contract"
+                for item in diagnostics
             ))
 
             (run_dir / "reports" / "agent-report-template.md").unlink()

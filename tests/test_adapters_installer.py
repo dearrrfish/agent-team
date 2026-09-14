@@ -45,6 +45,8 @@ class AdapterAndInstallerTests(unittest.TestCase):
             self.assertIn("Team tier always requires reports", coordination_skill)
             self.assertIn("`--run <slug>`", coordination_skill)
             self.assertIn("all of its dependencies", coordination_skill)
+            self.assertIn("omit shell access from native read-only roles", coordination_skill)
+            self.assertIn("replacing its task and role placeholders", coordination_skill)
 
             review_skill = codex[next(
                 path for path in codex if str(path).endswith("team-review/SKILL.md")
@@ -72,7 +74,9 @@ class AdapterAndInstallerTests(unittest.TestCase):
             self.assertNotIn("effort:", claude_explorer)
             self.assertIn("permissionMode: plan", claude_explorer)
             self.assertIn("maxTurns: 16", claude_explorer)
+            self.assertNotIn('"Bash"', claude_explorer)
             self.assertIn('"Agent"', claude_coordinator)
+            self.assertIn('"Bash"', claude_coordinator)
 
             antigravity = render_target("antigravity", config, root)
             self.assertTrue(any(str(path) == ".agents/agents/reviewer/agent.md" for path in antigravity))
@@ -86,10 +90,11 @@ class AdapterAndInstallerTests(unittest.TestCase):
             self.assertIn("`branch` workspace option", antigravity_coordinator)
             self.assertIn('"invoke_subagent"', antigravity_coordinator)
             self.assertIn('"view_file"', antigravity_explorer)
-            self.assertIn('"run_command"', antigravity_explorer)
+            self.assertNotIn('"run_command"', antigravity_explorer)
             self.assertIn('"search_web"', antigravity_explorer)
             self.assertNotIn('"read"', antigravity_explorer)
             self.assertNotIn('"shell"', antigravity_explorer)
+            self.assertIn('"run_command"', antigravity_coordinator)
 
             antigravity_user = render_target("antigravity", config, root, scope="user")
             self.assertTrue(any(

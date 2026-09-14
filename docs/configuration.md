@@ -43,6 +43,10 @@ Adapters include activation guidance in the native description and append the
 portable turn, report, capability, and delegation contract to native
 instructions. Claude also receives native `maxTurns`; targets without a hard
 turn-limit field retain the limit as an explicit agent instruction.
+Claude and Antigravity omit shell tools from roles with `write_policy = "deny"`:
+their command tools can write workspace files, and their per-agent execution
+modes do not guarantee a non-mutating shell under every parent configuration.
+The coordinator or a write-isolated worker must run commands for those roles.
 
 ## Target profiles and model presets
 

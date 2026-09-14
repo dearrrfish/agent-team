@@ -18,7 +18,8 @@ Before dispatch, read `max_workers` and `reports_required` from the current
 use additional waves when ready work exceeds the limit. Persist each worker's
 report when `reports_required` is true. Team tier always requires reports.
 Create each persisted report by copying `reports/agent-report-template.md` to
-the task's exact report path and completing every required section.
+the task's exact report path, replacing its task and role placeholders, keeping
+the run identity unchanged, and completing every required section.
 Also read `write_isolation`: assisted tier permits at most one running
 write-capable worker, while team-tier parallel writers need disjoint files or
 separate worktrees supported by the target.
@@ -48,3 +49,9 @@ Give every worker:
 - the required report path or structured return fields;
 - notice of concurrent peers and whether the coordinator will wait for all of
   them before consolidation.
+
+Claude and Antigravity omit shell access from native read-only roles because a
+shell can bypass their file-edit tool restrictions. When such a worker needs a
+command result, have it return the exact command and expected evidence; run the
+command in the coordinator or a separately authorized write-capable worker and
+record who produced the evidence.

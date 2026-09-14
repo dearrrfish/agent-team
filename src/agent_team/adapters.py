@@ -33,13 +33,14 @@ def _tools(role: RoleDefinition, target: str) -> str:
     readable = "filesystem.read" in role.capabilities
     writable = "filesystem.write" in role.capabilities
     shell = "shell" in role.capabilities
+    safe_shell = shell and role.write_policy != "deny"
     if target == "claude":
         tools: list[str] = []
         if readable:
             tools.extend(["Read", "Glob", "Grep"])
         if writable:
             tools.extend(["Edit", "Write"])
-        if shell:
+        if safe_shell:
             tools.append("Bash")
         if "web.read" in role.capabilities:
             tools.extend(["WebFetch", "WebSearch"])
@@ -51,7 +52,7 @@ def _tools(role: RoleDefinition, target: str) -> str:
         tools.extend(["list_dir", "find_by_name", "grep_search", "view_file"])
     if writable:
         tools.extend(["write_to_file", "replace_file_content", "multi_replace_file_content"])
-    if shell:
+    if safe_shell:
         tools.append("run_command")
     if "web.read" in role.capabilities:
         tools.extend(["search_web", "read_url_content"])
@@ -61,8 +62,8 @@ def _tools(role: RoleDefinition, target: str) -> str:
 
 
 def _render_agent(target: str, role: RoleDefinition, profile: TargetProfile, preset_name: str) -> str:
-    # VERIFY: Exercise native agent discovery when noninteractive validators are
-    # available; Antigravity CLI is not installed in the current environment.
+    # VERIFY: Exercise model-backed native agent discovery when a noninteractive
+    # validator can select an exact custom agent without silently falling back.
     model, effort = _mapped_role(profile, preset_name, role)
     description = (
         f"{role.description} Use when: {role.use_when} Avoid when: {role.avoid_when}"
@@ -71,7 +72,7 @@ def _render_agent(target: str, role: RoleDefinition, profile: TargetProfile, pre
         "\n\n# Portable runtime contract\n\n"
         f"- Finish within at most {role.max_turns} turns.\n"
         f"- Return results using the `{role.report_kind}` report contract.\n"
-        f"- Use only these declared capabilities: {', '.join(role.capabilities)}.\n"
+        f"- Do not exceed these declared semantic capabilities: {', '.join(role.capabilities)}.\n"
     )
     if role.delegation:
         instructions += (
@@ -80,6 +81,12 @@ def _render_agent(target: str, role: RoleDefinition, profile: TargetProfile, pre
         )
     else:
         instructions += "- Do not delegate to another agent.\n"
+    if target in {"claude", "antigravity"} and role.write_policy == "deny" and "shell" in role.capabilities:
+        instructions += (
+            "- Native shell access is omitted because this target cannot guarantee "
+            "a non-mutating shell for this read-only role; ask the coordinator to run "
+            "required commands.\n"
+        )
     if target == "antigravity" and profile.supports_worktree_isolation:
         instructions += (
             "- Antigravity supports worktree isolation; select its `branch` workspace "

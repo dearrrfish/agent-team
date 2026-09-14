@@ -234,8 +234,21 @@ def _valid_timestamp(value: Any) -> bool:
     return value.endswith("Z")
 
 
-def _report_contract_issues(content: str) -> tuple[str, ...]:
+def _report_contract_issues(
+    content: str,
+    *,
+    slug: str,
+    task_id: str,
+    role: str,
+    template: bool = False,
+) -> tuple[str, ...]:
     issues: list[str] = []
+    expected_header = f"# Agent Report: {task_id} / {role}"
+    if not content.startswith(expected_header + "\n"):
+        issues.append(f"header must be {expected_header}")
+    expected_run = f"- Run: `{slug}`"
+    if not re.search(rf"(?m)^{re.escape(expected_run)}[ \t]*$", content):
+        issues.append(f"missing {expected_run}")
     for heading in _REPORT_SECTIONS:
         match = re.search(
             rf"(?ms)^{re.escape(heading)}[ \t]*\n(.*?)(?=^## |\Z)",
@@ -245,6 +258,8 @@ def _report_contract_issues(content: str) -> tuple[str, ...]:
             issues.append(f"missing {heading}")
         elif not match.group(1).strip():
             issues.append(f"empty {heading}")
+        elif template and not required_markers(match.group(1)):
+            issues.append(f"missing REQUIRED marker in {heading}")
     return tuple(issues)
 
 
@@ -380,12 +395,32 @@ def validate_run(
     _unknown(artifacts, {"requirements", "design", "plan", "tasks", "decisions", "review", "final_report"}, f"{label}.artifacts", diagnostics)
     run_dir = path.parent.resolve()
     report_template = run_dir / "reports" / "agent-report-template.md"
-    if reports_required is True and not report_template.is_file():
-        diagnostics.append(Diagnostic(
-            f"{label}.reports",
-            "report persistence requires reports/agent-report-template.md",
-            code="required",
-        ))
+    if reports_required is True:
+        if not report_template.is_file():
+            diagnostics.append(Diagnostic(
+                f"{label}.reports",
+                "report persistence requires reports/agent-report-template.md",
+                code="required",
+            ))
+        else:
+            try:
+                template_content = report_template.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as exc:
+                diagnostics.append(Diagnostic(f"{label}.reports", str(exc), code="read"))
+            else:
+                template_issues = _report_contract_issues(
+                    template_content,
+                    slug=slug if isinstance(slug, str) else "<run-slug>",
+                    task_id="<task-id>",
+                    role="<role>",
+                    template=True,
+                )
+                if template_issues:
+                    diagnostics.append(Diagnostic(
+                        f"{label}.reports",
+                        "; ".join(template_issues),
+                        code="report-contract",
+                    ))
     for name, relative in artifacts.items():
         if not isinstance(relative, str) or not relative:
             diagnostics.append(Diagnostic(f"{label}.artifacts.{name}", "must be a non-empty relative path", code="type"))
@@ -437,8 +472,8 @@ def validate_run(
     instances: set[str] = set()
     dependency_map: dict[str, tuple[str, ...]] = {}
     task_statuses: dict[str, str] = {}
-    known_roles = allowed_roles or set(ROLE_IDS)
-    known_writable_roles = writable_roles or {"coordinator", "implementer", "ops"}
+    known_roles = (allowed_roles or set(ROLE_IDS)) - {"coordinator"}
+    known_writable_roles = (writable_roles or {"implementer", "ops"}) - {"coordinator"}
     for index, task in enumerate(tasks):
         prefix = f"{label}.tasks.{index}"
         _unknown(task, task_allowed, prefix, diagnostics)
@@ -497,7 +532,12 @@ def validate_run(
                 except (OSError, UnicodeError) as exc:
                     diagnostics.append(Diagnostic(f"{prefix}.report", str(exc), code="read"))
                 else:
-                    contract_issues = _report_contract_issues(report_content)
+                    contract_issues = _report_contract_issues(
+                        report_content,
+                        slug=slug if isinstance(slug, str) else "<run-slug>",
+                        task_id=task_id,
+                        role=role if isinstance(role, str) else "<role>",
+                    )
                     if contract_issues:
                         diagnostics.append(Diagnostic(
                             f"{prefix}.report",
@@ -590,12 +630,15 @@ def validate_all_runs(root: Path, config: TeamConfig) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     try:
         roles = load_roles(config, root)
-        allowed_roles = {role.role_id for role in roles}
-        writable_roles = {role.role_id for role in roles if role.write_policy == "workspace"}
+        allowed_roles = {role.role_id for role in roles if role.role_id != "coordinator"}
+        writable_roles = {
+            role.role_id for role in roles
+            if role.role_id != "coordinator" and role.write_policy == "workspace"
+        }
     except ValidationFailure as exc:
         diagnostics.extend(exc.diagnostics)
-        allowed_roles = set(ROLE_IDS)
-        writable_roles = {"coordinator", "implementer", "ops"}
+        allowed_roles = set(ROLE_IDS) - {"coordinator"}
+        writable_roles = {"implementer", "ops"}
     for manifest in sorted(run_root.glob("*/run.toml")):
         diagnostics.extend(validate_run(manifest, config, allowed_roles, writable_roles))
     return diagnostics
@@ -616,8 +659,11 @@ def load_run_model_preset(root: Path, config: TeamConfig, slug: str) -> str:
     diagnostics = validate_run(
         manifest,
         config,
-        {role.role_id for role in roles},
-        {role.role_id for role in roles if role.write_policy == "workspace"},
+        {role.role_id for role in roles if role.role_id != "coordinator"},
+        {
+            role.role_id for role in roles
+            if role.role_id != "coordinator" and role.write_policy == "workspace"
+        },
     )
     errors = [item for item in diagnostics if item.severity == "error"]
     if errors:
