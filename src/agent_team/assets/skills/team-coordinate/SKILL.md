@@ -28,9 +28,11 @@ Confirm that the target's native agents were rendered or installed with
 
 ## Native role selection
 
-- Name the native custom-agent role explicitly when dispatching: `explorer`,
-  `design-agent`, `implementer`, `ops`, or `reviewer`. Keep the instance or task
-  name separate from the role name.
+- Name the native custom-agent role explicitly for task dispatch: `explorer`,
+  `design-agent`, `implementer`, or `ops`. Keep the instance or task name
+  separate from the role name. Invoke `reviewer` only through the lifecycle
+  review stage and persist its review-cycle response in `review.md`; never add it
+  to the task DAG.
 - Let the selected native agent profile own its model, reasoning effort,
   permissions, and durable role instructions. Do not repeat or override those
   settings unless the user explicitly requests a one-off override.

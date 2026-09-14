@@ -22,6 +22,8 @@ class TemplateAndRunTests(unittest.TestCase):
         self.assertEqual(render_template("${body}", {"body": "literal ${name}"}), "literal ${name}")
         with self.assertRaises(TemplateError):
             render_template("hello ${name}", {})
+        with self.assertRaises(TemplateError):
+            render_template("hello ${name}", {"name": "team", "unknown": "value"})
         self.assertEqual(len(required_markers("<!-- REQUIRED: fill me -->")), 1)
 
     def test_team_run_has_expected_artifacts_and_warning_markers(self) -> None:
@@ -95,7 +97,7 @@ deps = []
             diagnostics = validate_run(manifest, config)
             self.assertTrue(any(item.code == "tier" for item in diagnostics))
 
-    def test_worker_tasks_reject_coordinator_role(self) -> None:
+    def test_worker_tasks_reject_lifecycle_roles(self) -> None:
         with self._project() as directory:
             root = Path(directory)
             config = load_team_config(root)
@@ -111,12 +113,22 @@ instance = "invalid-worker"
 status = "pending"
 deps = []
 report = "reports/T-001-coordinator.md"
+
+[[tasks]]
+id = "T-002"
+group = "TG-01"
+role = "reviewer"
+instance = "invalid-review-worker"
+status = "pending"
+deps = []
+report = "reports/T-002-reviewer.md"
 ''')
             diagnostics = validate_run(manifest, config)
-            self.assertTrue(any(
-                item.path.endswith(".tasks.0.role") and item.code == "enum"
-                for item in diagnostics
-            ))
+            invalid_role_paths = {
+                item.path for item in diagnostics if item.code == "enum" and item.path.endswith(".role")
+            }
+            self.assertTrue(any(path.endswith(".tasks.0.role") for path in invalid_role_paths))
+            self.assertTrue(any(path.endswith(".tasks.1.role") for path in invalid_role_paths))
 
     def test_task_dag_rejects_unknown_dependency_and_cycle(self) -> None:
         with self._project() as directory:
@@ -193,6 +205,34 @@ report = "reports/T-002-implementer.md"
                 item.path.endswith(".review.used") and item.code == "invariant"
                 for item in diagnostics
             ))
+
+    def test_review_artifact_must_match_manifest_cycle_and_verdict(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            config = load_team_config(root)
+            run_dir = init_run(root, config, "review-evidence", None, "team", "balanced")
+            manifest = run_dir / "run.toml"
+            manifest.write_text(
+                manifest.read_text(encoding="utf-8")
+                .replace("used = 0", "used = 1")
+                .replace('verdict = "pending"', 'verdict = "approved"'),
+                encoding="utf-8",
+            )
+            diagnostics = validate_run(manifest, config)
+            self.assertTrue(any(
+                item.path.endswith(".artifacts.review") and item.code == "review-contract"
+                for item in diagnostics
+            ))
+
+            review = run_dir / "review.md"
+            review.write_text(
+                review.read_text(encoding="utf-8").replace(
+                    "- Verdict: pending", "- Verdict: approved"
+                ),
+                encoding="utf-8",
+            )
+            diagnostics = validate_run(manifest, config)
+            self.assertFalse(any(item.code == "review-contract" for item in diagnostics))
 
     def test_running_tasks_cannot_exceed_configured_worker_limit(self) -> None:
         config_text = DEFAULT_TEAM_TOML.replace(

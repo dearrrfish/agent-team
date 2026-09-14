@@ -55,6 +55,10 @@ class CliTests(unittest.TestCase):
             self.assertIn("quality preset", preview.stdout)
             doctor = self._run(root, "doctor", "--format", "json")
             self.assertEqual(doctor.returncode, 0, doctor.stderr)
+            doctor_paths = {item["path"] for item in json.loads(doctor.stdout)["diagnostics"]}
+            self.assertTrue({
+                "clients.codex", "clients.claude", "clients.antigravity"
+            }.issubset(doctor_paths))
 
     def test_invalid_config_has_nonzero_structured_result(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

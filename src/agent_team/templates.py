@@ -21,6 +21,9 @@ def render_template(template: str, variables: Mapping[str, str]) -> str:
     missing = sorted(referenced - set(variables))
     if missing:
         raise TemplateError(f"missing template variables: {', '.join(missing)}")
+    unknown = sorted(set(variables) - referenced)
+    if unknown:
+        raise TemplateError(f"unknown template variables: {', '.join(unknown)}")
     return _VARIABLE.sub(lambda match: variables[match.group(1)], template)
 
 

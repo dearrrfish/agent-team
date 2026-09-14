@@ -39,7 +39,9 @@ Each run records the selected tier's `max_workers` as a hard concurrency limit.
 solo runs have no worker reports and team runs always require them.
 
 Run `agent-team doctor` for environment checks and `agent-team --help` for the
-complete command surface.
+complete command surface. Doctor reports the executable and version status of
+each enabled native client; missing clients are warnings because rendering and
+installation do not require them to be installed locally.
 
 For Antigravity, project installation uses `.agents/`; user installation uses
 the native `~/.gemini/config/agents/` and

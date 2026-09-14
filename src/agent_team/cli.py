@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -20,6 +21,12 @@ from agent_team.fs import atomic_write
 from agent_team.installer import install_files
 from agent_team.models import PRESETS, TARGETS, TIERS
 from agent_team.runs import init_run, load_run_model_preset, validate_all_runs
+
+_NATIVE_CLIENTS = {
+    "codex": "codex",
+    "claude": "claude",
+    "antigravity": "agy",
+}
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -157,10 +164,53 @@ def _doctor(root: Path, output_format: str) -> int:
     git = shutil.which("git")
     diagnostics.append(Diagnostic("git", git or "git was not found", severity="info" if git else "error", code="ok" if git else "missing"))
     try:
+        config = load_team_config(root)
         project_diagnostics = _collect_validation(root)
         diagnostics.extend(project_diagnostics)
         if not any(item.severity == "error" for item in project_diagnostics):
             diagnostics.append(Diagnostic("project", f"valid configuration at {root}", severity="info", code="ok"))
+        for target in config.enabled_targets:
+            command = _NATIVE_CLIENTS[target]
+            executable = shutil.which(command)
+            if executable is None:
+                diagnostics.append(Diagnostic(
+                    f"clients.{target}",
+                    f"{command} was not found; rendering and installation remain available",
+                    severity="warning",
+                    code="missing",
+                ))
+                continue
+            try:
+                version_result = subprocess.run(
+                    [executable, "--version"],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=5,
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                diagnostics.append(Diagnostic(
+                    f"clients.{target}",
+                    f"{executable}; version check failed: {exc}",
+                    severity="warning",
+                    code="version",
+                ))
+                continue
+            version = (version_result.stdout or version_result.stderr).strip().splitlines()
+            if version_result.returncode == 0 and version:
+                diagnostics.append(Diagnostic(
+                    f"clients.{target}",
+                    f"{executable} ({version[0]})",
+                    severity="info",
+                    code="ok",
+                ))
+            else:
+                diagnostics.append(Diagnostic(
+                    f"clients.{target}",
+                    f"{executable}; --version exited {version_result.returncode}",
+                    severity="warning",
+                    code="version",
+                ))
     except ValidationFailure as exc:
         diagnostics.extend(exc.diagnostics)
     print(render_diagnostics(diagnostics, output_format))

@@ -19,6 +19,7 @@ _TASK_ID = re.compile(r"^T-[0-9]{3}$")
 _STATUSES = {"discovery", "planned", "implementing", "reviewing", "complete", "blocked", "cancelled"}
 _TASK_STATUSES = {"pending", "ready", "running", "complete", "blocked", "cancelled"}
 _VERDICTS = {"pending", "approved", "changes-requested", "blocked", "not-required"}
+_NON_TASK_ROLES = {"coordinator", "reviewer"}
 _REPORT_SECTIONS = (
     "## Scope and acceptance evidence",
     "## Changed files",
@@ -166,14 +167,25 @@ def init_run(
         "review": "review.md.tpl",
         "final_report": "final-report.md.tpl",
     }
+    template_variables_for = {
+        "requirements": ("created_at", "slug", "tier", "title", "updated_at"),
+        "design": ("slug", "title", "updated_at"),
+        "decisions": ("title", "updated_at"),
+        "plan": ("model_preset", "slug", "tier", "title", "updated_at"),
+        "tasks": ("slug", "title", "updated_at"),
+        "review": ("cycle", "slug", "title", "updated_at"),
+        "final_report": ("slug", "title", "updated_at"),
+    }
     for key, relative in artifacts.items():
         template = asset_text("templates", "workflow", template_for[key])
-        atomic_write(destination / relative, render_template(template, variables))
+        selected_variables = {name: variables[name] for name in template_variables_for[key]}
+        atomic_write(destination / relative, render_template(template, selected_variables))
     if reports_required:
         (destination / "reports").mkdir()
         template = asset_text("templates", "workflow", "agent-report.md.tpl")
         template_variables = {
-            **variables,
+            "slug": slug,
+            "updated_at": timestamp,
             "task_id": "<task-id>",
             "role": "<role>",
         }
@@ -260,6 +272,28 @@ def _report_contract_issues(
             issues.append(f"empty {heading}")
         elif template and not required_markers(match.group(1)):
             issues.append(f"missing REQUIRED marker in {heading}")
+    return tuple(issues)
+
+
+def _review_contract_issues(
+    content: str,
+    *,
+    slug: str,
+    cycle: int,
+    verdict: str,
+) -> tuple[str, ...]:
+    issues: list[str] = []
+    expected = {
+        "Run": f"`{slug}`",
+        "Cycle": str(cycle),
+        "Verdict": verdict,
+    }
+    for field, expected_value in expected.items():
+        values = re.findall(rf"(?m)^- {field}: (.+?)[ \t]*$", content)
+        if len(values) != 1:
+            issues.append(f"review must contain exactly one {field} field")
+        elif values[0] != expected_value:
+            issues.append(f"review {field} must be {expected_value}")
     return tuple(issues)
 
 
@@ -421,6 +455,7 @@ def validate_run(
                         "; ".join(template_issues),
                         code="report-contract",
                     ))
+    artifact_contents: dict[str, str] = {}
     for name, relative in artifacts.items():
         if not isinstance(relative, str) or not relative:
             diagnostics.append(Diagnostic(f"{label}.artifacts.{name}", "must be a non-empty relative path", code="type"))
@@ -437,6 +472,7 @@ def validate_run(
         except (OSError, UnicodeError) as exc:
             diagnostics.append(Diagnostic(f"{label}.artifacts.{name}", str(exc), code="read"))
             continue
+        artifact_contents[name] = content
         markers = required_markers(content)
         if markers:
             diagnostics.append(Diagnostic(
@@ -459,6 +495,28 @@ def validate_run(
     for artifact in sorted(required_artifacts - set(artifacts)):
         diagnostics.append(Diagnostic(f"{label}.artifacts.{artifact}", "required for this tier", code="required"))
 
+    if (
+        required is True
+        and "review" in artifact_contents
+        and isinstance(slug, str)
+        and isinstance(used, int)
+        and not isinstance(used, bool)
+        and verdict in {"pending", "approved", "changes-requested", "blocked"}
+    ):
+        expected_cycle = used + 1 if verdict == "pending" else used
+        review_issues = _review_contract_issues(
+            artifact_contents["review"],
+            slug=slug,
+            cycle=expected_cycle,
+            verdict=verdict,
+        )
+        if review_issues:
+            diagnostics.append(Diagnostic(
+                f"{label}.artifacts.review",
+                "; ".join(review_issues),
+                code="review-contract",
+            ))
+
     tasks = data.get("tasks", [])
     if not isinstance(tasks, list) or not all(isinstance(task, dict) for task in tasks):
         diagnostics.append(Diagnostic(f"{label}.tasks", "must be an array of tables", code="type"))
@@ -472,8 +530,8 @@ def validate_run(
     instances: set[str] = set()
     dependency_map: dict[str, tuple[str, ...]] = {}
     task_statuses: dict[str, str] = {}
-    known_roles = (allowed_roles or set(ROLE_IDS)) - {"coordinator"}
-    known_writable_roles = (writable_roles or {"implementer", "ops"}) - {"coordinator"}
+    known_roles = (allowed_roles or set(ROLE_IDS)) - _NON_TASK_ROLES
+    known_writable_roles = (writable_roles or {"implementer", "ops"}) - _NON_TASK_ROLES
     for index, task in enumerate(tasks):
         prefix = f"{label}.tasks.{index}"
         _unknown(task, task_allowed, prefix, diagnostics)
@@ -630,14 +688,14 @@ def validate_all_runs(root: Path, config: TeamConfig) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     try:
         roles = load_roles(config, root)
-        allowed_roles = {role.role_id for role in roles if role.role_id != "coordinator"}
+        allowed_roles = {role.role_id for role in roles if role.role_id not in _NON_TASK_ROLES}
         writable_roles = {
             role.role_id for role in roles
-            if role.role_id != "coordinator" and role.write_policy == "workspace"
+            if role.role_id not in _NON_TASK_ROLES and role.write_policy == "workspace"
         }
     except ValidationFailure as exc:
         diagnostics.extend(exc.diagnostics)
-        allowed_roles = set(ROLE_IDS) - {"coordinator"}
+        allowed_roles = set(ROLE_IDS) - _NON_TASK_ROLES
         writable_roles = {"implementer", "ops"}
     for manifest in sorted(run_root.glob("*/run.toml")):
         diagnostics.extend(validate_run(manifest, config, allowed_roles, writable_roles))
@@ -659,10 +717,10 @@ def load_run_model_preset(root: Path, config: TeamConfig, slug: str) -> str:
     diagnostics = validate_run(
         manifest,
         config,
-        {role.role_id for role in roles if role.role_id != "coordinator"},
+        {role.role_id for role in roles if role.role_id not in _NON_TASK_ROLES},
         {
             role.role_id for role in roles
-            if role.role_id != "coordinator" and role.write_policy == "workspace"
+            if role.role_id not in _NON_TASK_ROLES and role.write_policy == "workspace"
         },
     )
     errors = [item for item in diagnostics if item.severity == "error"]

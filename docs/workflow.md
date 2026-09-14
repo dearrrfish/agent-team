@@ -45,8 +45,9 @@ tasks, reports, resolved required markers, all gates, and an approved review.
 
 Task IDs use `T-NNN`; dependencies must form a DAG, and a task cannot become
 `ready`, `running`, or `complete` until every dependency is `complete`. Worker
-instance names are unique within a run, the coordinator cannot appear as a
-worker task role, and solo runs cannot contain worker tasks. Completed tasks
+instance names are unique within a run, neither coordinator nor reviewer can
+appear as worker task roles, and solo runs cannot contain worker tasks. Reviewer
+output belongs to the lifecycle `review.md` artifact. Completed tasks
 must have a contained, structured `reports/` artifact
 when `reports_required` is true. Copy
 `reports/agent-report-template.md` to the exact task report path and complete
@@ -58,7 +59,9 @@ the team-tier contract. Decision records are append-only and use `D-NNN`;
 superseding decisions reference the earlier ID.
 
 A required review cannot record an outcome verdict until at least one review
-cycle has been counted in `review.used`.
+cycle has been counted in `review.used`. The Run, Cycle, and Verdict fields in
+`review.md` must match the manifest; a pending cycle uses `review.used + 1`,
+while a completed outcome uses `review.used`.
 
 ## Rendering and installation
 
