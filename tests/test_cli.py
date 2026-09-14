@@ -11,9 +11,15 @@ SOURCE = str(Path(__file__).parents[1] / "src")
 
 
 class CliTests(unittest.TestCase):
-    def _run(self, root: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+    def _run(
+        self,
+        root: Path,
+        *arguments: str,
+        environment_overrides: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
         environment["PYTHONPATH"] = SOURCE
+        environment.update(environment_overrides or {})
         return subprocess.run(
             [sys.executable, "-m", "agent_team", *arguments],
             cwd=root,
@@ -68,6 +74,26 @@ class CliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("--output OUTPUT", result.stdout)
             self.assertNotIn("--scope", result.stdout)
+
+    def test_antigravity_user_install_uses_native_global_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as home:
+            root = Path(directory)
+            self.assertEqual(self._run(root, "init").returncode, 0)
+            result = self._run(
+                root,
+                "install",
+                "--target",
+                "antigravity",
+                "--scope",
+                "user",
+                environment_overrides={"HOME": home},
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(".gemini/config/agents/coordinator/agent.md", result.stdout)
+            self.assertIn(
+                ".gemini/antigravity-cli/skills/team-workflow/SKILL.md",
+                result.stdout,
+            )
 
 
 if __name__ == "__main__":

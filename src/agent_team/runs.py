@@ -19,6 +19,13 @@ _TASK_ID = re.compile(r"^T-[0-9]{3}$")
 _STATUSES = {"discovery", "planned", "implementing", "reviewing", "complete", "blocked", "cancelled"}
 _TASK_STATUSES = {"pending", "ready", "running", "complete", "blocked", "cancelled"}
 _VERDICTS = {"pending", "approved", "changes-requested", "blocked", "not-required"}
+_REPORT_SECTIONS = (
+    "## Scope and acceptance evidence",
+    "## Changed files",
+    "## Verification",
+    "## Documentation",
+    "## Blockers and residual risks",
+)
 
 
 def utc_now() -> str:
@@ -164,6 +171,16 @@ def init_run(
         atomic_write(destination / relative, render_template(template, variables))
     if reports_required:
         (destination / "reports").mkdir()
+        template = asset_text("templates", "workflow", "agent-report.md.tpl")
+        template_variables = {
+            **variables,
+            "task_id": "<task-id>",
+            "role": "<role>",
+        }
+        atomic_write(
+            destination / "reports" / "agent-report-template.md",
+            render_template(template, template_variables),
+        )
 
     git_file = root / ".git"
     worktree_decision = "created" if git_file.is_file() else "pending"
@@ -215,6 +232,20 @@ def _valid_timestamp(value: Any) -> bool:
     except ValueError:
         return False
     return value.endswith("Z")
+
+
+def _report_contract_issues(content: str) -> tuple[str, ...]:
+    issues: list[str] = []
+    for heading in _REPORT_SECTIONS:
+        match = re.search(
+            rf"(?ms)^{re.escape(heading)}[ \t]*\n(.*?)(?=^## |\Z)",
+            content,
+        )
+        if match is None:
+            issues.append(f"missing {heading}")
+        elif not match.group(1).strip():
+            issues.append(f"empty {heading}")
+    return tuple(issues)
 
 
 def validate_run(
@@ -348,6 +379,13 @@ def validate_run(
     artifacts = _table(data, "artifacts", label, diagnostics)
     _unknown(artifacts, {"requirements", "design", "plan", "tasks", "decisions", "review", "final_report"}, f"{label}.artifacts", diagnostics)
     run_dir = path.parent.resolve()
+    report_template = run_dir / "reports" / "agent-report-template.md"
+    if reports_required is True and not report_template.is_file():
+        diagnostics.append(Diagnostic(
+            f"{label}.reports",
+            "report persistence requires reports/agent-report-template.md",
+            code="required",
+        ))
     for name, relative in artifacts.items():
         if not isinstance(relative, str) or not relative:
             diagnostics.append(Diagnostic(f"{label}.artifacts.{name}", "must be a non-empty relative path", code="type"))
@@ -390,6 +428,10 @@ def validate_run(
     if not isinstance(tasks, list) or not all(isinstance(task, dict) for task in tasks):
         diagnostics.append(Diagnostic(f"{label}.tasks", "must be an array of tables", code="type"))
         tasks = []
+    if tier == "solo" and tasks:
+        diagnostics.append(Diagnostic(
+            f"{label}.tasks", "solo runs cannot contain worker tasks", code="tier"
+        ))
     task_allowed = {"id", "group", "role", "instance", "status", "deps", "report"}
     task_ids: set[str] = set()
     instances: set[str] = set()
@@ -455,6 +497,13 @@ def validate_run(
                 except (OSError, UnicodeError) as exc:
                     diagnostics.append(Diagnostic(f"{prefix}.report", str(exc), code="read"))
                 else:
+                    contract_issues = _report_contract_issues(report_content)
+                    if contract_issues:
+                        diagnostics.append(Diagnostic(
+                            f"{prefix}.report",
+                            "; ".join(contract_issues),
+                            code="report-contract",
+                        ))
                     markers = required_markers(report_content)
                     if markers:
                         diagnostics.append(Diagnostic(

@@ -82,7 +82,10 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(roles["explorer"].write_policy, "deny")
         self.assertNotIn("filesystem.write", roles["reviewer"].capabilities)
         self.assertEqual(roles["reviewer"].report_kind, "review-cycle")
-        self.assertFalse(any(role.delegation for role in roles.values()))
+        self.assertTrue(roles["coordinator"].delegation)
+        self.assertFalse(any(
+            role.delegation for role_id, role in roles.items() if role_id != "coordinator"
+        ))
 
     def test_builtin_target_profiles_cover_all_presets(self) -> None:
         with self._project() as directory:
@@ -94,14 +97,28 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(codex.presets["balanced"].models["deep"], "gpt-5.6-sol")
             self.assertEqual(codex.presets["quality"].models["deep"], "gpt-6-astra")
             self.assertEqual(codex.presets["balanced"].coordinator_effort, "medium")
+            self.assertIn("ultra", codex.effort_levels)
             self.assertIn("haiku", claude.models_without_effort)
+            self.assertNotIn("ultra", claude.effort_levels)
             self.assertFalse(antigravity.supports_effort)
+            self.assertTrue(antigravity.supports_worktree_isolation)
+            self.assertEqual(antigravity.user_agent_destination, ".gemini/config/agents")
 
     def test_target_profiles_accept_ultra_native_effort(self) -> None:
         data = tomllib.loads(asset_text("definitions", "targets", "codex.toml"))
         data["presets"]["quality"]["effort"]["high"] = "ultra"
         profile = parse_target_profile(data, "custom.codex")
         self.assertEqual(profile.presets["quality"].effort["high"], "ultra")
+
+    def test_target_profile_rejects_unsupported_target_effort(self) -> None:
+        data = tomllib.loads(asset_text("definitions", "targets", "claude.toml"))
+        data["presets"]["quality"]["effort"]["high"] = "ultra"
+        with self.assertRaises(ValidationFailure) as context:
+            parse_target_profile(data, "custom.claude")
+        self.assertTrue(any(
+            item.path.endswith(".presets.quality.effort.high") and item.code == "enum"
+            for item in context.exception.diagnostics
+        ))
 
     def test_project_root_falls_back_to_git_toplevel(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -36,6 +36,7 @@ class TemplateAndRunTests(unittest.TestCase):
             self.assertEqual(manifest_data["write_isolation"], "file-disjoint-or-worktree")
             self.assertTrue(manifest_data["reports_required"])
             self.assertFalse(manifest_data["gates"]["live_validation"])
+            self.assertTrue((run_dir / "reports" / "agent-report-template.md").is_file())
             diagnostics = validate_run(run_dir / "run.toml", config)
             self.assertFalse(any(item.severity == "error" for item in diagnostics))
             self.assertTrue(any(item.code == "required-marker" for item in diagnostics))
@@ -74,6 +75,25 @@ class TemplateAndRunTests(unittest.TestCase):
             codes = {item.code for item in diagnostics if item.severity == "error"}
             self.assertIn("gate", codes)
             self.assertIn("required-marker", codes)
+
+    def test_solo_runs_reject_worker_tasks(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            config = load_team_config(root)
+            run_dir = init_run(root, config, "solo-workers", None, "solo", "balanced")
+            manifest = run_dir / "run.toml"
+            with manifest.open("a", encoding="utf-8") as handle:
+                handle.write('''
+[[tasks]]
+id = "T-001"
+group = "TG-01"
+role = "implementer"
+instance = "unexpected-worker"
+status = "pending"
+deps = []
+''')
+            diagnostics = validate_run(manifest, config)
+            self.assertTrue(any(item.code == "tier" for item in diagnostics))
 
     def test_task_dag_rejects_unknown_dependency_and_cycle(self) -> None:
         with self._project() as directory:
@@ -260,6 +280,51 @@ report = "reports/T-001-implementer.md"
                 item.path.endswith(".tasks.0.report")
                 and item.code == "required-marker"
                 and item.severity == "error"
+                for item in diagnostics
+            ))
+
+    def test_completed_task_report_requires_structured_evidence(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            config = load_team_config(root)
+            run_dir = init_run(root, config, "report-contract", None, "assisted", "balanced")
+            manifest = run_dir / "run.toml"
+            with manifest.open("a", encoding="utf-8") as handle:
+                handle.write('''
+[[tasks]]
+id = "T-001"
+group = "TG-01"
+role = "implementer"
+instance = "writer"
+status = "complete"
+deps = []
+report = "reports/T-001-implementer.md"
+''')
+            report = run_dir / "reports" / "T-001-implementer.md"
+            report.write_text("", encoding="utf-8")
+            diagnostics = validate_run(manifest, config)
+            self.assertTrue(any(
+                item.path.endswith(".tasks.0.report") and item.code == "report-contract"
+                for item in diagnostics
+            ))
+            template = (run_dir / "reports" / "agent-report-template.md").read_text(
+                encoding="utf-8"
+            )
+            complete_report = template.replace("<task-id>", "T-001").replace(
+                "<role>", "implementer"
+            )
+            for marker in required_markers(complete_report):
+                complete_report = complete_report.replace(marker, "Recorded evidence.")
+            report.write_text(complete_report, encoding="utf-8")
+            diagnostics = validate_run(manifest, config)
+            self.assertFalse(any(
+                item.path.endswith(".tasks.0.report") for item in diagnostics
+            ))
+
+            (run_dir / "reports" / "agent-report-template.md").unlink()
+            diagnostics = validate_run(manifest, config)
+            self.assertTrue(any(
+                item.path.endswith(".reports") and item.code == "required"
                 for item in diagnostics
             ))
 

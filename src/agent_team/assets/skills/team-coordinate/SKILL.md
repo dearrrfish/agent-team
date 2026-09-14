@@ -17,6 +17,8 @@ Before dispatch, read `max_workers` and `reports_required` from the current
 `run.toml`. Never allow the number of running workers to exceed `max_workers`;
 use additional waves when ready work exceeds the limit. Persist each worker's
 report when `reports_required` is true. Team tier always requires reports.
+Create each persisted report by copying `reports/agent-report-template.md` to
+the task's exact report path and completing every required section.
 Also read `write_isolation`: assisted tier permits at most one running
 write-capable worker, while team-tier parallel writers need disjoint files or
 separate worktrees supported by the target.

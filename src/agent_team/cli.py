@@ -132,7 +132,7 @@ def _install(root: Path, args: argparse.Namespace) -> int:
         load_run_model_preset(root, config, args.run_slug)
         if args.run_slug else config.default_model_preset
     )
-    files = render_target(args.target, config, root, model_preset)
+    files = render_target(args.target, config, root, model_preset, scope)
     actions = install_files(
         target=args.target,
         target_root=target_root,

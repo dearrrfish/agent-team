@@ -37,17 +37,19 @@ roles must remain available.
 
 Role metadata selects semantic model class (`fast`, `balanced`, `deep`), effort
 (`low`, `medium`, `high`), write policy (`deny`, `workspace`), capabilities,
-activation guidance, turn limit, and report kind. Delegation must be false.
-Read-only roles cannot request `filesystem.write`. Adapters include activation
-guidance in the native description and append the portable turn, report,
-capability, and no-delegation contract to native instructions. Where a target
-has no hard turn-limit field, the limit remains an explicit agent instruction.
+activation guidance, turn limit, and report kind. The coordinator must delegate;
+all worker roles must not. Read-only roles cannot request `filesystem.write`.
+Adapters include activation guidance in the native description and append the
+portable turn, report, capability, and delegation contract to native
+instructions. Claude also receives native `maxTurns`; targets without a hard
+turn-limit field retain the limit as an explicit agent instruction.
 
 ## Target profiles and model presets
 
 Target profile references default to `builtin:codex`, `builtin:claude`, and
 `builtin:antigravity`. A relative TOML path replaces the complete profile for
-that target; profiles are not deep-merged.
+that target; profiles are not deep-merged. Profiles declare separate project
+and user destinations because some native clients use different global layouts.
 
 Balanced routing is:
 
@@ -62,8 +64,9 @@ Role effort is mapped through each preset. Claude omits effort for Haiku;
 Antigravity profiles do not emit effort. Tool names and permission modes are
 owned by adapters and cannot be injected through project configuration. Native
 effort mappings may use `low`, `medium`, `high`, `xhigh`, `max`, or `ultra` when
-the target supports that level. Adapters also emit target-specific guidance for
-whether parallel writers may use worktree isolation.
+the target's explicit `effort_levels` allow that level. Adapters also emit
+target-specific guidance for whether parallel writers may use worktree
+isolation.
 
 ## Diagnostics
 

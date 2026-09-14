@@ -41,6 +41,10 @@ solo runs have no worker reports and team runs always require them.
 Run `agent-team doctor` for environment checks and `agent-team --help` for the
 complete command surface.
 
+For Antigravity, project installation uses `.agents/`; user installation uses
+the native `~/.gemini/config/agents/` and
+`~/.gemini/antigravity-cli/skills/` discovery trees.
+
 ## Common usage prompts
 
 These Codex examples follow the same explicit role-naming pattern as the AWS

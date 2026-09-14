@@ -340,8 +340,14 @@ def parse_role(data: dict[str, Any], instructions: str, source: str) -> RoleDefi
         diagnostics.append(Diagnostic(f"{source}.effort", "must be low, medium, or high", code="enum"))
     if write_policy not in {"deny", "workspace"}:
         diagnostics.append(Diagnostic(f"{source}.write_policy", "must be deny or workspace", code="enum"))
-    if delegation:
-        diagnostics.append(Diagnostic(f"{source}.delegation", "v1 roles cannot delegate", code="invariant"))
+    if role_id == "coordinator" and not delegation:
+        diagnostics.append(Diagnostic(
+            f"{source}.delegation", "the coordinator must be able to delegate", code="invariant"
+        ))
+    elif role_id != "coordinator" and delegation:
+        diagnostics.append(Diagnostic(
+            f"{source}.delegation", "worker roles cannot delegate", code="invariant"
+        ))
     if not 1 <= max_turns <= 64:
         diagnostics.append(Diagnostic(f"{source}.max_turns", "must be between 1 and 64", code="range"))
     if report_kind not in {"agent-report", "review-cycle"}:
@@ -444,7 +450,12 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
     diagnostics: list[Diagnostic] = []
     _unknown_keys(
         data,
-        {"schema_version", "id", "adapter", "agent_destination", "skill_destination", "models_without_effort", "features", "presets"},
+        {
+            "schema_version", "id", "adapter", "agent_destination",
+            "skill_destination", "user_agent_destination",
+            "user_skill_destination", "models_without_effort", "features",
+            "presets",
+        },
         source, diagnostics,
     )
     profile_id = _string(_required(data, "id", source, diagnostics), f"{source}.id", diagnostics)
@@ -454,7 +465,12 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
     if adapter not in TARGETS or profile_id != adapter:
         diagnostics.append(Diagnostic(f"{source}.adapter", "id and adapter must name the same supported target", code="invariant"))
     features = _mapping(_required(data, "features", source, diagnostics), f"{source}.features", diagnostics)
-    _unknown_keys(features, {"supports_effort", "supports_worktree_isolation", "team_runtime"}, f"{source}.features", diagnostics)
+    _unknown_keys(
+        features,
+        {"supports_effort", "effort_levels", "supports_worktree_isolation", "team_runtime"},
+        f"{source}.features",
+        diagnostics,
+    )
     presets_data = _mapping(_required(data, "presets", source, diagnostics), f"{source}.presets", diagnostics)
     _unknown_keys(presets_data, PRESETS, f"{source}.presets", diagnostics)
     presets: dict[str, TargetPreset] = {}
@@ -477,6 +493,11 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
             effort={key: _string(value, f"{source}.presets.{preset_name}.effort.{key}", diagnostics) for key, value in effort.items()},
         )
     supports_effort = _boolean(_required(features, "supports_effort", f"{source}.features", diagnostics), f"{source}.features.supports_effort", diagnostics)
+    effort_levels = _string_list(
+        _required(features, "effort_levels", f"{source}.features", diagnostics),
+        f"{source}.features.effort_levels",
+        diagnostics,
+    )
     supports_worktree_isolation = _boolean(
         _required(features, "supports_worktree_isolation", f"{source}.features", diagnostics),
         f"{source}.features.supports_worktree_isolation", diagnostics,
@@ -498,6 +519,14 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
         _required(data, "skill_destination", source, diagnostics),
         f"{source}.skill_destination", diagnostics,
     )
+    user_agent_destination = _string(
+        _required(data, "user_agent_destination", source, diagnostics),
+        f"{source}.user_agent_destination", diagnostics,
+    )
+    user_skill_destination = _string(
+        _required(data, "user_skill_destination", source, diagnostics),
+        f"{source}.user_skill_destination", diagnostics,
+    )
     team_runtime = _string(
         _required(features, "team_runtime", f"{source}.features", diagnostics),
         f"{source}.features.team_runtime", diagnostics,
@@ -505,20 +534,47 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
     if team_runtime != "subagents":
         diagnostics.append(Diagnostic(f"{source}.features.team_runtime", "v1 requires subagents", code="invariant"))
     for destination_key, destination in (
-        ("agent_destination", agent_destination), ("skill_destination", skill_destination)
+        ("agent_destination", agent_destination),
+        ("skill_destination", skill_destination),
+        ("user_agent_destination", user_agent_destination),
+        ("user_skill_destination", user_skill_destination),
     ):
         candidate = Path(destination)
-        if candidate.is_absolute() or ".." in candidate.parts:
+        if not destination or candidate.is_absolute() or ".." in candidate.parts:
             diagnostics.append(Diagnostic(f"{source}.{destination_key}", "must be a contained relative path", code="path"))
     valid_efforts = {"low", "medium", "high", "xhigh", "max", "ultra"}
+    if len(effort_levels) != len(set(effort_levels)):
+        diagnostics.append(Diagnostic(
+            f"{source}.features.effort_levels", "effort levels must be unique", code="duplicate"
+        ))
+    for effort_level in effort_levels:
+        if effort_level not in valid_efforts:
+            diagnostics.append(Diagnostic(
+                f"{source}.features.effort_levels",
+                f"unsupported native effort {effort_level}",
+                code="enum",
+            ))
+    if supports_effort and not effort_levels:
+        diagnostics.append(Diagnostic(
+            f"{source}.features.effort_levels",
+            "effort-capable targets must declare native effort levels",
+            code="required",
+        ))
+    if not supports_effort and effort_levels:
+        diagnostics.append(Diagnostic(
+            f"{source}.features.effort_levels",
+            "targets without effort support must declare no effort levels",
+            code="invariant",
+        ))
+    supported_efforts = set(effort_levels)
     for preset_name, preset in presets.items():
-        if preset.coordinator_effort is not None and preset.coordinator_effort not in valid_efforts:
+        if preset.coordinator_effort is not None and preset.coordinator_effort not in supported_efforts:
             diagnostics.append(Diagnostic(
                 f"{source}.presets.{preset_name}.coordinator_effort",
                 "unsupported native effort", code="enum",
             ))
         for semantic, native in preset.effort.items():
-            if native not in valid_efforts:
+            if native not in supported_efforts:
                 diagnostics.append(Diagnostic(
                     f"{source}.presets.{preset_name}.effort.{semantic}",
                     "unsupported native effort", code="enum",
@@ -530,7 +586,10 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
         adapter=adapter,
         agent_destination=agent_destination,
         skill_destination=skill_destination,
+        user_agent_destination=user_agent_destination,
+        user_skill_destination=user_skill_destination,
         supports_effort=supports_effort,
+        effort_levels=effort_levels,
         supports_worktree_isolation=supports_worktree_isolation,
         team_runtime=team_runtime,
         models_without_effort=models_without_effort,

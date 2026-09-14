@@ -45,8 +45,11 @@ tasks, reports, resolved required markers, all gates, and an approved review.
 
 Task IDs use `T-NNN`; dependencies must form a DAG, and a task cannot become
 `ready`, `running`, or `complete` until every dependency is `complete`. Worker
-instance names are unique within a run. Completed tasks must have a contained
-`reports/` artifact when `reports_required` is true. Setting
+instance names are unique within a run, and solo runs cannot contain worker
+tasks. Completed tasks must have a contained, structured `reports/` artifact
+when `reports_required` is true. Copy
+`reports/agent-report-template.md` to the exact task report path and complete
+every section. Setting
 `workflow.persist_agent_reports = false` disables assisted-tier reports, while
 solo runs have no worker reports and team runs always persist them as part of
 the team-tier contract. Decision records are append-only and use `D-NNN`;
@@ -77,6 +80,11 @@ update an unchanged managed file, but refuses unmanaged content or locally
 drifted managed content. `--force` permits replacement only with a timestamped
 backup. Installation does not edit client settings or enable experimental
 features.
+
+Project and user installation paths follow each native client's discovery
+layout. In particular, Antigravity project agents/skills use `.agents/`, while
+user agents use `~/.gemini/config/agents/` and Antigravity CLI user skills use
+`~/.gemini/antigravity-cli/skills/`.
 
 ### Native discovery prerequisites
 

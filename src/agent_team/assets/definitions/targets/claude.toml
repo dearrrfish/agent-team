@@ -3,10 +3,13 @@ id = "claude"
 adapter = "claude"
 agent_destination = ".claude/agents"
 skill_destination = ".claude/skills"
+user_agent_destination = ".claude/agents"
+user_skill_destination = ".claude/skills"
 models_without_effort = ["haiku"]
 
 [features]
 supports_effort = true
+effort_levels = ["low", "medium", "high", "xhigh", "max"]
 supports_worktree_isolation = true
 team_runtime = "subagents"
 

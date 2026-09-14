@@ -61,18 +61,45 @@ class AdapterAndInstallerTests(unittest.TestCase):
             self.assertIn("within at most 64 turns", coordinator["developer_instructions"])
             self.assertIn("`agent-report` report contract", coordinator["developer_instructions"])
             self.assertIn("supports worktree isolation", coordinator["developer_instructions"])
+            self.assertIn("Delegate only bounded work", coordinator["developer_instructions"])
+            self.assertNotIn("Do not delegate to another agent", coordinator["developer_instructions"])
 
             claude = render_target("claude", config, root)
             claude_explorer = claude[next(path for path in claude if str(path).endswith("explorer.md"))]
+            claude_coordinator = claude[next(
+                path for path in claude if str(path).endswith("coordinator.md")
+            )]
             self.assertNotIn("effort:", claude_explorer)
             self.assertIn("permissionMode: plan", claude_explorer)
+            self.assertIn("maxTurns: 16", claude_explorer)
+            self.assertIn('"Agent"', claude_coordinator)
 
             antigravity = render_target("antigravity", config, root)
             self.assertTrue(any(str(path) == ".agents/agents/reviewer/agent.md" for path in antigravity))
             antigravity_coordinator = antigravity[next(
                 path for path in antigravity if str(path).endswith("coordinator/agent.md")
             )]
-            self.assertIn("does not support worktree isolation", antigravity_coordinator)
+            antigravity_explorer = antigravity[next(
+                path for path in antigravity if str(path).endswith("explorer/agent.md")
+            )]
+            self.assertIn("Antigravity supports worktree isolation", antigravity_coordinator)
+            self.assertIn("`branch` workspace option", antigravity_coordinator)
+            self.assertIn('"invoke_subagent"', antigravity_coordinator)
+            self.assertIn('"view_file"', antigravity_explorer)
+            self.assertIn('"run_command"', antigravity_explorer)
+            self.assertIn('"search_web"', antigravity_explorer)
+            self.assertNotIn('"read"', antigravity_explorer)
+            self.assertNotIn('"shell"', antigravity_explorer)
+
+            antigravity_user = render_target("antigravity", config, root, scope="user")
+            self.assertTrue(any(
+                str(path) == ".gemini/config/agents/reviewer/agent.md"
+                for path in antigravity_user
+            ))
+            self.assertTrue(any(
+                str(path) == ".gemini/antigravity-cli/skills/team-review/SKILL.md"
+                for path in antigravity_user
+            ))
 
     def test_render_refuses_changed_existing_output(self) -> None:
         with self._project() as directory, tempfile.TemporaryDirectory() as output_directory:

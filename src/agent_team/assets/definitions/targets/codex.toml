@@ -3,10 +3,13 @@ id = "codex"
 adapter = "codex"
 agent_destination = ".codex/agents"
 skill_destination = ".agents/skills"
+user_agent_destination = ".codex/agents"
+user_skill_destination = ".agents/skills"
 models_without_effort = []
 
 [features]
 supports_effort = true
+effort_levels = ["low", "medium", "high", "xhigh", "max", "ultra"]
 supports_worktree_isolation = true
 team_runtime = "subagents"
 

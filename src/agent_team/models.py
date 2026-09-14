@@ -82,7 +82,10 @@ class TargetProfile:
     adapter: str
     agent_destination: str
     skill_destination: str
+    user_agent_destination: str
+    user_skill_destination: str
     supports_effort: bool
+    effort_levels: tuple[str, ...]
     supports_worktree_isolation: bool
     team_runtime: str
     models_without_effort: tuple[str, ...]

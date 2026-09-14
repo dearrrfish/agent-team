@@ -3,11 +3,14 @@ id = "antigravity"
 adapter = "antigravity"
 agent_destination = ".agents/agents"
 skill_destination = ".agents/skills"
+user_agent_destination = ".gemini/config/agents"
+user_skill_destination = ".gemini/antigravity-cli/skills"
 models_without_effort = []
 
 [features]
 supports_effort = false
-supports_worktree_isolation = false
+effort_levels = []
+supports_worktree_isolation = true
 team_runtime = "subagents"
 
 [presets.economy]
