@@ -62,6 +62,13 @@ class CliTests(unittest.TestCase):
             self.assertFalse(payload["ok"])
             self.assertTrue(any(item["path"] == "tiers.assisted.max_workers" for item in payload["diagnostics"]))
 
+    def test_render_uses_only_an_explicit_output_root(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result = self._run(Path(directory), "render", "--help")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("--output OUTPUT", result.stdout)
+            self.assertNotIn("--scope", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

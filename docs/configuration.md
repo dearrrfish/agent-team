@@ -60,7 +60,10 @@ Balanced routing is:
 
 Role effort is mapped through each preset. Claude omits effort for Haiku;
 Antigravity profiles do not emit effort. Tool names and permission modes are
-owned by adapters and cannot be injected through project configuration.
+owned by adapters and cannot be injected through project configuration. Native
+effort mappings may use `low`, `medium`, `high`, `xhigh`, `max`, or `ultra` when
+the target supports that level. Adapters also emit target-specific guidance for
+whether parallel writers may use worktree isolation.
 
 ## Diagnostics
 

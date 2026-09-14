@@ -70,6 +70,15 @@ def _render_agent(target: str, role: RoleDefinition, profile: TargetProfile, pre
         f"- Use only these declared capabilities: {', '.join(role.capabilities)}.\n"
         "- Do not delegate to another agent.\n"
     )
+    if profile.supports_worktree_isolation:
+        instructions += (
+            f"- The `{target}` target supports worktree isolation for parallel writers.\n"
+        )
+    else:
+        instructions += (
+            f"- The `{target}` target does not support worktree isolation; use "
+            "file-disjoint ownership for parallel writers.\n"
+        )
     if target == "codex":
         template = asset_text("templates", "agents", "codex.toml.tpl")
         return render_template(template, {

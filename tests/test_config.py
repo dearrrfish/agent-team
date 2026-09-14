@@ -9,11 +9,13 @@ from agent_team.config import (
     load_builtin_roles,
     load_target_profile,
     load_team_config,
+    parse_target_profile,
     parse_team_config,
     project_root,
     resolve_tier,
 )
 from agent_team.diagnostics import ValidationFailure
+from agent_team.templates import asset_text
 
 
 class ConfigTests(unittest.TestCase):
@@ -49,6 +51,21 @@ class ConfigTests(unittest.TestCase):
         self.assertIn("tiers.assisted.max_workers", paths)
         self.assertIn("workflow.run_root", paths)
 
+    def test_existing_run_root_must_be_a_directory(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            (root / "run-state").write_text("not a directory\n", encoding="utf-8")
+            config_text = DEFAULT_TEAM_TOML.replace(
+                'run_root = ".agent-team/runs"', 'run_root = "run-state"'
+            )
+            (root / ".agent-team" / "team.toml").write_text(config_text, encoding="utf-8")
+            with self.assertRaises(ValidationFailure) as context:
+                load_team_config(root)
+            self.assertTrue(any(
+                item.path == "workflow.run_root" and item.code == "path"
+                for item in context.exception.diagnostics
+            ))
+
     def test_assisted_and_team_require_durable_artifacts(self) -> None:
         data = tomllib.loads(DEFAULT_TEAM_TOML)
         data["tiers"]["assisted"]["durable_artifacts"] = False
@@ -79,6 +96,12 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(codex.presets["balanced"].coordinator_effort, "medium")
             self.assertIn("haiku", claude.models_without_effort)
             self.assertFalse(antigravity.supports_effort)
+
+    def test_target_profiles_accept_ultra_native_effort(self) -> None:
+        data = tomllib.loads(asset_text("definitions", "targets", "codex.toml"))
+        data["presets"]["quality"]["effort"]["high"] = "ultra"
+        profile = parse_target_profile(data, "custom.codex")
+        self.assertEqual(profile.presets["quality"].effort["high"], "ultra")
 
     def test_project_root_falls_back_to_git_toplevel(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

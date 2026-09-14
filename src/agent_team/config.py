@@ -212,6 +212,11 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
     )
     run_root_raw = _string(_required(workflow_data, "run_root", "workflow", diagnostics), "workflow.run_root", diagnostics)
     run_root = _contained_path(root, run_root_raw, "workflow.run_root", diagnostics)
+    resolved_run_root = (root / run_root).resolve()
+    if resolved_run_root.exists() and not resolved_run_root.is_dir():
+        diagnostics.append(Diagnostic(
+            "workflow.run_root", "existing run root must be a directory", code="path"
+        ))
     review_limit = _integer(
         _required(workflow_data, "review_cycle_limit", "workflow", diagnostics),
         "workflow.review_cycle_limit", diagnostics,
@@ -505,7 +510,7 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
         candidate = Path(destination)
         if candidate.is_absolute() or ".." in candidate.parts:
             diagnostics.append(Diagnostic(f"{source}.{destination_key}", "must be a contained relative path", code="path"))
-    valid_efforts = {"low", "medium", "high", "xhigh", "max"}
+    valid_efforts = {"low", "medium", "high", "xhigh", "max", "ultra"}
     for preset_name, preset in presets.items():
         if preset.coordinator_effort is not None and preset.coordinator_effort not in valid_efforts:
             diagnostics.append(Diagnostic(

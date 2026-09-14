@@ -60,6 +60,7 @@ class AdapterAndInstallerTests(unittest.TestCase):
             self.assertIn("Avoid when:", coordinator["description"])
             self.assertIn("within at most 64 turns", coordinator["developer_instructions"])
             self.assertIn("`agent-report` report contract", coordinator["developer_instructions"])
+            self.assertIn("supports worktree isolation", coordinator["developer_instructions"])
 
             claude = render_target("claude", config, root)
             claude_explorer = claude[next(path for path in claude if str(path).endswith("explorer.md"))]
@@ -68,6 +69,10 @@ class AdapterAndInstallerTests(unittest.TestCase):
 
             antigravity = render_target("antigravity", config, root)
             self.assertTrue(any(str(path) == ".agents/agents/reviewer/agent.md" for path in antigravity))
+            antigravity_coordinator = antigravity[next(
+                path for path in antigravity if str(path).endswith("coordinator/agent.md")
+            )]
+            self.assertIn("does not support worktree isolation", antigravity_coordinator)
 
     def test_render_refuses_changed_existing_output(self) -> None:
         with self._project() as directory, tempfile.TemporaryDirectory() as output_directory:

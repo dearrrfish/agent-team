@@ -13,7 +13,7 @@ description: Select and operate the smallest adequate agent-team workflow tier.
    criteria, exact verification, and report path.
 4. Treat `run.toml` `max_workers` as a hard concurrency ceiling and dispatch
    excess ready work in later waves.
-5. Serialize overlapping writes. For team-tier parallel writers, use disjoint
-   files or separate worktrees.
+5. In assisted tier, run at most one write-capable worker at a time. In team
+   tier, parallel writers require disjoint files or separate worktrees.
 6. Persist worker evidence when `reports_required` is true, enforce phase gates,
    and close every worker before completion. Team tier always requires reports.

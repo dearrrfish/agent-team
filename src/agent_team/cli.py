@@ -42,7 +42,6 @@ def _parser() -> argparse.ArgumentParser:
 
     render = subcommands.add_parser("render", help="render native agent files into an output directory")
     render.add_argument("--target", choices=TARGETS, required=True)
-    render.add_argument("--scope", choices=("project", "user"), default="project")
     render.add_argument("--output", type=Path, required=True)
     render.add_argument("--run", dest="run_slug", help="use the model preset from this run")
 

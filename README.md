@@ -52,18 +52,21 @@ Plan before editing:
 ```text
 Act as the main-thread coordinator and use $team-plan for this feature. Run
 agent-team run init --slug <slug> --tier <tier>, capture requirements and
-decisions, complete the plan and tasks, and propose the first implementation
-wave before editing product code.
+complete requirements.md and plan.md, add design.md and decisions.md when deep
+discovery is enabled, add tasks.md for team tier, and propose the first
+implementation wave before editing product code.
 ```
 
 Run a bounded implementation wave:
 
 ```text
 Act as the main-thread coordinator and use $team-coordinate. Read
-.agent-team/runs/<slug>/plan.md and tasks.md. Spawn implementer and ops custom
-agents only for independent, file-disjoint scopes. Give each agent its role,
-instance name, task ID, exact files, acceptance criteria, verification commands,
-and report path. Wait for the wave, then consolidate the evidence.
+.agent-team/runs/<slug>/run.toml and plan.md, plus tasks.md for team tier. For
+assisted tier, record bounded task entries in run.toml and serialize writers.
+Spawn implementer and ops custom agents only for independent, file-disjoint
+scopes. Give each agent its role, instance name, task ID, exact files,
+acceptance criteria, verification commands, and report path. Wait for the wave,
+then consolidate the evidence.
 ```
 
 Run focused discovery or design review:

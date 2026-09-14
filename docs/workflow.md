@@ -27,11 +27,12 @@ agent-team install --target codex --run replace-parser --apply
 ```
 
 The run manifest is authoritative for lifecycle, gates, task dependency state,
-the effective `max_workers` concurrency ceiling, report persistence, and review
-counters. Dispatch excess ready tasks in later waves so the number of `running`
-tasks never exceeds `max_workers`. Markdown is authoritative for rationale,
-contracts, evidence, and verdict text. Update `updated_at` whenever the manifest
-changes.
+the effective `max_workers` concurrency ceiling, `write_isolation` policy,
+report persistence, and review counters. Dispatch excess ready tasks in later
+waves so the number of `running` tasks never exceeds `max_workers`; assisted
+runs may have only one write-capable task running. Markdown is authoritative for
+rationale, contracts, evidence, and verdict text. Update `updated_at` whenever
+the manifest changes.
 
 New runs start with `live_validation = false`. Set it to true only after the
 run's exact verification commands have completed successfully and the evidence
@@ -99,20 +100,23 @@ Create a plan before coding:
 
 ```text
 Act as the main-thread coordinator and use $team-plan for <feature>. Run
-agent-team run init --slug <slug> --tier <tier>, complete requirements.md,
-plan.md, and tasks.md, and propose the first implementation wave before editing
-product code.
+agent-team run init --slug <slug> --tier <tier>, complete requirements.md and
+plan.md, add design.md and decisions.md when deep discovery is enabled, add
+tasks.md for team tier, and propose the first implementation wave before
+editing product code.
 ```
 
 Run parallel implementation:
 
 ```text
 Act as the main-thread coordinator and use $team-coordinate. Read
-.agent-team/runs/<slug>/plan.md and tasks.md. Split the next wave into
-file-disjoint scopes and spawn implementer or ops custom agents only where their
-files do not overlap. Give each worker a unique instance name, task ID, exact
-files, acceptance criteria, verification commands, and report path. Wait for all
-workers, then consolidate their evidence and update the run state.
+.agent-team/runs/<slug>/run.toml and plan.md, plus tasks.md for team tier. For
+assisted tier, record bounded task entries in run.toml and serialize writers.
+Split the next wave into file-disjoint scopes and spawn implementer or ops custom
+agents only where their files do not overlap. Give each worker a unique instance
+name, task ID, exact files, acceptance criteria, verification commands, and
+report path. Wait for all workers, then consolidate their evidence and update
+the run state.
 ```
 
 Run a focused review:

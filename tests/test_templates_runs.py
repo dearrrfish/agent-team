@@ -33,6 +33,7 @@ class TemplateAndRunTests(unittest.TestCase):
             self.assertEqual({path.name for path in run_dir.iterdir()}, expected)
             manifest_data = tomllib.loads((run_dir / "run.toml").read_text(encoding="utf-8"))
             self.assertEqual(manifest_data["max_workers"], 4)
+            self.assertEqual(manifest_data["write_isolation"], "file-disjoint-or-worktree")
             self.assertTrue(manifest_data["reports_required"])
             self.assertFalse(manifest_data["gates"]["live_validation"])
             diagnostics = validate_run(run_dir / "run.toml", config)
@@ -48,6 +49,18 @@ class TemplateAndRunTests(unittest.TestCase):
                 init_run(root, config, "one-run", None, "assisted", "balanced")
             with self.assertRaises(ValidationFailure):
                 init_run(root, config, "../escape", None, "assisted", "balanced")
+
+    def test_run_init_reports_a_non_directory_parent(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            config = load_team_config(root)
+            run_root = root / config.workflow.run_root
+            run_root.write_text("not a directory\n", encoding="utf-8")
+            with self.assertRaises(ValidationFailure) as context:
+                init_run(root, config, "blocked-run", None, "assisted", "balanced")
+            self.assertTrue(any(
+                item.code == "parent" for item in context.exception.diagnostics
+            ))
 
     def test_completion_enforces_gates_review_and_markers(self) -> None:
         with self._project() as directory:
@@ -163,6 +176,52 @@ report = "reports/T-{number:03d}-implementer.md"
 ''')
             diagnostics = validate_run(manifest, config)
             self.assertTrue(any(item.code == "worker-limit" for item in diagnostics))
+
+    def test_assisted_runs_serialize_write_capable_workers(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            config = load_team_config(root)
+            run_dir = init_run(root, config, "serialized-writes", None, "assisted", "balanced")
+            manifest = run_dir / "run.toml"
+            with manifest.open("a", encoding="utf-8") as handle:
+                handle.write('''
+[[tasks]]
+id = "T-001"
+group = "TG-01"
+role = "implementer"
+instance = "writer-one"
+status = "running"
+deps = []
+report = "reports/T-001-implementer.md"
+
+[[tasks]]
+id = "T-002"
+group = "TG-01"
+role = "ops"
+instance = "writer-two"
+status = "running"
+deps = []
+report = "reports/T-002-ops.md"
+''')
+            diagnostics = validate_run(manifest, config)
+            self.assertTrue(any(item.code == "write-isolation" for item in diagnostics))
+
+    def test_run_write_isolation_must_match_tier_policy(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            config = load_team_config(root)
+            run_dir = init_run(root, config, "isolation-policy", None, "team", "balanced")
+            manifest = run_dir / "run.toml"
+            text = manifest.read_text(encoding="utf-8").replace(
+                'write_isolation = "file-disjoint-or-worktree"',
+                'write_isolation = "serialized"',
+            )
+            manifest.write_text(text, encoding="utf-8")
+            diagnostics = validate_run(manifest, config)
+            self.assertTrue(any(
+                item.path.endswith(".write_isolation") and item.code == "invariant"
+                for item in diagnostics
+            ))
 
     def test_completed_task_report_required_markers_are_validated(self) -> None:
         with self._project() as directory:

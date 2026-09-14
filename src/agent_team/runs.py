@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_team.diagnostics import Diagnostic, ValidationFailure
-from agent_team.fs import atomic_write
+from agent_team.fs import atomic_write, non_directory_parent
 from agent_team.models import ROLE_IDS, TIERS, TeamConfig
 from agent_team.templates import asset_text, render_template, required_markers
 
@@ -43,7 +43,8 @@ def _run_manifest(
     *, slug: str, title: str, created_at: str, tier: str, model_preset: str,
     host: str, repository: str, baseline: str, branch: str,
     worktree_decision: str, review_required: bool, review_limit: int,
-    max_workers: int, reports_required: bool, artifacts: dict[str, str],
+    max_workers: int, write_isolation: str, reports_required: bool,
+    artifacts: dict[str, str],
     worktree_gate: bool, worker_gate: bool,
 ) -> str:
     lines = [
@@ -55,6 +56,7 @@ def _run_manifest(
         'status = "discovery"',
         f"tier = {_toml_string(tier)}",
         f"max_workers = {max_workers}",
+        f"write_isolation = {_toml_string(write_isolation)}",
         f"reports_required = {'true' if reports_required else 'false'}",
         f"model_preset = {_toml_string(model_preset)}",
         f"host = {_toml_string(host)}",
@@ -99,12 +101,22 @@ def init_run(
         ])
     if tier not in TIERS:
         raise ValidationFailure([Diagnostic("tier", "must be solo, assisted, or team", code="enum")])
-    run_root = (root / config.workflow.run_root).resolve()
+    project_root = root.resolve()
+    run_root = (project_root / config.workflow.run_root).resolve()
+    if run_root != project_root and project_root not in run_root.parents:
+        raise ValidationFailure([
+            Diagnostic("workflow.run_root", "run root escapes the project", code="path")
+        ])
     destination = (run_root / slug).resolve()
-    if run_root not in destination.parents:
+    if destination == run_root or run_root not in destination.parents:
         raise ValidationFailure([Diagnostic("slug", "run path escapes configured run root", code="path")])
     if destination.exists():
         raise ValidationFailure([Diagnostic(str(destination), "run already exists", code="exists")])
+    blocker = non_directory_parent(project_root, destination)
+    if blocker is not None:
+        raise ValidationFailure([
+            Diagnostic(str(destination), f"parent path is not a directory: {blocker}", code="parent")
+        ])
 
     display_title = title or slug.replace("-", " ").title()
     timestamp = utc_now()
@@ -170,6 +182,7 @@ def init_run(
         review_required=review_required,
         review_limit=config.workflow.review_cycle_limit,
         max_workers=config.tiers[tier].max_workers,
+        write_isolation=config.tiers[tier].write_isolation,
         reports_required=reports_required,
         artifacts=artifacts,
         worktree_gate=worktree_gate,
@@ -205,7 +218,10 @@ def _valid_timestamp(value: Any) -> bool:
 
 
 def validate_run(
-    path: Path, config: TeamConfig, allowed_roles: set[str] | None = None
+    path: Path,
+    config: TeamConfig,
+    allowed_roles: set[str] | None = None,
+    writable_roles: set[str] | None = None,
 ) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     label = str(path)
@@ -215,7 +231,7 @@ def validate_run(
         return [Diagnostic(label, str(exc), code="toml")]
     _unknown(
         data,
-        {"schema_version", "slug", "title", "created_at", "updated_at", "status", "tier", "max_workers", "reports_required", "model_preset", "host", "git", "review", "gates", "artifacts", "tasks"},
+        {"schema_version", "slug", "title", "created_at", "updated_at", "status", "tier", "max_workers", "write_isolation", "reports_required", "model_preset", "host", "git", "review", "gates", "artifacts", "tasks"},
         label, diagnostics,
     )
     if data.get("schema_version") != 1:
@@ -238,6 +254,17 @@ def validate_run(
     elif tier in TIERS and max_workers != config.tiers[tier].max_workers:
         diagnostics.append(Diagnostic(
             f"{label}.max_workers", "must match the selected tier's configured limit", code="invariant"
+        ))
+    write_isolation = data.get("write_isolation")
+    if not isinstance(write_isolation, str) or not write_isolation:
+        diagnostics.append(Diagnostic(
+            f"{label}.write_isolation", "must be a non-empty string", code="type"
+        ))
+    elif tier in TIERS and write_isolation != config.tiers[tier].write_isolation:
+        diagnostics.append(Diagnostic(
+            f"{label}.write_isolation",
+            "must match the selected tier's write-isolation policy",
+            code="invariant",
         ))
     reports_required = data.get("reports_required")
     if not isinstance(reports_required, bool):
@@ -368,6 +395,8 @@ def validate_run(
     instances: set[str] = set()
     dependency_map: dict[str, tuple[str, ...]] = {}
     task_statuses: dict[str, str] = {}
+    known_roles = allowed_roles or set(ROLE_IDS)
+    known_writable_roles = writable_roles or {"coordinator", "implementer", "ops"}
     for index, task in enumerate(tasks):
         prefix = f"{label}.tasks.{index}"
         _unknown(task, task_allowed, prefix, diagnostics)
@@ -388,7 +417,6 @@ def validate_run(
             diagnostics.append(Diagnostic(f"{prefix}.instance", "worker instance must be unique", code="duplicate"))
         else:
             instances.add(instance)
-        known_roles = allowed_roles or set(ROLE_IDS)
         role = task.get("role")
         if role not in known_roles:
             diagnostics.append(Diagnostic(f"{prefix}.role", "unsupported role", code="enum"))
@@ -475,6 +503,16 @@ def validate_run(
                 f"{running_workers} running workers exceeds max_workers = {max_workers}",
                 code="worker-limit",
             ))
+    running_writers = sum(
+        task.get("status") == "running" and task.get("role") in known_writable_roles
+        for task in tasks
+    )
+    if tier == "assisted" and running_writers > 1:
+        diagnostics.append(Diagnostic(
+            f"{label}.tasks",
+            f"{running_writers} running writers violates write_isolation = serialized",
+            code="write-isolation",
+        ))
 
     phase_gates = {
         "planned": ("requirements", "design", "plan"),
@@ -502,12 +540,15 @@ def validate_all_runs(root: Path, config: TeamConfig) -> list[Diagnostic]:
 
     diagnostics: list[Diagnostic] = []
     try:
-        allowed_roles = {role.role_id for role in load_roles(config, root)}
+        roles = load_roles(config, root)
+        allowed_roles = {role.role_id for role in roles}
+        writable_roles = {role.role_id for role in roles if role.write_policy == "workspace"}
     except ValidationFailure as exc:
         diagnostics.extend(exc.diagnostics)
         allowed_roles = set(ROLE_IDS)
+        writable_roles = {"coordinator", "implementer", "ops"}
     for manifest in sorted(run_root.glob("*/run.toml")):
-        diagnostics.extend(validate_run(manifest, config, allowed_roles))
+        diagnostics.extend(validate_run(manifest, config, allowed_roles, writable_roles))
     return diagnostics
 
 
@@ -520,7 +561,15 @@ def load_run_model_preset(root: Path, config: TeamConfig, slug: str) -> str:
     manifest = (run_root / slug / "run.toml").resolve()
     if run_root not in manifest.parents:
         raise ValidationFailure([Diagnostic("run", "run path escapes configured run root", code="path")])
-    diagnostics = validate_run(manifest, config)
+    from agent_team.config import load_roles
+
+    roles = load_roles(config, root)
+    diagnostics = validate_run(
+        manifest,
+        config,
+        {role.role_id for role in roles},
+        {role.role_id for role in roles if role.write_policy == "workspace"},
+    )
     errors = [item for item in diagnostics if item.severity == "error"]
     if errors:
         raise ValidationFailure(errors)

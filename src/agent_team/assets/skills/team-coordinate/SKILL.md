@@ -17,6 +17,9 @@ Before dispatch, read `max_workers` and `reports_required` from the current
 `run.toml`. Never allow the number of running workers to exceed `max_workers`;
 use additional waves when ready work exceeds the limit. Persist each worker's
 report when `reports_required` is true. Team tier always requires reports.
+Also read `write_isolation`: assisted tier permits at most one running
+write-capable worker, while team-tier parallel writers need disjoint files or
+separate worktrees supported by the target.
 Confirm that the target's native agents were rendered or installed with
 `--run <slug>` so their model routing matches the manifest's `model_preset`.
 
