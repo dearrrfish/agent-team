@@ -1,8 +1,9 @@
 # agent-team
 
-`agent-team` generates portable, role-based agent teams for Codex, Claude Code,
-and Antigravity CLI. It gives each client the same workflow contract while
-rendering the native agent and skill files that client expects.
+`agent-team` generates portable, role-based agent teams for Codex, with
+experimental adapters for Claude Code and Antigravity CLI. It gives each client
+the same workflow contract while rendering the native agent and skill files that
+client expects.
 
 The project is designed for coding work that benefits from explicit ownership:
 a coordinator plans and integrates, bounded workers execute independent tasks,
@@ -24,7 +25,7 @@ macOS packaging is not part of the current release.
 - Three workload tiers: lightweight `solo`, bounded `assisted`, and reviewed
   `team` execution.
 - Cost/quality routing through `economy`, `balanced`, and `quality` model
-  presets for every supported client.
+  presets for every adapter.
 - Durable requirements, plans, task DAGs, decisions, worker reports, reviews,
   and final reports when the selected tier requires them.
 - Strict TOML, lifecycle, task dependency, report, review, and template
@@ -120,10 +121,30 @@ This structure encodes seven operating principles:
 - Python 3.11 or newer
 - Git
 - Nix with flakes enabled (recommended for development and local execution)
-- At least one supported native client for actually running the generated team
+- At least one enabled native client for actually running the generated team
 
 Rendering and validation do not require Codex, Claude Code, or Antigravity to be
 installed. `agent-team doctor` reports missing clients as warnings.
+
+## Support status
+
+| Target | Generate, install, and validate | Native discovery | Model-backed role selection | v0.1 status |
+| --- | --- | --- | --- | --- |
+| Codex | Verified | Verified | Verified | Supported |
+| Claude Code | Verified | Verified | Blocked on subscription/login validation | Experimental |
+| Antigravity CLI | Verified | No strict discovery interface found | Not verified | Experimental |
+
+The Codex adapter has selected generated custom roles and applied their model,
+effort, and instructions in native runs. Claude Code has discovered all six
+generated roles, but its model-backed check requires an authenticated
+subscription. Antigravity generation and installation pass, but its CLI does
+not currently expose a strict machine-readable agent listing; an invalid-agent
+probe fell back to the default agent instead of failing.
+
+These labels describe native compatibility evidence, not template completeness.
+All three adapters are covered by deterministic render, install, validation,
+and idempotence tests. Observed client versions are recorded in the project
+progress notes and are not declared compatibility bounds.
 
 ## Quick start
 
@@ -335,6 +356,18 @@ nix develop
 python -m unittest discover -s tests -v
 python -m compileall -q src tests
 nix flake check
+```
+
+`nix flake check` is the core release gate. It builds the package, runs the unit
+suite, Ruff, and ShellCheck, and exercises the installed executable through
+initialization and all-target render/install/idempotence smoke tests.
+
+Before a documentation release, optionally inspect the browser-rendered diagram
+layout. This downloads a large Chromium closure on first use:
+
+```console
+nix shell nixpkgs#mermaid-cli -c \
+  mmdc -i README.md -o /tmp/agent-team-readme-rendered.md
 ```
 
 The flake currently declares `x86_64-linux` and `aarch64-linux` outputs. The

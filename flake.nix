@@ -17,9 +17,10 @@
             pyproject = true;
             src = self;
             build-system = [ pkgs.python3Packages.setuptools ];
-            nativeCheckInputs = [ pkgs.git ];
+            nativeCheckInputs = [ pkgs.git pkgs.ruff ];
             checkPhase = ''
               runHook preCheck
+              ruff check src tests
               python -m unittest discover -s tests -v
               runHook postCheck
             '';
@@ -45,8 +46,21 @@
           };
         });
 
-      checks = forAllSystems (system: {
-        inherit (self.packages.${system}) default;
-      });
+      checks = forAllSystems (system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+          package = self.packages.${system}.default;
+        in {
+          inherit (self.packages.${system}) default;
+
+          release-smoke = pkgs.runCommand "agent-team-release-smoke" {
+            nativeBuildInputs = [ pkgs.bash pkgs.git pkgs.shellcheck ];
+          } ''
+            shellcheck ${self}/tests/release_smoke.sh
+            bash ${self}/tests/release_smoke.sh \
+              ${package}/bin/agent-team "$TMPDIR/project"
+            touch $out
+          '';
+        });
     };
 }
