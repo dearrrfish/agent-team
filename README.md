@@ -359,8 +359,8 @@ nix flake check
 ```
 
 `nix flake check` is the core release gate. It builds the package, runs the unit
-suite, Ruff, and ShellCheck, and exercises the installed executable through
-initialization and all-target render/install/idempotence smoke tests.
+suite, Ruff, ShellCheck, and Markdownlint, and exercises the installed executable
+through initialization and all-target render/install/idempotence smoke tests.
 
 Before a documentation release, optionally inspect the browser-rendered diagram
 layout. This downloads a large Chromium closure on first use:
@@ -373,6 +373,12 @@ nix shell nixpkgs#mermaid-cli -c \
 The flake currently declares `x86_64-linux` and `aarch64-linux` outputs. The
 implementation has been exercised on `x86_64-linux`; `aarch64-linux` still
 needs native verification.
+
+## Releases
+
+- [Changelog](CHANGELOG.md)
+- [v0.1.0 release notes](docs/releases/v0.1.0.md)
+- [Release process](docs/releasing.md)
 
 ## Inspiration
 

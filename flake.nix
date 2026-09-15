@@ -24,6 +24,12 @@
               python -m unittest discover -s tests -v
               runHook postCheck
             '';
+            meta = {
+              description = "Portable native agent-team workflow generator";
+              license = pkgs.lib.licenses.mit;
+              mainProgram = "agent-team";
+              platforms = supportedSystems;
+            };
           };
         });
 
@@ -59,6 +65,14 @@
             shellcheck ${self}/tests/release_smoke.sh
             bash ${self}/tests/release_smoke.sh \
               ${package}/bin/agent-team "$TMPDIR/project"
+            touch $out
+          '';
+
+          documentation = pkgs.runCommand "agent-team-documentation" {
+            nativeBuildInputs = [ pkgs.markdownlint-cli2 ];
+          } ''
+            markdownlint-cli2 --config ${self}/.markdownlint-cli2.jsonc \
+              ${self}/README.md ${self}/CHANGELOG.md '${self}/docs/**/*.md'
             touch $out
           '';
         });
