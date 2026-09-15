@@ -32,6 +32,89 @@ macOS packaging is not part of the current release.
 - Deterministic rendering plus preview-first installation with ownership hashes,
   drift detection, atomic writes, and backups.
 
+## Agent-team topology and ideology
+
+The topology scales outward only when the task benefits from delegation. The
+user retains product decisions, the coordinator remains the single integration
+authority, and workers receive bounded roles rather than sharing ownership of
+the whole task.
+
+```mermaid
+flowchart TB
+    U["User<br/>intent · decisions · approval"] --> C["Coordinator<br/>align · plan · delegate · integrate"]
+    C --> T{"Smallest adequate tier"}
+
+    subgraph SOLO["solo · coordinator only"]
+        S["Bounded implementation<br/>no worker delegation"]
+    end
+
+    subgraph ASSISTED["assisted · bounded help"]
+        AC["Coordinator<br/>integration owner"]
+        AR["Explorer / design-agent<br/>read-only evidence"]
+        AW["Implementer / ops<br/>at most one active writer"]
+        AC --> AR
+        AC --> AW
+        AR --> AC
+        AW --> AC
+    end
+
+    subgraph TEAM["team · independent work streams"]
+        TC["Coordinator<br/>task DAG · ownership · waves"]
+        TR["Explorer / design-agent<br/>read-only discovery"]
+        TW1["Implementer<br/>disjoint files or worktree"]
+        TW2["Ops<br/>disjoint files or worktree"]
+        RV["Reviewer<br/>independent · read-only"]
+        TC --> TR
+        TC --> TW1
+        TC --> TW2
+        TR --> TC
+        TW1 --> TC
+        TW2 --> TC
+        TC --> RV
+        RV -->|"changes requested · cycle remains"| TC
+    end
+
+    T -->|"solo"| S
+    T -->|"assisted"| AC
+    T -->|"team"| TC
+
+    D[("Durable run artifacts<br/>requirements · plan · tasks · reports · review")]
+    AC -.->|"state and reports"| D
+    TC -.->|"state and reports"| D
+    D -.->|"evidence"| RV
+
+    S --> V["Validation and live verification"]
+    AC --> V
+    RV -->|"approved"| V
+    V --> O["Integrated, evidence-backed result"]
+
+    classDef authority fill:#dbeafe,stroke:#2563eb,color:#172554;
+    classDef readonly fill:#ecfdf5,stroke:#059669,color:#022c22;
+    classDef writer fill:#fff7ed,stroke:#ea580c,color:#431407;
+    classDef review fill:#f5f3ff,stroke:#7c3aed,color:#2e1065;
+    class U,C,AC,TC authority;
+    class AR,TR readonly;
+    class S,AW,TW1,TW2 writer;
+    class RV review;
+```
+
+This structure encodes seven operating principles:
+
+1. **User authority:** material product, scope, and risk decisions stay with the
+   user.
+2. **Coordinator ownership:** one main-thread coordinator owns delegation,
+   integration, state transitions, and completion.
+3. **Minimum sufficient team:** `solo` is the baseline; `assisted` and `team`
+   must earn their coordination cost.
+4. **Bounded delegation:** every worker receives one role, an exact scope,
+   acceptance criteria, verification commands, and a reporting contract.
+5. **Safe concurrency:** read-only work can overlap; writers are serialized in
+   `assisted` and isolated by files or worktrees in `team`.
+6. **Durable evidence:** plans, decisions, task state, reports, and review
+   survive agent or session boundaries when the tier requires them.
+7. **Independent closure:** team work passes through a reviewer who does not
+   author fixes, followed by coordinator-owned verification and integration.
+
 ## Requirements
 
 - Python 3.11 or newer
