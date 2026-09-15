@@ -373,6 +373,12 @@ def parse_role(data: dict[str, Any], instructions: str, source: str) -> RoleDefi
         ))
     if role_id == "reviewer" and report_kind != "review-cycle":
         diagnostics.append(Diagnostic(f"{source}.report_kind", "reviewer requires review-cycle", code="invariant"))
+    elif role_id != "reviewer" and report_kind != "agent-report":
+        diagnostics.append(Diagnostic(
+            f"{source}.report_kind",
+            "non-reviewer roles require agent-report",
+            code="invariant",
+        ))
     instructions_reference = _string(
         _required(data, "instructions", source, diagnostics), f"{source}.instructions", diagnostics
     )

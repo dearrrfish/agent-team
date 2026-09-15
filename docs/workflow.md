@@ -62,6 +62,8 @@ A required review cannot record an outcome verdict until at least one review
 cycle has been counted in `review.used`. The Run, Cycle, and Verdict fields in
 `review.md` must match the manifest; a pending cycle uses `review.used + 1`,
 while a completed outcome uses `review.used`.
+Once `review.used` reaches `review.limit`, another pending cycle is invalid; a
+non-approved final cycle leaves the run blocked.
 
 ## Rendering and installation
 
@@ -85,6 +87,12 @@ update an unchanged managed file, but refuses unmanaged content or locally
 drifted managed content. `--force` permits replacement only with a timestamped
 backup. Installation does not edit client settings or enable experimental
 features.
+
+When a previously managed path is absent from the current target output,
+installation reports it as `stale` but retains the file and ownership record.
+V1 does not prune automatically because native targets can share installed
+skills. Inspect each stale path and remove it manually only after confirming no
+other target still owns or uses it.
 
 Project and user installation paths follow each native client's discovery
 layout. In particular, Antigravity project agents/skills use `.agents/`, while

@@ -9,6 +9,7 @@ from agent_team.config import (
     load_builtin_roles,
     load_target_profile,
     load_team_config,
+    parse_role,
     parse_target_profile,
     parse_team_config,
     project_root,
@@ -85,6 +86,17 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(roles["coordinator"].delegation)
         self.assertFalse(any(
             role.delegation for role_id, role in roles.items() if role_id != "coordinator"
+        ))
+
+    def test_non_reviewer_role_rejects_review_cycle_report(self) -> None:
+        data = tomllib.loads(asset_text("definitions", "roles", "explorer", "role.toml"))
+        data["id"] = "analyst"
+        data["report_kind"] = "review-cycle"
+        with self.assertRaises(ValidationFailure) as context:
+            parse_role(data, "# Instructions\n", "roles.analyst")
+        self.assertTrue(any(
+            item.path == "roles.analyst.report_kind" and item.code == "invariant"
+            for item in context.exception.diagnostics
         ))
 
     def test_builtin_target_profiles_cover_all_presets(self) -> None:

@@ -413,6 +413,20 @@ def validate_run(
         diagnostics.append(Diagnostic(
             f"{label}.review.used", "must record at least one cycle for this verdict", code="invariant"
         ))
+    if (
+        required is True
+        and verdict == "pending"
+        and isinstance(used, int)
+        and not isinstance(used, bool)
+        and isinstance(limit, int)
+        and not isinstance(limit, bool)
+        and used >= limit
+    ):
+        diagnostics.append(Diagnostic(
+            f"{label}.review.verdict",
+            "cannot be pending after the review cycle limit is exhausted",
+            code="review-limit",
+        ))
 
     gates = _table(data, "gates", label, diagnostics)
     gate_names = {"requirements", "design", "plan", "worktree", "live_validation", "worker_closure"}

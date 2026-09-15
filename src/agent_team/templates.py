@@ -4,7 +4,8 @@ import re
 from collections.abc import Mapping
 from importlib import resources
 
-_VARIABLE = re.compile(r"\$\{([a-z][a-z0-9_]*)\}")
+_VARIABLE_NAME = re.compile(r"[a-z][a-z0-9_]*")
+_PLACEHOLDER = re.compile(r"\$\{(.*?)\}", re.DOTALL)
 _REQUIRED = re.compile(r"<!--\s*REQUIRED:\s*.+?-->", re.DOTALL)
 
 
@@ -17,14 +18,20 @@ def asset_text(*parts: str) -> str:
 
 
 def render_template(template: str, variables: Mapping[str, str]) -> str:
-    referenced = set(_VARIABLE.findall(template))
+    matches = tuple(_PLACEHOLDER.finditer(template))
+    invalid = sorted({match.group(1) for match in matches if not _VARIABLE_NAME.fullmatch(match.group(1))})
+    unmatched_start = "${" in _PLACEHOLDER.sub("", template)
+    if invalid or unmatched_start:
+        details = ", ".join(repr(name) for name in invalid) if invalid else "unclosed placeholder"
+        raise TemplateError(f"invalid template variable syntax: {details}")
+    referenced = {match.group(1) for match in matches}
     missing = sorted(referenced - set(variables))
     if missing:
         raise TemplateError(f"missing template variables: {', '.join(missing)}")
     unknown = sorted(set(variables) - referenced)
     if unknown:
         raise TemplateError(f"unknown template variables: {', '.join(unknown)}")
-    return _VARIABLE.sub(lambda match: variables[match.group(1)], template)
+    return _PLACEHOLDER.sub(lambda match: variables[match.group(1)], template)
 
 
 def required_markers(text: str) -> tuple[str, ...]:

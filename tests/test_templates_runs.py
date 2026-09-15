@@ -24,6 +24,10 @@ class TemplateAndRunTests(unittest.TestCase):
             render_template("hello ${name}", {})
         with self.assertRaises(TemplateError):
             render_template("hello ${name}", {"name": "team", "unknown": "value"})
+        with self.assertRaises(TemplateError):
+            render_template("hello ${Bad-Name}", {})
+        with self.assertRaises(TemplateError):
+            render_template("hello ${unclosed", {})
         self.assertEqual(len(required_markers("<!-- REQUIRED: fill me -->")), 1)
 
     def test_team_run_has_expected_artifacts_and_warning_markers(self) -> None:
@@ -233,6 +237,27 @@ report = "reports/T-002-implementer.md"
             )
             diagnostics = validate_run(manifest, config)
             self.assertFalse(any(item.code == "review-contract" for item in diagnostics))
+
+    def test_review_limit_rejects_another_pending_cycle(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            config = load_team_config(root)
+            run_dir = init_run(root, config, "review-limit", None, "team", "balanced")
+            manifest = run_dir / "run.toml"
+            manifest.write_text(
+                manifest.read_text(encoding="utf-8").replace("used = 0", "used = 2"),
+                encoding="utf-8",
+            )
+            review = run_dir / "review.md"
+            review.write_text(
+                review.read_text(encoding="utf-8").replace("- Cycle: 1", "- Cycle: 3"),
+                encoding="utf-8",
+            )
+            diagnostics = validate_run(manifest, config)
+            self.assertTrue(any(
+                item.path.endswith(".review.verdict") and item.code == "review-limit"
+                for item in diagnostics
+            ))
 
     def test_running_tasks_cannot_exceed_configured_worker_limit(self) -> None:
         config_text = DEFAULT_TEAM_TOML.replace(

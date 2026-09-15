@@ -55,6 +55,7 @@ def _classify(
     target_root: Path,
     files: dict[PurePosixPath, str],
     state: dict[str, Any],
+    target: str,
 ) -> list[InstallAction]:
     actions: list[InstallAction] = []
     records = state["files"]
@@ -82,6 +83,14 @@ def _classify(
             actions.append(InstallAction(key, "unchanged", "managed content is current"))
         else:
             actions.append(InstallAction(key, "update", "managed source changed"))
+    desired = {relative.as_posix() for relative in files}
+    for key, record in sorted(records.items()):
+        if key not in desired and record.get("target") == target:
+            actions.append(InstallAction(
+                key,
+                "stale",
+                "managed path is absent from current target output and was retained",
+            ))
     return actions
 
 
@@ -109,7 +118,7 @@ def install_files(
         raise ValidationFailure(path_diagnostics)
 
     state = _load_state(target_root)
-    actions = _classify(target_root, files, state)
+    actions = _classify(target_root, files, state, target)
     invalid = [action for action in actions if action.action == "directory"]
     if invalid:
         raise ValidationFailure([
@@ -145,11 +154,11 @@ def install_files(
     state_changed = False
     for action in actions:
         relative = PurePosixPath(action.path)
+        if action.action in {"unchanged", "stale"}:
+            continue
         destination = (target_root / Path(relative)).resolve()
         if destination != target_root and target_root not in destination.parents:
             raise ValidationFailure([Diagnostic(action.path, "install path escapes target root", code="path")])
-        if action.action == "unchanged":
-            continue
         content = files[relative]
         previous = state["files"].get(relative.as_posix(), {})
         previous_backup = previous.get("backup")

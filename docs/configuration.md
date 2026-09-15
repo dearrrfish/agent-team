@@ -38,7 +38,9 @@ roles must remain available.
 Role metadata selects semantic model class (`fast`, `balanced`, `deep`), effort
 (`low`, `medium`, `high`), write policy (`deny`, `workspace`), capabilities,
 activation guidance, turn limit, and report kind. The coordinator must delegate;
-all worker roles must not. Read-only roles cannot request `filesystem.write`.
+all worker roles must not. Only reviewer uses the `review-cycle` report contract;
+every other role uses `agent-report`. Read-only roles cannot request
+`filesystem.write`.
 Adapters include activation guidance in the native description and append the
 portable turn, report, capability, and delegation contract to native
 instructions. Claude also receives native `maxTurns`; targets without a hard

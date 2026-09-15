@@ -238,6 +238,35 @@ class AdapterAndInstallerTests(unittest.TestCase):
             self.assertTrue(any(item.code == "conflict" for item in context.exception.diagnostics))
             self.assertEqual(existing.read_text(encoding="utf-8"), "user content")
 
+    def test_install_surfaces_but_retains_stale_managed_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as target_directory:
+            target_root = Path(target_directory)
+            initial = {
+                PurePosixPath("agents/active.md"): "active",
+                PurePosixPath("agents/obsolete.md"): "obsolete",
+            }
+            install_files(
+                target="codex", target_root=target_root, files=initial,
+                apply=True, force=False, backups=True,
+            )
+            current = {PurePosixPath("agents/active.md"): "active"}
+            preview = install_files(
+                target="codex", target_root=target_root, files=current,
+                apply=False, force=False, backups=True,
+            )
+            self.assertTrue(any(
+                action.path == "agents/obsolete.md" and action.action == "stale"
+                for action in preview
+            ))
+            install_files(
+                target="codex", target_root=target_root, files=current,
+                apply=True, force=False, backups=True,
+            )
+            self.assertEqual(
+                (target_root / "agents" / "obsolete.md").read_text(encoding="utf-8"),
+                "obsolete",
+            )
+
     def test_directory_destination_and_backup_disabled_fail_before_writes(self) -> None:
         with self._project() as directory, tempfile.TemporaryDirectory() as target_directory:
             root = Path(directory)
