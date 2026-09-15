@@ -1,93 +1,269 @@
 # agent-team
 
-`agent-team` generates portable, role-based native agent teams for Codex,
-Claude Code, and Antigravity CLI. It provides adaptive workflow tiers, durable
-run artifacts, strict validation, and preview-first safe installation.
+`agent-team` generates portable, role-based agent teams for Codex, Claude Code,
+and Antigravity CLI. It gives each client the same workflow contract while
+rendering the native agent and skill files that client expects.
+
+The project is designed for coding work that benefits from explicit ownership:
+a coordinator plans and integrates, bounded workers execute independent tasks,
+and a read-only reviewer checks the result. Adaptive workflow tiers keep that
+coordination overhead out of small changes.
+
+> [!NOTE]
+> `agent-team` is a generator, validator, and installer—not a cross-client
+> orchestrator. Codex, Claude Code, and Antigravity each run their own native
+> subagents after installation.
+
+Version 0.1 is Linux/Nix-first. The generated configuration is portable, but
+macOS packaging is not part of the current release.
+
+## What it provides
+
+- Six target-neutral roles: `coordinator`, `explorer`, `design-agent`,
+  `implementer`, `ops`, and `reviewer`.
+- Three workload tiers: lightweight `solo`, bounded `assisted`, and reviewed
+  `team` execution.
+- Cost/quality routing through `economy`, `balanced`, and `quality` model
+  presets for every supported client.
+- Durable requirements, plans, task DAGs, decisions, worker reports, reviews,
+  and final reports when the selected tier requires them.
+- Strict TOML, lifecycle, task dependency, report, review, and template
+  validation.
+- Deterministic rendering plus preview-first installation with ownership hashes,
+  drift detection, atomic writes, and backups.
+
+## Requirements
+
+- Python 3.11 or newer
+- Git
+- Nix with flakes enabled (recommended for development and local execution)
+- At least one supported native client for actually running the generated team
+
+Rendering and validation do not require Codex, Claude Code, or Antigravity to be
+installed. `agent-team doctor` reports missing clients as warnings.
 
 ## Quick start
 
+Run directly from this checkout:
+
 ```console
-nix develop
-agent-team init
-agent-team validate
-agent-team run init --slug my-change --model-preset balanced
-agent-team render --target codex --run my-change --output ./dist/codex
-agent-team install --target codex --run my-change
-agent-team install --target codex --run my-change --apply
+nix run . -- --version
 ```
 
-`install` is a preview unless `--apply` is provided. Existing unmanaged files
-and drifted managed files are refused unless `--force` is explicit; forced
-replacement creates a backup. Passing `--run <slug>` to `render` or `install`
-applies that run's model preset; without it, the project default is used.
+For development, enter the shell and invoke the package as a Python module:
 
-For project-scoped Codex installs, trust the project in Codex and start a fresh
-session after `--apply`. Codex intentionally skips project `.codex/` agents in
-untrusted projects. Name the desired custom role explicitly in workflow prompts;
-the selected agent file supplies its model, reasoning effort, permissions, and
-role instructions.
+```console
+nix develop
+python -m agent_team --version
+```
 
-## Workflow tiers
+To make the command available outside this checkout, install the local flake in
+your Nix profile:
 
-- `solo`: coordinator-only work without required durable artifacts.
-- `assisted`: up to two read-heavy workers with serialized writes.
-- `team`: file-disjoint or worktree-isolated workers, durable reports, and
-  mandatory independent review.
+```console
+nix profile install /path/to/agent-team
+agent-team --version
+```
 
-Each run records the selected tier's `max_workers` as a hard concurrency limit.
-`workflow.persist_agent_reports` controls optional assisted-tier reports, while
-solo runs have no worker reports and team runs always require them.
+You can instead prefix every command with
+`nix run /path/to/agent-team --`. The remaining examples assume the profile
+installation and use the shorter `agent-team` form.
 
-Run `agent-team doctor` for environment checks and `agent-team --help` for the
-complete command surface. Doctor reports the executable and version status of
-each enabled native client; missing clients are warnings because rendering and
-installation do not require them to be installed locally.
+From the root of the project where you want an agent team:
 
-For Antigravity, project installation uses `.agents/`; user installation uses
-the native `~/.gemini/config/agents/` and
-`~/.gemini/antigravity-cli/skills/` discovery trees.
+```console
+agent-team init
+agent-team validate
+agent-team doctor
+```
 
-## Common usage prompts
+`init` creates `.agent-team/team.toml`. Review that file, then preview and apply
+the native files for your client:
 
-These Codex examples follow the same explicit role-naming pattern as the AWS
-sample. For another target, use that client's native skill invocation syntax
-while keeping the role names and task boundaries.
+```console
+agent-team install --target codex
+agent-team install --target codex --apply
+```
 
-Plan before editing:
+Project installation is the default. Use `--scope user` only when you want the
+same generated team available across projects.
+
+For work that needs durable coordination, initialize a run and bind its model
+preset to the installed agents:
+
+```console
+agent-team run init \
+  --slug replace-parser \
+  --title "Replace parser" \
+  --tier team \
+  --model-preset balanced
+
+agent-team install --target codex --run replace-parser
+agent-team install --target codex --run replace-parser --apply
+```
+
+Complete the generated files under `.agent-team/runs/replace-parser/`, then
+start a fresh native-client session and explicitly name the role you want it to
+use. For example, in Codex:
 
 ```text
-Act as the main-thread coordinator and use $team-plan for this feature. Run
-agent-team run init --slug <slug> --tier <tier>, capture requirements and
-complete requirements.md and plan.md, add design.md and decisions.md when deep
-discovery is enabled, add tasks.md for team tier, and propose the first
+Act as the main-thread coordinator and use $team-plan for replace-parser. Read
+.agent-team/runs/replace-parser/, complete the requirements and plan artifacts,
+add the task breakdown required by the selected tier, and propose the first
 implementation wave before editing product code.
 ```
 
-Run a bounded implementation wave:
+Project-scoped Codex agents are loaded only for trusted projects. Trust the
+project and start a fresh Codex session after installation; if a named role is
+unavailable, diagnose discovery instead of silently substituting a generic
+agent.
+
+## Choose a workflow tier
+
+| Tier | Configured worker limit | Durable state | Write policy | Independent review |
+| --- | ---: | --- | --- | --- |
+| `solo` | 0 | Not required | Coordinator only | No |
+| `assisted` | 1–2 | Required | Writers serialized | Optional |
+| `team` | 2–8 (4 by default) | Required | File-disjoint or isolated worktrees | Required |
+
+The default `adaptive` selection counts repository files after excluding common
+generated and dependency directories:
+
+- Up to 25 files: `solo`
+- 26–200 files: `assisted`
+- More than 200 files: `team`
+
+An explicit `--tier` always wins. Use `team` only when the work can be divided
+into genuinely independent scopes and review is worth the added coordination.
+
+## Roles
+
+| Role | Responsibility | Writes? |
+| --- | --- | --- |
+| `coordinator` | User alignment, delegation, integration, and completion | Yes |
+| `explorer` | Repository mapping and factual research | No |
+| `design-agent` | Requirements and architecture audit | No |
+| `implementer` | Bounded product-code changes and verification | Yes |
+| `ops` | Nix, CI, infrastructure, deployment, and operational checks | Yes |
+| `reviewer` | Independent correctness and risk verdict | No |
+
+Only the coordinator delegates. Worker agents cannot create their own agent
+trees, and reviewer is part of the run lifecycle rather than a task-DAG worker.
+
+## CLI
 
 ```text
-Act as the main-thread coordinator and use $team-coordinate. Read
-.agent-team/runs/<slug>/run.toml and plan.md, plus tasks.md for team tier. For
-assisted tier, record bounded task entries in run.toml and serialize writers.
-Spawn implementer and ops custom agents only for independent, file-disjoint
-scopes. Give each agent its role, instance name, task ID, exact files,
-acceptance criteria, verification commands, and report path. Wait for the wave,
-then consolidate the evidence.
+agent-team init
+agent-team validate [--format text|json]
+agent-team run init --slug SLUG [--title TITLE]
+                    [--tier adaptive|solo|assisted|team]
+                    [--model-preset economy|balanced|quality]
+agent-team render --target codex|claude|antigravity
+                  [--run SLUG] --output PATH
+agent-team install --target codex|claude|antigravity
+                   [--scope project|user] [--run SLUG]
+                   [--apply] [--force]
+agent-team doctor [--format text|json]
 ```
 
-Run focused discovery or design review:
+Use `render` when you want to inspect or package the generated files separately.
+It refuses to overwrite different output. Use `install` to target native
+discovery paths; it is always a preview unless `--apply` is present.
 
-```text
-Use explorer for read-only repository evidence and design-agent for an
-independent architecture gap review of .agent-team/runs/<slug>/. Keep both
-agents read-only, wait for them, and summarize agreements and conflicts.
+Passing `--run SLUG` to `render` or `install` applies the model preset recorded
+in that run. Without it, the command uses `default_model_preset` from
+`.agent-team/team.toml`.
+
+## Generated native files
+
+| Target | Project agents | Project skills | User agents | User skills |
+| --- | --- | --- | --- | --- |
+| Codex | `.codex/agents/` | `.agents/skills/` | `~/.codex/agents/` | `~/.agents/skills/` |
+| Claude Code | `.claude/agents/` | `.claude/skills/` | `~/.claude/agents/` | `~/.claude/skills/` |
+| Antigravity | `.agents/agents/` | `.agents/skills/` | `~/.gemini/config/agents/` | `~/.gemini/antigravity-cli/skills/` |
+
+Each adapter owns native file syntax, tool names, permissions, model fields, and
+effort fields. The portable role definitions remain client-independent.
+
+## Run artifacts
+
+Durable runs live under `.agent-team/runs/<slug>/`. Depending on tier and
+configuration, a run contains:
+
+- `run.toml` — authoritative lifecycle, gates, task state, concurrency ceiling,
+  write isolation, model preset, and review counters
+- `requirements.md`, `plan.md`, and optional `design.md`
+- `tasks.md` for team-tier execution
+- append-only `decisions.md` for deep discovery
+- `reports/agent-report-template.md` and per-task worker reports
+- `review.md` and `final-report.md`
+
+Unresolved `<!-- REQUIRED: ... -->` markers are warnings while work is active
+and become errors when a run claims completion. Team completion also requires
+closed tasks, required reports, successful live verification, all lifecycle
+gates, and an approved review. Review/fix cycles are capped by project policy.
+
+See [Workflow operations](docs/workflow.md) for state transitions, task
+dependencies, report identity, review counters, deep discovery, and complete
+coordination prompts.
+
+## Safe installation
+
+The installer records managed paths and SHA-256 hashes in
+`.agent-team/install-state.json`.
+
+- Preview is the default; `--apply` is required to write files.
+- Unmanaged destination files and locally modified managed files are refused.
+- `--force` permits replacement only with a timestamped backup when backups are
+  enabled.
+- Writes are atomic, and all destination conflicts are checked before changes
+  begin.
+- The installer never edits native client settings or enables experimental
+  features.
+- Managed paths absent from current output are reported as `stale` and retained.
+  Version 1 does not prune them automatically because targets can share skill
+  paths.
+
+Inspect stale files manually and remove them only after confirming that no
+other installed target still owns or uses them.
+
+## Configuration and customization
+
+`.agent-team/team.toml` selects enabled targets, tier policy, model preset,
+review limits, deep-discovery behavior, role and skill sources, and install
+scope. Parsing is strict: unknown keys, unsafe paths, invalid enum values, and
+cross-field policy violations fail validation.
+
+Projects may replace a complete target profile or add and override roles from
+project-relative source directories. Built-in target profiles deliberately map
+semantic classes (`fast`, `balanced`, and `deep`) rather than embedding native
+model names in role definitions.
+
+See [Configuration reference](docs/configuration.md) for the schema, source
+layout, precedence rules, target-specific model routing, and adapter safety
+constraints.
+
+## Development
+
+Run the test suite and checks from the repository root:
+
+```console
+nix develop
+python -m unittest discover -s tests -v
+python -m compileall -q src tests
+nix flake check
 ```
 
-Run independent review:
+The flake currently declares `x86_64-linux` and `aarch64-linux` outputs. The
+implementation has been exercised on `x86_64-linux`; `aarch64-linux` still
+needs native verification.
 
-```text
-Use reviewer to review the current changes against
-.agent-team/runs/<slug>/. Return findings with evidence, verification gaps, and
-an approve, changes-requested, or blocked verdict. Do not fix findings in the
-review agent.
-```
+## Inspiration
+
+The project began as a portable, workload-adaptive interpretation of AWS's
+[sample Codex agent team](https://github.com/aws-samples/sample-codex-agent-team),
+without its AWS-specific infrastructure assumptions.
+
+## License
+
+[MIT](LICENSE)
