@@ -25,6 +25,7 @@ All notable changes to this project are documented here. The format follows
   cross-target release smoke coverage.
 - Operator documentation, common coordination prompts, support status, and an
   agent-team topology diagram.
+- Canonical GitHub project metadata and remote Nix run/install instructions.
 
 ### Compatibility
 

@@ -26,6 +26,7 @@
             '';
             meta = {
               description = "Portable native agent-team workflow generator";
+              homepage = "https://github.com/dearrrfish/agent-team";
               license = pkgs.lib.licenses.mit;
               mainProgram = "agent-team";
               platforms = supportedSystems;

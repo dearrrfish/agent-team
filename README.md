@@ -148,30 +148,32 @@ progress notes and are not declared compatibility bounds.
 
 ## Quick start
 
-Run directly from this checkout:
+Run directly from GitHub:
 
 ```console
-nix run . -- --version
+nix run github:dearrrfish/agent-team -- --version
 ```
 
-For development, enter the shell and invoke the package as a Python module:
+Or install it into your Nix profile:
 
 ```console
+nix profile install github:dearrrfish/agent-team
+agent-team --version
+```
+
+For development, clone the repository, enter its shell, and invoke the package
+as a Python module:
+
+```console
+git clone https://github.com/dearrrfish/agent-team.git
+cd agent-team
 nix develop
 python -m agent_team --version
 ```
 
-To make the command available outside this checkout, install the local flake in
-your Nix profile:
-
-```console
-nix profile install /path/to/agent-team
-agent-team --version
-```
-
-You can instead prefix every command with
-`nix run /path/to/agent-team --`. The remaining examples assume the profile
-installation and use the shorter `agent-team` form.
+You can prefix any command with `nix run github:dearrrfish/agent-team --`
+instead of installing it. The remaining examples assume the profile
+installation and use the shorter `agent-team` command.
 
 From the root of the project where you want an agent team:
 

@@ -1,8 +1,7 @@
 # Releasing
 
-This project currently supports a source/Nix release. Repository hosting and a
-canonical remote are intentionally undecided, so do not add or publish URL
-metadata until that destination is chosen.
+This project supports source/Nix releases from its canonical repository:
+<https://github.com/dearrrfish/agent-team>.
 
 ## 1. Prepare the release
 
@@ -59,6 +58,15 @@ git tag -s v0.1.0 -m "agent-team v0.1.0"
 git tag --verify v0.1.0
 ```
 
-Do not push the tag until a canonical remote and publication destination are
-configured and reviewed. Once chosen, add `[project.urls]`, remote installation
-examples, and channel-specific publication steps in a separate change.
+Push the verified tag only after explicit approval:
+
+```console
+git push origin v0.1.0
+```
+
+Then confirm the tag resolves from the canonical source before announcing the
+release:
+
+```console
+nix run github:dearrrfish/agent-team/v0.1.0 -- --version
+```
