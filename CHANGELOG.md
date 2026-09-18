@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-09-15
+## [0.1.0] - 2026-09-18
 
 ### Added
 
@@ -43,3 +43,6 @@ All notable changes to this project are documented here. The format follows
   shared-ownership evidence.
 - Claude Code and Antigravity read-only roles omit shell access because those
   clients cannot guarantee a non-mutating command boundary in every parent mode.
+
+[Unreleased]: https://github.com/dearrrfish/agent-team/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/dearrrfish/agent-team/releases/tag/v0.1.0

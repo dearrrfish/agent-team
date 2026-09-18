@@ -28,6 +28,24 @@ class ReleaseMetadataTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertTrue(release_notes.startswith(f"# agent-team v{__version__}\n"))
 
+        changelog_date = re.search(
+            rf"^## \[{re.escape(__version__)}\] - (\d{{4}}-\d{{2}}-\d{{2}})$",
+            changelog,
+            re.MULTILINE,
+        )
+        release_date = re.search(
+            r"^Release date: (\d{4}-\d{2}-\d{2})$", release_notes, re.MULTILINE
+        )
+        self.assertIsNotNone(changelog_date)
+        self.assertIsNotNone(release_date)
+        assert changelog_date is not None
+        assert release_date is not None
+        self.assertEqual(changelog_date.group(1), release_date.group(1))
+        self.assertIn(
+            f"[{__version__}]: {CANONICAL_REPOSITORY}/releases/tag/v{__version__}",
+            changelog,
+        )
+
     def test_canonical_repository_metadata_is_consistent(self) -> None:
         project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         urls = project["project"]["urls"]
