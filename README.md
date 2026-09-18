@@ -17,8 +17,9 @@ coordination overhead out of small changes.
 > orchestrator. Codex, Claude Code, and Antigravity each run their own native
 > subagents after installation.
 
-Version 0.1 is Linux/Nix-first. The generated configuration is portable, but
-macOS packaging is not part of the current release.
+Version 0.1 packages and Nix development path are Linux-only. macOS has a
+documented repository-source workflow below; it is not a Homebrew formula, a
+PyPI release, or a Darwin Nix package.
 
 ## What it provides
 
@@ -122,8 +123,11 @@ This structure encodes seven operating principles:
 
 - Python 3.11 or newer
 - Git
-- Nix with flakes enabled (recommended for development and local execution)
 - At least one enabled native client for actually running the generated team
+
+Linux/Nix users also need Nix with flakes enabled for the packaged execution
+and development paths. macOS users use Homebrew for Python and Git, then the
+documented source-install workflow; Homebrew does not install `agent-team`.
 
 Rendering and validation do not require Codex, Claude Code, or Antigravity to be
 installed. `agent-team doctor` reports missing clients as warnings.
@@ -149,6 +153,8 @@ and idempotence tests. Observed client versions are recorded in the project
 progress notes and are not declared compatibility bounds.
 
 ## Quick start
+
+### Linux/Nix
 
 Run directly from GitHub:
 
@@ -177,13 +183,56 @@ You can prefix any command with `nix run github:dearrrfish/agent-team --`
 instead of installing it. The remaining examples assume the profile
 installation and use the shorter `agent-team` command.
 
-From the root of the project where you want an agent team:
+### macOS: documented source installation
+
+Install [Homebrew and complete its shell setup](https://docs.brew.sh/Installation)
+before running these commands. Homebrew manages the prerequisites only: this
+project has no `brew install agent-team` formula or tap, and no PyPI release.
+
+```console
+brew install python git
+brew --version
+python3 --version
+git --version
+```
+
+Continue only when `python3 --version` reports Python 3.11 or newer. Then
+install from the canonical repository in an isolated environment:
+
+```console
+git clone https://github.com/dearrrfish/agent-team.git
+cd agent-team
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install .
+agent-team --version
+```
+
+In a new shell, return to the checkout and run `source .venv/bin/activate`
+before using `agent-team`. If Homebrew is unavailable, its shell setup is
+inactive, Python is older than 3.11, or Git is missing, correct that
+prerequisite before installing. If `agent-team` is not found, reactivate the
+environment, reinstall the local checkout, and repeat the version check.
+
+Automated macOS-host tests are out of scope for this documentation change.
+Separately labeled manual macOS runs and feedback may inform final review
+cycles; contradictory feedback should result in a documentation correction,
+not a claim of packaged or continuously tested macOS support.
+
+### Use the CLI
+
+After either setup, including an activated macOS `.venv`, run the existing CLI
+from the root of the project where you want an agent team:
 
 ```console
 agent-team init
 agent-team validate
 agent-team doctor
 ```
+
+Generation and validation work without a native client; `doctor` reports a
+missing client as a warning. Running generated agents still requires a suitable
+installed and authenticated native client.
 
 `init` creates `.agent-team/team.toml`. Review that file, then preview and apply
 the native files for your client:
@@ -225,6 +274,11 @@ Project-scoped Codex agents are loaded only for trusted projects. Trust the
 project and start a fresh Codex session after installation; if a named role is
 unavailable, diagnose discovery instead of silently substituting a generic
 agent.
+
+For detailed lifecycle, trust, install ownership, drift, backup, and stale-path
+rules, see [Workflow operations](docs/workflow.md). The preview/apply commands
+above retain the same behavior on the documented macOS source workflow; macOS
+does not use the Linux-only Nix package path.
 
 ## Choose a workflow tier
 
