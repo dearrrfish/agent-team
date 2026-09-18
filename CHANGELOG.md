@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- SHA-pinned GitHub Actions release checks and contributor, security, conduct,
+  issue, pull request, and ownership guidance for the public repository.
+
 ## [0.1.0] - 2026-09-18
 
 ### Added

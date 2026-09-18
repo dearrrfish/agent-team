@@ -1,0 +1,46 @@
+name: Feature request
+description: Propose a focused improvement to agent-team.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow problem or limitation should be addressed?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed outcome
+      description: Describe the desired behavior without prescribing internals.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - Portable workflow core
+        - Codex adapter
+        - Claude Code adapter
+        - Antigravity adapter
+        - Nix packaging
+        - Documentation
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and release notes for this request.
+          required: true
+        - label: This request preserves native-client execution boundaries.
+          required: true

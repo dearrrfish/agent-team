@@ -73,7 +73,7 @@
             nativeBuildInputs = [ pkgs.markdownlint-cli2 ];
           } ''
             markdownlint-cli2 --config ${self}/.markdownlint-cli2.jsonc \
-              ${self}/README.md ${self}/CHANGELOG.md '${self}/docs/**/*.md'
+              '${self}/*.md' '${self}/docs/**/*.md' '${self}/.github/**/*.md'
             touch $out
           '';
         });

@@ -1,5 +1,7 @@
 # agent-team
 
+[![CI](https://github.com/dearrrfish/agent-team/actions/workflows/ci.yml/badge.svg)](https://github.com/dearrrfish/agent-team/actions/workflows/ci.yml)
+
 `agent-team` generates portable, role-based agent teams for Codex, with
 experimental adapters for Claude Code and Antigravity CLI. It gives each client
 the same workflow contract while rendering the native agent and skill files that
@@ -350,6 +352,10 @@ layout, precedence rules, target-specific model routing, and adapter safety
 constraints.
 
 ## Development
+
+See [Contributing](CONTRIBUTING.md) for the development workflow, verification
+expectations, and pull request guidance. Security issues follow the private
+process in [Security Policy](SECURITY.md).
 
 Run the test suite and checks from the repository root:
 
