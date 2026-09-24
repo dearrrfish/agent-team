@@ -99,6 +99,24 @@ class CliTests(unittest.TestCase):
                 result.stdout,
             )
 
+    def test_version_output_contains_commit_hash(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result = self._run(Path(directory), "--version")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertRegex(
+                result.stdout.strip(), r"^agent-team 0\.1\.0\+[0-9a-zA-Z.]+$"
+            )
+
+    def test_version_output_with_env_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result = self._run(
+                Path(directory),
+                "--version",
+                environment_overrides={"AGENT_TEAM_COMMIT_HASH": "abcdef1"},
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "agent-team 0.1.0+abcdef1")
+
 
 if __name__ == "__main__":
     unittest.main()

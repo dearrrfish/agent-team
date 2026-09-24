@@ -7,6 +7,12 @@
     let
       supportedSystems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
+      commitHash =
+        if self ? shortRev then self.shortRev
+        else if self ? dirtyShortRev then self.dirtyShortRev
+        else if self ? rev then builtins.substring 0 7 self.rev
+        else if self ? dirtyRev then builtins.substring 0 7 self.dirtyRev
+        else null;
     in {
       packages = forAllSystems (system:
         let pkgs = import nixpkgs { inherit system; };
@@ -18,9 +24,21 @@
             src = self;
             build-system = [ pkgs.python3Packages.setuptools ];
             nativeCheckInputs = [ pkgs.git pkgs.ruff ];
+            env = pkgs.lib.optionalAttrs (commitHash != null) {
+              AGENT_TEAM_COMMIT_HASH = commitHash;
+            };
+            preBuild = ''
+              ${pkgs.lib.optionalString (commitHash != null) ''
+                cat << 'EOF' > src/agent_team/_version.py
+# Commit hash baked into installed package
+COMMIT_HASH = "${commitHash}"
+GIT_ARCHIVE_HASH = "$Format:%h$"
+EOF
+              ''}
+            '';
             checkPhase = ''
               runHook preCheck
-              ruff check src tests
+              ruff check src tests setup.py
               python -m unittest discover -s tests -v
               runHook postCheck
             '';
