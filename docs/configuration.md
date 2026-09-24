@@ -61,10 +61,10 @@ Balanced routing is:
 
 | Semantic role | Codex | Claude | Antigravity |
 | --- | --- | --- | --- |
-| Coordinator | `gpt-5.6-sol` / medium | `sonnet` / high | `pro` |
-| Fast | `gpt-5.6-luna` | `haiku` | `flash` |
+| Coordinator | `gpt-6-sol` / medium | `sonnet` / high | `pro` |
+| Fast | `gpt-6-luna` | `haiku` | `flash` |
 | Balanced | `gpt-5.6-terra` | `sonnet` | `pro` |
-| Deep | `gpt-5.6-sol` | `sonnet` | `pro` |
+| Deep | `gpt-6-sol` | `sonnet` | `pro` |
 
 Role effort is mapped through each preset. Claude omits effort for Haiku;
 Antigravity profiles do not emit effort. Tool names and permission modes are

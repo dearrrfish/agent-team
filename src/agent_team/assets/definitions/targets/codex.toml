@@ -17,7 +17,7 @@ team_runtime = "subagents"
 coordinator_model = "gpt-5.6-terra"
 coordinator_effort = "medium"
 [presets.economy.models]
-fast = "gpt-5.6-luna"
+fast = "gpt-6-luna"
 balanced = "gpt-5.6-terra"
 deep = "gpt-5.6-terra"
 [presets.economy.effort]
@@ -26,12 +26,12 @@ medium = "medium"
 high = "medium"
 
 [presets.balanced]
-coordinator_model = "gpt-5.6-sol"
+coordinator_model = "gpt-6-sol"
 coordinator_effort = "medium"
 [presets.balanced.models]
-fast = "gpt-5.6-luna"
+fast = "gpt-6-luna"
 balanced = "gpt-5.6-terra"
-deep = "gpt-5.6-sol"
+deep = "gpt-6-sol"
 [presets.balanced.effort]
 low = "low"
 medium = "medium"
@@ -42,7 +42,7 @@ coordinator_model = "gpt-6-astra"
 coordinator_effort = "medium"
 [presets.quality.models]
 fast = "gpt-5.6-terra"
-balanced = "gpt-5.6-sol"
+balanced = "gpt-6-sol"
 deep = "gpt-6-astra"
 [presets.quality.effort]
 low = "medium"

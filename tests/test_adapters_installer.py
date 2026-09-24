@@ -34,9 +34,9 @@ class AdapterAndInstallerTests(unittest.TestCase):
             coordination_skill = codex[next(
                 path for path in codex if str(path).endswith("team-coordinate/SKILL.md")
             )]
-            self.assertEqual(explorer["model"], "gpt-5.6-luna")
+            self.assertEqual(explorer["model"], "gpt-6-luna")
             self.assertEqual(explorer["sandbox_mode"], "read-only")
-            self.assertEqual(coordinator["model"], "gpt-5.6-sol")
+            self.assertEqual(coordinator["model"], "gpt-6-sol")
             self.assertEqual(coordinator["model_reasoning_effort"], "medium")
             self.assertIn("Name the native custom-agent role explicitly", coordination_skill)
             self.assertIn("confirm the project is trusted", coordination_skill)
@@ -82,6 +82,11 @@ class AdapterAndInstallerTests(unittest.TestCase):
                 "tools: Read, Glob, Grep, Edit, Write, Bash, WebFetch, WebSearch, Agent",
                 claude_coordinator,
             )
+            quality_claude = render_target("claude", config, root, "quality")
+            quality_claude_coordinator = quality_claude[next(
+                path for path in quality_claude if str(path).endswith("coordinator.md")
+            )]
+            self.assertIn("model: opus", quality_claude_coordinator)
 
             antigravity = render_target("antigravity", config, root)
             self.assertTrue(any(str(path) == ".agents/agents/reviewer/agent.md" for path in antigravity))
