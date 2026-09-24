@@ -74,9 +74,14 @@ class AdapterAndInstallerTests(unittest.TestCase):
             self.assertNotIn("effort:", claude_explorer)
             self.assertIn("permissionMode: plan", claude_explorer)
             self.assertIn("maxTurns: 16", claude_explorer)
-            self.assertNotIn('"Bash"', claude_explorer)
-            self.assertIn('"Agent"', claude_coordinator)
-            self.assertIn('"Bash"', claude_coordinator)
+            self.assertNotIn("Bash", claude_explorer)
+            self.assertIn("tools: Read, Glob, Grep, WebFetch, WebSearch", claude_explorer)
+            self.assertIn("Agent", claude_coordinator)
+            self.assertIn("Bash", claude_coordinator)
+            self.assertIn(
+                "tools: Read, Glob, Grep, Edit, Write, Bash, WebFetch, WebSearch, Agent",
+                claude_coordinator,
+            )
 
             antigravity = render_target("antigravity", config, root)
             self.assertTrue(any(str(path) == ".agents/agents/reviewer/agent.md" for path in antigravity))

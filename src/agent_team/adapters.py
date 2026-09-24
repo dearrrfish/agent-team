@@ -46,7 +46,7 @@ def _tools(role: RoleDefinition, target: str) -> str:
             tools.extend(["WebFetch", "WebSearch"])
         if role.delegation:
             tools.append("Agent")
-        return json.dumps(list(dict.fromkeys(tools)))
+        return ", ".join(dict.fromkeys(tools))
     tools: list[str] = []
     if readable:
         tools.extend(["list_dir", "find_by_name", "grep_search", "view_file"])
