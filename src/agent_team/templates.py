@@ -17,6 +17,15 @@ def asset_text(*parts: str) -> str:
     return resources.files("agent_team.assets").joinpath(*parts).read_text(encoding="utf-8")
 
 
+def load_prompt_templates() -> dict[str, str]:
+    prompts_dir = resources.files("agent_team.assets").joinpath("templates", "prompts")
+    templates: dict[str, str] = {}
+    for entry in sorted(prompts_dir.iterdir(), key=lambda item: item.name):
+        if entry.is_file() and entry.name.endswith(".md"):
+            templates[entry.name] = entry.read_text(encoding="utf-8")
+    return templates
+
+
 def render_template(template: str, variables: Mapping[str, str]) -> str:
     matches = tuple(_PLACEHOLDER.finditer(template))
     invalid = sorted({match.group(1) for match in matches if not _VARIABLE_NAME.fullmatch(match.group(1))})

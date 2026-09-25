@@ -21,6 +21,7 @@ from agent_team.fs import atomic_write
 from agent_team.installer import install_files
 from agent_team.models import PRESETS, TARGETS, TIERS
 from agent_team.runs import init_run, load_run_model_preset, validate_all_runs
+from agent_team.templates import load_prompt_templates
 
 _NATIVE_CLIENTS = {
     "codex": "codex",
@@ -34,7 +35,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subcommands = parser.add_subparsers(dest="command", required=True)
 
-    subcommands.add_parser("init", help="initialize .agent-team/team.toml")
+    subcommands.add_parser(
+        "init",
+        help="initialize project configuration, workflow prompt templates, and gitignore",
+    )
 
     validate = subcommands.add_parser("validate", help="validate project configuration and runs")
     validate.add_argument("--format", choices=("text", "json"), default="text")
@@ -69,12 +73,67 @@ def _print_failure(exc: ValidationFailure, output_format: str = "text") -> int:
     return 2
 
 
+AGENT_TEAM_GITIGNORE_ENTRIES: tuple[str, ...] = (
+    ".worktrees/",
+    ".agent-team/runs/",
+    ".agent-team/backups/",
+    ".agent-team/install-state.json",
+)
+
+
+def _upsert_prompt_templates(root: Path) -> list[Path]:
+    prompts_dir = root / ".agent-team" / "templates" / "prompts"
+    templates = load_prompt_templates()
+    upserted: list[Path] = []
+    for name, content in templates.items():
+        destination = prompts_dir / name
+        if not destination.exists() or destination.read_text(encoding="utf-8") != content:
+            atomic_write(destination, content)
+        upserted.append(destination)
+    return upserted
+
+
+def _upsert_gitignore(root: Path) -> list[str]:
+    gitignore_path = root / ".gitignore"
+    if not gitignore_path.exists():
+        content = "\n".join(AGENT_TEAM_GITIGNORE_ENTRIES) + "\n"
+        atomic_write(gitignore_path, content)
+        return list(AGENT_TEAM_GITIGNORE_ENTRIES)
+
+    existing_text = gitignore_path.read_text(encoding="utf-8")
+    existing_lines = existing_text.splitlines()
+    existing_normalized = {
+        line.strip().strip("/")
+        for line in existing_lines
+        if line.strip() and not line.strip().startswith("#")
+    }
+
+    missing = [
+        entry for entry in AGENT_TEAM_GITIGNORE_ENTRIES
+        if entry.strip().strip("/") not in existing_normalized
+    ]
+    if not missing:
+        return []
+
+    separator = "" if not existing_text or existing_text.endswith("\n") else "\n"
+    new_text = existing_text + separator + "\n".join(missing) + "\n"
+    atomic_write(gitignore_path, new_text)
+    return missing
+
+
 def _init(root: Path) -> int:
     path = root / ".agent-team" / "team.toml"
-    if path.exists():
-        return _print_failure(ValidationFailure([Diagnostic(str(path), "already exists", code="exists")]))
-    atomic_write(path, DEFAULT_TEAM_TOML)
-    print(f"initialized {path}")
+    if not path.exists():
+        atomic_write(path, DEFAULT_TEAM_TOML)
+        print(f"initialized {path}")
+    templates = _upsert_prompt_templates(root)
+    print(
+        f"upserted {len(templates)} prompt templates in "
+        f"{root / '.agent-team' / 'templates' / 'prompts'}"
+    )
+    added_ignores = _upsert_gitignore(root)
+    if added_ignores:
+        print(f"upserted {len(added_ignores)} entries in {root / '.gitignore'}")
     return 0
 
 

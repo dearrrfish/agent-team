@@ -1,6 +1,8 @@
 # Configuration reference
 
-`agent-team init` creates `.agent-team/team.toml`. Configuration is strict:
+`agent-team init` creates `.agent-team/team.toml`, upserts common workflow
+prompt templates under `.agent-team/templates/prompts`, and ensures required
+entries exist in `.gitignore`. Configuration is strict:
 unknown keys, invalid enums, unsafe paths, and cross-field policy violations are
 errors. Resolution order is packaged target defaults, a whole project target
 profile replacement, project policy, then explicit run flags. Environment

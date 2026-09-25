@@ -254,7 +254,9 @@ Generation and validation work without a native client; `doctor` reports a
 missing client as a warning. Running generated agents still requires a suitable
 installed and authenticated native client.
 
-`init` creates `.agent-team/team.toml`. Review that file, then preview and apply
+`init` creates `.agent-team/team.toml`, upserts common workflow prompt
+templates under `.agent-team/templates/prompts`, and ensures required ignore
+entries are present in `.gitignore`. Review `team.toml`, then preview and apply
 the native files for your client:
 
 ```console

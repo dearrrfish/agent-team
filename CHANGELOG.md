@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Enhanced `agent-team init` to upsert common workflow prompt templates
+  (`plan.md`, `coordinate.md`, `review.md`, `discovery.md`) in
+  `.agent-team/templates/prompts` and ensure required `.gitignore` entries
+  (`.worktrees/`, `.agent-team/runs/`, `.agent-team/backups/`,
+  `.agent-team/install-state.json`) are present.
 - Homebrew formula (`Formula/agent-team.rb`) enabling native installation via
   `brew install dearrrfish/agent-team/agent-team`.
 
