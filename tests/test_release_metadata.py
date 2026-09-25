@@ -67,6 +67,27 @@ class ReleaseMetadataTests(unittest.TestCase):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("nix run github:dearrrfish/agent-team -- --version", readme)
 
+    def test_homebrew_formula_metadata_is_consistent(self) -> None:
+        formula_path = ROOT / "Formula" / "agent-team.rb"
+        self.assertTrue(formula_path.exists())
+        formula = formula_path.read_text(encoding="utf-8")
+
+        project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        desc = project["project"]["description"]
+        self.assertIn(f'desc "{desc}"', formula)
+        self.assertIn(f'homepage "{CANONICAL_REPOSITORY}"', formula)
+        self.assertIn(
+            f'url "{CANONICAL_REPOSITORY}/archive/refs/tags/v{__base_version__}.tar.gz"',
+            formula,
+        )
+        self.assertIn(f'head "{CANONICAL_REPOSITORY}.git", branch: "main"', formula)
+        self.assertIn('license "MIT"', formula)
+        self.assertIn('depends_on "python@3.12"', formula)
+        self.assertIn("virtualenv_install_with_resources", formula)
+
+        sha_match = re.search(r'^\s*sha256 "([0-9a-fA-F]{64})"', formula, re.MULTILINE)
+        self.assertIsNotNone(sha_match)
+
 
 if __name__ == "__main__":
     unittest.main()

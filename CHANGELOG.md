@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Homebrew formula (`Formula/agent-team.rb`) enabling native installation via
+  `brew install dearrrfish/agent-team/agent-team`.
+
 ## [0.2.0] - 2026-09-25
 
 ### Added

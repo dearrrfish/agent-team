@@ -17,9 +17,10 @@ coordination overhead out of small changes.
 > orchestrator. Codex, Claude Code, and Antigravity each run their own native
 > subagents after installation.
 
-Version 0.1 packages and Nix development path are Linux-only. macOS has a
-documented repository-source workflow below; it is not a Homebrew formula, a
-PyPI release, or a Darwin Nix package.
+Linux users can run or install via Nix flakes. macOS users can install via
+Homebrew (`brew install dearrrfish/agent-team/agent-team`) or use the
+documented repository-source workflow below. There is no PyPI release or
+Darwin Nix package.
 
 ## What it provides
 
@@ -126,8 +127,8 @@ This structure encodes seven operating principles:
 - At least one enabled native client for actually running the generated team
 
 Linux/Nix users also need Nix with flakes enabled for the packaged execution
-and development paths. macOS users use Homebrew for Python and Git, then the
-documented source-install workflow; Homebrew does not install `agent-team`.
+and development paths. macOS users can install via Homebrew or use Homebrew
+for Python and Git with the documented source-install workflow.
 
 Rendering and validation do not require Codex, Claude Code, or Antigravity to be
 installed. `agent-team doctor` reports missing clients as warnings.
@@ -183,11 +184,30 @@ You can prefix any command with `nix run github:dearrrfish/agent-team --`
 instead of installing it. The remaining examples assume the profile
 installation and use the shorter `agent-team` command.
 
-### macOS: documented source installation
+### macOS: Homebrew and source installation
+
+#### Option A: Install with Homebrew (recommended)
 
 Install [Homebrew and complete its shell setup](https://docs.brew.sh/Installation)
-before running these commands. Homebrew manages the prerequisites only: this
-project has no `brew install agent-team` formula or tap, and no PyPI release.
+if you have not already done so. Then install directly from the repository:
+
+```console
+brew install dearrrfish/agent-team/agent-team
+agent-team --version
+```
+
+Or tap the repository first:
+
+```console
+brew tap dearrrfish/agent-team
+brew install agent-team
+agent-team --version
+```
+
+#### Option B: Documented source installation
+
+Alternatively, install from the canonical repository in an isolated Python
+environment:
 
 ```console
 brew install python git
@@ -214,7 +234,7 @@ inactive, Python is older than 3.11, or Git is missing, correct that
 prerequisite before installing. If `agent-team` is not found, reactivate the
 environment, reinstall the local checkout, and repeat the version check.
 
-Automated macOS-host tests are out of scope for this documentation change.
+Automated macOS-host tests are out of scope for this repository.
 Separately labeled manual macOS runs and feedback may inform final review
 cycles; contradictory feedback should result in a documentation correction,
 not a claim of packaged or continuously tested macOS support.
