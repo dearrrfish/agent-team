@@ -439,6 +439,7 @@ needs native verification.
 ## Releases
 
 - [Changelog](CHANGELOG.md)
+- [v0.2.0 release notes](docs/releases/v0.2.0.md)
 - [v0.1.0 release notes](docs/releases/v0.1.0.md)
 - [Release process](docs/releasing.md)
 

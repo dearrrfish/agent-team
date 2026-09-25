@@ -14,7 +14,7 @@ from agent_team.version import (
 
 class VersionTests(unittest.TestCase):
     def test_base_version(self) -> None:
-        self.assertEqual(__base_version__, "0.1.0")
+        self.assertEqual(__base_version__, "0.2.0")
 
     def test_get_commit_hash_from_env(self) -> None:
         with (
@@ -48,16 +48,16 @@ class VersionTests(unittest.TestCase):
 
     def test_get_version_with_commit(self) -> None:
         with patch("agent_team.version.get_commit_hash", return_value="4110792"):
-            self.assertEqual(get_version(), "0.1.0+4110792")
+            self.assertEqual(get_version(), f"{__base_version__}+4110792")
 
     def test_get_version_normalizes_pep440(self) -> None:
         # Dash in dirty version should be replaced by dot
         with patch("agent_team.version.get_commit_hash", return_value="4110792-dirty"):
-            self.assertEqual(get_version(), "0.1.0+4110792.dirty")
+            self.assertEqual(get_version(), f"{__base_version__}+4110792.dirty")
 
     def test_get_version_without_commit(self) -> None:
         with patch("agent_team.version.get_commit_hash", return_value=None):
-            self.assertEqual(get_version(), "0.1.0")
+            self.assertEqual(get_version(), __base_version__)
 
     def test_read_baked_commit_handles_format_placeholder(self) -> None:
         with (

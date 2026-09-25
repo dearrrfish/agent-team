@@ -1,11 +1,14 @@
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+
+from agent_team.version import __base_version__
 
 SOURCE = str(Path(__file__).parents[1] / "src")
 
@@ -104,7 +107,8 @@ class CliTests(unittest.TestCase):
             result = self._run(Path(directory), "--version")
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertRegex(
-                result.stdout.strip(), r"^agent-team 0\.1\.0\+[0-9a-zA-Z.]+$"
+                result.stdout.strip(),
+                rf"^agent-team {re.escape(__base_version__)}\+[0-9a-zA-Z.]+$",
             )
 
     def test_version_output_with_env_commit(self) -> None:
@@ -115,7 +119,9 @@ class CliTests(unittest.TestCase):
                 environment_overrides={"AGENT_TEAM_COMMIT_HASH": "abcdef1"},
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout.strip(), "agent-team 0.1.0+abcdef1")
+            self.assertEqual(
+                result.stdout.strip(), f"agent-team {__base_version__}+abcdef1"
+            )
 
 
 if __name__ == "__main__":

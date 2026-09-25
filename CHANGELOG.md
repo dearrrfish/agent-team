@@ -6,10 +6,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-25
+
 ### Added
 
+- Local Git commit hash appended to installed package version using PEP 440 local
+  version format (`agent-team 0.2.0+<commit>`) across Nix builds, source distributions,
+  and checkout runs.
+- macOS installation and operational documentation guide.
 - SHA-pinned GitHub Actions release checks and contributor, security, conduct,
   issue, pull request, and ownership guidance for the public repository.
+- Native agent-team workflow dogfooding instructions in `AGENTS.md`.
+
+### Changed
+
+- Updated default Codex target presets to `gpt-6-sol` (economy, balanced) and
+  `gpt-6-luna` (quality).
+
+### Fixed
+
+- Aligned Claude Code native agent tool specifications with client formatting.
 
 ## [0.1.0] - 2026-09-18
 
@@ -49,5 +65,6 @@ All notable changes to this project are documented here. The format follows
 - Claude Code and Antigravity read-only roles omit shell access because those
   clients cannot guarantee a non-mutating command boundary in every parent mode.
 
-[Unreleased]: https://github.com/dearrrfish/agent-team/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/dearrrfish/agent-team/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/dearrrfish/agent-team/releases/tag/v0.2.0
 [0.1.0]: https://github.com/dearrrfish/agent-team/releases/tag/v0.1.0
