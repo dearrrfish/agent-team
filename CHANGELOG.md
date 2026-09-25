@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-25
+
 ### Added
 
 - Enhanced `agent-team init` to upsert common workflow prompt templates
@@ -75,6 +77,7 @@ All notable changes to this project are documented here. The format follows
 - Claude Code and Antigravity read-only roles omit shell access because those
   clients cannot guarantee a non-mutating command boundary in every parent mode.
 
-[Unreleased]: https://github.com/dearrrfish/agent-team/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/dearrrfish/agent-team/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/dearrrfish/agent-team/releases/tag/v0.3.0
 [0.2.0]: https://github.com/dearrrfish/agent-team/releases/tag/v0.2.0
 [0.1.0]: https://github.com/dearrrfish/agent-team/releases/tag/v0.1.0

@@ -14,7 +14,7 @@ from agent_team.version import (
 
 class VersionTests(unittest.TestCase):
     def test_base_version(self) -> None:
-        self.assertEqual(__base_version__, "0.2.0")
+        self.assertEqual(__base_version__, "0.3.0")
 
     def test_get_commit_hash_from_env(self) -> None:
         with (
