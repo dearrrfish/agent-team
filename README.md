@@ -255,14 +255,26 @@ missing client as a warning. Running generated agents still requires a suitable
 installed and authenticated native client.
 
 `init` creates `.agent-team/team.toml`, upserts common workflow prompt
-templates under `.agent-team/templates/prompts`, and ensures required ignore
-entries are present in `.gitignore`. Review `team.toml`, then preview and apply
-the native files for your client:
+templates under `.agent-team/templates/prompts`, and ignores those four stock
+examples along with local run and install state. It overwrites edited stock
+prompts when rerun; keep project-specific prompts at separate paths. Review
+`team.toml`, then preview and apply the native files for your client:
 
 ```console
 agent-team install --target codex
 agent-team install --target codex --apply
 ```
+
+Project installation adds exact `.gitignore` rules for the native agents and
+skills it manages. Preview and user-scope installation do not change the
+project ignore file. Commit `.agent-team/team.toml`, project instructions such
+as `AGENTS.md`, and any custom role, skill, or target-profile source files.
+Keep the four stock prompt examples and installed native output local. This
+does not require collaborators to run `agent-team`; those who do not run it
+will not have the generated native files. To refresh local output after an
+upgrade, rerun `agent-team init` and the relevant `agent-team install --target
+<client> --apply`. Ignoring output does not pin the tool version or remove
+stale installed files.
 
 Project installation is the default. Use `--scope user` only when you want the
 same generated team available across projects.

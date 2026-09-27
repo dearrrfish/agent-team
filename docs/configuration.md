@@ -1,12 +1,22 @@
 # Configuration reference
 
 `agent-team init` creates `.agent-team/team.toml`, upserts common workflow
-prompt templates under `.agent-team/templates/prompts`, and ensures required
-entries exist in `.gitignore`. Configuration is strict:
+prompt templates under `.agent-team/templates/prompts`, and ignores the four
+stock prompt files and local state. A successful project-scoped `install
+--apply` adds exact ignore rules for its managed native agents and skills.
+Preview and user-scope installs leave the project's `.gitignore` unchanged.
+Configuration is strict:
 unknown keys, invalid enums, unsafe paths, and cross-field policy violations are
 errors. Resolution order is packaged target defaults, a whole project target
 profile replacement, project policy, then explicit run flags. Environment
 variables never override workflow policy.
+
+Track `team.toml`, project instructions, and any configured custom role,
+skill, or target-profile sources. Keep authored prompts outside the four stock
+prompt paths because `init` overwrites those examples. Native directories can
+also contain hand-written files, so neither `init` nor `install` adds blanket
+`.agents/`, `.codex/`, or `.claude/` ignores. Existing project ignore rules
+are preserved. Git ignores do not untrack files that are already committed.
 
 `run init --model-preset PRESET` records an explicit run selection. Pass the
 run to `render` or `install` with `--run SLUG` to render native agent profiles

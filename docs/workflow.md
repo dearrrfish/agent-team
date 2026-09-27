@@ -116,9 +116,10 @@ of substituting a generic child.
 
 `agent-team init` writes these common workflow prompts to
 `.agent-team/templates/prompts/` (`plan.md`, `coordinate.md`, `review.md`, and
-`discovery.md`). These examples use Codex skill syntax. Other targets should use
-their native skill invocation syntax while retaining the explicit roles and
-boundaries.
+`discovery.md`). The stock examples are ignored by Git and overwritten when
+`init` is rerun. Put authored prompts at separate paths. These examples use
+Codex skill syntax. Other targets should use their native skill invocation
+syntax while retaining the explicit roles and boundaries.
 
 Create a plan before coding:
 

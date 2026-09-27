@@ -4,7 +4,7 @@ import argparse
 import shutil
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from agent_team import __version__
 from agent_team.adapters import load_skills, render_target, write_rendered
@@ -78,6 +78,10 @@ AGENT_TEAM_GITIGNORE_ENTRIES: tuple[str, ...] = (
     ".agent-team/runs/",
     ".agent-team/backups/",
     ".agent-team/install-state.json",
+    "/.agent-team/templates/prompts/plan.md",
+    "/.agent-team/templates/prompts/coordinate.md",
+    "/.agent-team/templates/prompts/review.md",
+    "/.agent-team/templates/prompts/discovery.md",
 )
 
 
@@ -93,24 +97,34 @@ def _upsert_prompt_templates(root: Path) -> list[Path]:
     return upserted
 
 
-def _upsert_gitignore(root: Path) -> list[str]:
+def _literal_gitignore_entry(path: PurePosixPath) -> str:
+    raw = path.as_posix()
+    if "\n" in raw or "\r" in raw:
+        raise ValidationFailure([Diagnostic(raw, "cannot represent a newline in .gitignore", code="path")])
+    return "/" + "".join(f"\\{character}" if character in "\\*?[]" else character for character in raw)
+
+
+def _upsert_gitignore(
+    root: Path, entries: tuple[str, ...] = AGENT_TEAM_GITIGNORE_ENTRIES,
+) -> list[str]:
     gitignore_path = root / ".gitignore"
     if not gitignore_path.exists():
-        content = "\n".join(AGENT_TEAM_GITIGNORE_ENTRIES) + "\n"
+        content = "\n".join(entries) + "\n"
         atomic_write(gitignore_path, content)
-        return list(AGENT_TEAM_GITIGNORE_ENTRIES)
+        return list(entries)
 
     existing_text = gitignore_path.read_text(encoding="utf-8")
     existing_lines = existing_text.splitlines()
     existing_normalized = {
-        line.strip().strip("/")
+        line.strip().lstrip("/")
         for line in existing_lines
         if line.strip() and not line.strip().startswith("#")
     }
 
     missing = [
-        entry for entry in AGENT_TEAM_GITIGNORE_ENTRIES
-        if entry.strip().strip("/") not in existing_normalized
+        entry for entry in entries
+        if entry.lstrip("/") not in existing_normalized
+        and not (entry.endswith("/") and entry.lstrip("/").rstrip("/") in existing_normalized)
     ]
     if not missing:
         return []
@@ -207,6 +221,21 @@ def _install(root: Path, args: argparse.Namespace) -> int:
         force=args.force,
         backups=config.install.backups,
     )
+    if args.apply and scope == "project":
+        managed_paths = set(files)
+        managed_paths.update(
+            PurePosixPath(action.path) for action in actions if action.action == "stale"
+        )
+        entries = tuple(_literal_gitignore_entry(path) for path in sorted(managed_paths))
+        try:
+            _upsert_gitignore(root, entries)
+        except OSError as exc:
+            raise ValidationFailure([Diagnostic(
+                ".gitignore",
+                f"native files were installed but ignore rules could not be updated: {exc}; "
+                "rerun the same install --apply command to retry",
+                code="write",
+            )]) from exc
     mode = "applied" if args.apply else "preview"
     print(f"{mode} for {args.target} ({scope} scope, {model_preset} preset):")
     for action in actions:

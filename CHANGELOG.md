@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `init` ignores its four generated workflow prompt examples, while successful
+  project installation adds exact ignore rules for managed native agents and
+  skills. Project-authored configuration and source files remain trackable.
+
 ## [0.3.0] - 2026-09-25
 
 ### Added
