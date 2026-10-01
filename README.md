@@ -298,7 +298,9 @@ start a fresh native-client session and explicitly name the role you want it to
 use. For example, in Codex:
 
 ```text
-Act as the main-thread coordinator and use $team-plan for replace-parser. Read
+I want the agent-team coordinator for replace-parser. Ask whether to load its
+harness into this main thread or spawn a dedicated native coordinator subagent,
+then use $team-plan. Read
 .agent-team/runs/replace-parser/, complete the requirements and plan artifacts,
 add the task breakdown required by the selected tier, and propose the first
 implementation wave before editing product code.
@@ -354,6 +356,11 @@ agent-team validate [--format text|json]
 agent-team run init --slug SLUG [--title TITLE]
                     [--tier adaptive|solo|assisted|team]
                     [--model-preset economy|balanced|quality]
+agent-team models show [--target codex|claude|antigravity]
+                       [--model-preset economy|balanced|quality | --run SLUG]
+                       [--format text|json]
+agent-team models fetch --target codex|claude|antigravity
+                        [--format text|json] [--timeout SECONDS]
 agent-team render --target codex|claude|antigravity
                   [--run SLUG] --output PATH
 agent-team install --target codex|claude|antigravity
@@ -369,6 +376,11 @@ discovery paths; it is always a preview unless `--apply` is present.
 Passing `--run SLUG` to `render` or `install` applies the model preset recorded
 in that run. Without it, the command uses `default_model_preset` from
 `.agent-team/team.toml`.
+
+`models show` lists the effective model and effort for each role without
+network access. `models fetch` queries a live catalog when the installed
+client or provider supports it and labels the source and effort provenance;
+catalog entries do not prove account entitlement.
 
 ## Generated native files
 
@@ -430,8 +442,9 @@ review limits, deep-discovery behavior, role and skill sources, and install
 scope. Parsing is strict: unknown keys, unsafe paths, invalid enum values, and
 cross-field policy violations fail validation.
 
-Projects may replace a complete target profile or add and override roles from
-project-relative source directories. Built-in target profiles deliberately map
+Projects may replace a complete target profile, add sparse `model_presets`
+overrides in `team.toml`, or add and override roles from project-relative
+source directories. Built-in target profiles deliberately map
 semantic classes (`fast`, `balanced`, and `deep`) rather than embedding native
 model names in role definitions.
 

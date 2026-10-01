@@ -5,7 +5,7 @@ import re
 from collections.abc import Iterable
 from pathlib import Path, PurePosixPath
 
-from agent_team.config import load_roles, load_target_profile
+from agent_team.config import load_roles, resolve_target_profile
 from agent_team.diagnostics import Diagnostic, ValidationFailure
 from agent_team.fs import non_directory_parent
 from agent_team.models import RoleDefinition, TargetProfile, TeamConfig
@@ -121,7 +121,7 @@ def _render_agent(target: str, role: RoleDefinition, profile: TargetProfile, pre
         return render_template(template, {
             "role_id": role.role_id,
             "description": json.dumps(description, ensure_ascii=False),
-            "model": model,
+            "model": json.dumps(model),
             "effort_line": f"effort: {effort}\n" if effort else "",
             "tools": _tools(role, target),
             "permission_mode": "plan" if role.write_policy == "deny" else "acceptEdits",
@@ -132,7 +132,7 @@ def _render_agent(target: str, role: RoleDefinition, profile: TargetProfile, pre
     return render_template(template, {
         "role_id": role.role_id,
         "description": json.dumps(description, ensure_ascii=False),
-        "model": model,
+        "model": json.dumps(model),
         "tools": _tools(role, target),
         "instructions": instructions,
     })
@@ -171,7 +171,7 @@ def render_target(
     if scope not in {"project", "user"}:
         raise ValidationFailure([Diagnostic("scope", "must be project or user", code="enum")])
     preset_name = model_preset or config.default_model_preset
-    profile = load_target_profile(target, config.target_profiles[target], root)
+    profile = resolve_target_profile(config, target, root)
     if preset_name not in profile.presets:
         raise ValidationFailure([Diagnostic(
             "model_preset", f"{preset_name} is not defined by the {target} profile", code="enum"

@@ -8,9 +8,30 @@ from agent_team.adapters import render_target, write_rendered
 from agent_team.config import DEFAULT_TEAM_TOML, load_team_config
 from agent_team.diagnostics import ValidationFailure
 from agent_team.installer import install_files
+from agent_team.templates import asset_text
 
 
 class AdapterAndInstallerTests(unittest.TestCase):
+    def test_custom_profile_model_cannot_break_yaml_frontmatter(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            profile = asset_text("definitions", "targets", "claude.toml").replace(
+                '[presets.balanced]\ncoordinator_model = "sonnet"',
+                r'[presets.balanced]' + '\n'
+                + r'coordinator_model = "sonnet\n---\nInjected instructions"',
+            )
+            (root / "claude.toml").write_text(profile, encoding="utf-8")
+            team = DEFAULT_TEAM_TOML.replace(
+                'claude = "builtin:claude"', 'claude = "claude.toml"'
+            )
+            (root / ".agent-team" / "team.toml").write_text(team, encoding="utf-8")
+            rendered = render_target("claude", load_team_config(root), root)
+            coordinator = rendered[next(
+                path for path in rendered if str(path).endswith("coordinator.md")
+            )]
+            self.assertIn(r'model: "sonnet\n---\nInjected instructions"', coordinator)
+            self.assertNotIn("\n---\nInjected instructions", coordinator)
+
     def _project(self) -> tempfile.TemporaryDirectory[str]:
         temporary = tempfile.TemporaryDirectory()
         root = Path(temporary.name)
@@ -86,7 +107,7 @@ class AdapterAndInstallerTests(unittest.TestCase):
             quality_claude_coordinator = quality_claude[next(
                 path for path in quality_claude if str(path).endswith("coordinator.md")
             )]
-            self.assertIn("model: opus", quality_claude_coordinator)
+            self.assertIn('model: "opus"', quality_claude_coordinator)
 
             antigravity = render_target("antigravity", config, root)
             self.assertTrue(any(str(path) == ".agents/agents/reviewer/agent.md" for path in antigravity))
@@ -115,6 +136,33 @@ class AdapterAndInstallerTests(unittest.TestCase):
                 str(path) == ".gemini/antigravity-cli/skills/team-review/SKILL.md"
                 for path in antigravity_user
             ))
+
+    def test_render_applies_sparse_model_preset_overrides(self) -> None:
+        config_text = DEFAULT_TEAM_TOML + '''
+
+[model_presets.codex.balanced]
+coordinator_model = "project-coordinator"
+coordinator_effort = "xhigh"
+[model_presets.codex.balanced.models]
+fast = "project-fast"
+[model_presets.codex.balanced.effort]
+medium = "high"
+'''
+        with self._project() as directory:
+            root = Path(directory)
+            (root / ".agent-team" / "team.toml").write_text(config_text, encoding="utf-8")
+            config = load_team_config(root)
+            rendered = render_target("codex", config, root)
+            coordinator = tomllib.loads(rendered[next(
+                path for path in rendered if str(path).endswith("coordinator.toml")
+            )])
+            explorer = tomllib.loads(rendered[next(
+                path for path in rendered if str(path).endswith("explorer.toml")
+            )])
+            self.assertEqual(coordinator["model"], "project-coordinator")
+            self.assertEqual(coordinator["model_reasoning_effort"], "xhigh")
+            self.assertEqual(explorer["model"], "project-fast")
+            self.assertEqual(explorer["model_reasoning_effort"], "high")
 
     def test_render_refuses_changed_existing_output(self) -> None:
         with self._project() as directory, tempfile.TemporaryDirectory() as output_directory:

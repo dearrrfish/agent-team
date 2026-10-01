@@ -4,6 +4,7 @@ import re
 import subprocess
 import tomllib
 from collections.abc import Iterable
+from dataclasses import replace
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,7 @@ from agent_team.models import (
     InstallConfig,
     RoleDefinition,
     TargetPreset,
+    TargetPresetOverride,
     TargetProfile,
     TeamConfig,
     TierConfig,
@@ -115,6 +117,15 @@ def _string(value: Any, path: str, diagnostics: list[Diagnostic], default: str =
     return default
 
 
+def _nonempty_string(value: Any, path: str, diagnostics: list[Diagnostic]) -> str:
+    result = _string(value, path, diagnostics)
+    if isinstance(value, str) and not result.strip():
+        diagnostics.append(Diagnostic(path, "must not be empty", code="format"))
+    if isinstance(value, str) and any(not character.isprintable() for character in result):
+        diagnostics.append(Diagnostic(path, "must be a single printable line", code="format"))
+    return result
+
+
 def _boolean(value: Any, path: str, diagnostics: list[Diagnostic], default: bool = False) -> bool:
     if isinstance(value, bool):
         return value
@@ -159,7 +170,7 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
     allowed = {
         "schema_version", "id", "name", "description", "default_tier",
         "default_model_preset", "enabled_targets", "role_sources", "skill_sources",
-        "target_profiles", "workflow", "tiers", "install",
+        "target_profiles", "model_presets", "workflow", "tiers", "install",
     }
     _unknown_keys(data, allowed, "", diagnostics)
     schema_version = _integer(_required(data, "schema_version", "", diagnostics), "schema_version", diagnostics)
@@ -203,6 +214,61 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
     for target, reference in target_profiles.items():
         if not reference.startswith("builtin:"):
             _contained_path(root, reference, f"target_profiles.{target}", diagnostics)
+
+    model_presets_data = _mapping(data.get("model_presets", {}), "model_presets", diagnostics)
+    _unknown_keys(model_presets_data, TARGETS, "model_presets", diagnostics)
+    model_presets: dict[str, dict[str, TargetPresetOverride]] = {}
+    for target, target_overrides in model_presets_data.items():
+        if target not in TARGETS:
+            continue
+        target_path = f"model_presets.{target}"
+        presets_data = _mapping(target_overrides, target_path, diagnostics)
+        _unknown_keys(presets_data, PRESETS, target_path, diagnostics)
+        parsed_presets: dict[str, TargetPresetOverride] = {}
+        for preset_name, preset_override in presets_data.items():
+            if preset_name not in PRESETS:
+                continue
+            preset_path = f"{target_path}.{preset_name}"
+            item = _mapping(preset_override, preset_path, diagnostics)
+            _unknown_keys(
+                item,
+                {"coordinator_model", "coordinator_effort", "models", "effort"},
+                preset_path,
+                diagnostics,
+            )
+            models = _mapping(item["models"], f"{preset_path}.models", diagnostics) if "models" in item else {}
+            _unknown_keys(models, {"fast", "balanced", "deep"}, f"{preset_path}.models", diagnostics)
+            effort = _mapping(item["effort"], f"{preset_path}.effort", diagnostics) if "effort" in item else {}
+            _unknown_keys(effort, {"low", "medium", "high"}, f"{preset_path}.effort", diagnostics)
+            parsed_presets[preset_name] = TargetPresetOverride(
+                coordinator_model=(
+                    _nonempty_string(item["coordinator_model"], f"{preset_path}.coordinator_model", diagnostics)
+                    if "coordinator_model" in item else None
+                ),
+                coordinator_effort=(
+                    _nonempty_string(item["coordinator_effort"], f"{preset_path}.coordinator_effort", diagnostics)
+                    if "coordinator_effort" in item else None
+                ),
+                models={
+                    key: _nonempty_string(value, f"{preset_path}.models.{key}", diagnostics)
+                    for key, value in models.items()
+                    if key in {"fast", "balanced", "deep"}
+                },
+                effort={
+                    key: _nonempty_string(value, f"{preset_path}.effort.{key}", diagnostics)
+                    for key, value in effort.items()
+                    if key in {"low", "medium", "high"}
+                },
+            )
+        if parsed_presets:
+            model_presets[target] = parsed_presets
+    for target in model_presets:
+        if target not in target_profiles:
+            diagnostics.append(Diagnostic(
+                f"model_presets.{target}",
+                "target needs a configured profile",
+                code="required",
+            ))
 
     workflow_data = _mapping(_required(data, "workflow", "", diagnostics), "workflow", diagnostics)
     _unknown_keys(
@@ -295,7 +361,7 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
         raise ValidationFailure(diagnostics)
     return TeamConfig(
         schema_version, team_id, name, description, default_tier, default_preset,
-        enabled_targets, role_sources, skill_sources, target_profiles, workflow,
+        enabled_targets, role_sources, skill_sources, target_profiles, model_presets, workflow,
         tiers, InstallConfig(default_scope, overwrite, backups, modify_settings),
     )
 
@@ -623,6 +689,65 @@ def load_target_profile(target: str, reference: str, root: Path) -> TargetProfil
             Diagnostic(f"target_profiles.{target}.adapter", "profile adapter must match target", code="invariant")
         ])
     return profile
+
+
+def resolve_target_profile(config: TeamConfig, target: str, root: Path) -> TargetProfile:
+    """Load a target profile and apply the project's sparse preset overrides."""
+    if target not in config.target_profiles:
+        raise ValidationFailure([
+            Diagnostic(f"target_profiles.{target}", "target profile is not configured", code="required")
+        ])
+    profile = load_target_profile(target, config.target_profiles[target], root)
+    overrides = config.model_presets.get(target, {})
+    if not overrides:
+        return profile
+
+    diagnostics: list[Diagnostic] = []
+    presets = dict(profile.presets)
+    for preset_name, override in overrides.items():
+        preset_path = f"model_presets.{target}.{preset_name}"
+        base = profile.presets[preset_name]
+        if override.coordinator_effort is not None:
+            if not profile.supports_effort:
+                diagnostics.append(Diagnostic(
+                    f"{preset_path}.coordinator_effort",
+                    "target does not support effort overrides",
+                    code="invariant",
+                ))
+            elif override.coordinator_effort not in profile.effort_levels:
+                diagnostics.append(Diagnostic(
+                    f"{preset_path}.coordinator_effort",
+                    "unsupported native effort",
+                    code="enum",
+                ))
+        for semantic, native_effort in override.effort.items():
+            if not profile.supports_effort:
+                diagnostics.append(Diagnostic(
+                    f"{preset_path}.effort.{semantic}",
+                    "target does not support effort overrides",
+                    code="invariant",
+                ))
+            elif native_effort not in profile.effort_levels:
+                diagnostics.append(Diagnostic(
+                    f"{preset_path}.effort.{semantic}",
+                    "unsupported native effort",
+                    code="enum",
+                ))
+        presets[preset_name] = TargetPreset(
+            coordinator_model=(
+                override.coordinator_model
+                if override.coordinator_model is not None else base.coordinator_model
+            ),
+            coordinator_effort=(
+                override.coordinator_effort
+                if override.coordinator_effort is not None else base.coordinator_effort
+            ),
+            models={**base.models, **override.models},
+            effort={**base.effort, **override.effort},
+        )
+    if diagnostics:
+        raise ValidationFailure(diagnostics)
+    return replace(profile, presets=presets)
 
 
 def resolve_tier(config: TeamConfig, root: Path, requested: str | None) -> str:

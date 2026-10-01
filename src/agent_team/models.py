@@ -47,6 +47,7 @@ class TeamConfig:
     role_sources: tuple[str, ...]
     skill_sources: tuple[str, ...]
     target_profiles: Mapping[str, str]
+    model_presets: Mapping[str, Mapping[str, TargetPresetOverride]]
     workflow: WorkflowConfig
     tiers: Mapping[str, TierConfig]
     install: InstallConfig
@@ -71,6 +72,14 @@ class RoleDefinition:
 @dataclass(frozen=True)
 class TargetPreset:
     coordinator_model: str
+    coordinator_effort: str | None
+    models: Mapping[str, str]
+    effort: Mapping[str, str]
+
+
+@dataclass(frozen=True)
+class TargetPresetOverride:
+    coordinator_model: str | None
     coordinator_effort: str | None
     models: Mapping[str, str]
     effort: Mapping[str, str]

@@ -8,7 +8,8 @@ Preview and user-scope installs leave the project's `.gitignore` unchanged.
 Configuration is strict:
 unknown keys, invalid enums, unsafe paths, and cross-field policy violations are
 errors. Resolution order is packaged target defaults, a whole project target
-profile replacement, project policy, then explicit run flags. Environment
+profile replacement, sparse project model-preset overrides, then explicit run
+preset selection. Environment
 variables never override workflow policy.
 
 Track `team.toml`, project instructions, and any configured custom role,
@@ -69,6 +70,28 @@ Target profile references default to `builtin:codex`, `builtin:claude`, and
 that target; profiles are not deep-merged. Profiles declare separate project
 and user destinations because some native clients use different global layouts.
 
+For a small routing change, add a sparse `model_presets` table in
+`.agent-team/team.toml`:
+
+```toml
+[model_presets.codex.balanced]
+coordinator_model = "my-codex-model"
+coordinator_effort = "high"
+
+[model_presets.codex.balanced.models]
+fast = "my-fast-model"
+
+[model_presets.codex.balanced.effort]
+high = "xhigh"
+```
+
+Only the listed fields change. `models` accepts `fast`, `balanced`, and
+`deep`; `effort` accepts semantic `low`, `medium`, and `high` keys whose
+values must be supported by that target. The override is applied after loading
+the selected target profile, including a custom complete profile. Targets
+without native effort support reject effort overrides. A run's preset selection
+chooses which effective table is rendered; it does not bypass project overrides.
+
 Balanced routing is:
 
 | Semantic role | Codex | Claude | Antigravity |
@@ -85,6 +108,18 @@ effort mappings may use `low`, `medium`, `high`, `xhigh`, `max`, or `ultra` when
 the target's explicit `effort_levels` allow that level. Adapters also emit
 target-specific guidance for whether parallel writers may use worktree
 isolation.
+
+Use `agent-team models show [--target TARGET] [--model-preset PRESET | --run
+SLUG] [--format text|json]` to inspect effective role routing without network
+access. Use `agent-team models fetch --target TARGET [--format text|json]` to
+query a live catalog. Fetch output labels its source and separates
+catalog-reported per-model effort support from effort values configured in the
+target profile. Codex app-server catalogs may include bundled entries and do
+not prove account entitlement. Claude discovery uses the Claude Models API
+when `ANTHROPIC_API_KEY` is present, so results may differ from a Claude Code
+subscription. Antigravity discovery depends on the installed `agy models`
+machine-output protocol. A missing client, credential, or usable catalog is
+reported as unavailable rather than presented as live data.
 
 ## Diagnostics
 

@@ -1,15 +1,19 @@
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
 import tomllib
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
+from agent_team import cli
+from agent_team.catalog import CatalogResult
 from agent_team.templates import asset_text
-from agent_team.version import __base_version__
+from agent_team.version import __base_version__, get_version
 from tests.test_customization import CUSTOM_ROLE
 
 SOURCE = str(Path(__file__).parents[1] / "src")
@@ -77,6 +81,89 @@ class CliTests(unittest.TestCase):
             self.assertFalse(payload["ok"])
             self.assertTrue(any(item["path"] == "tiers.assisted.max_workers" for item in payload["diagnostics"]))
 
+    def test_models_show_reports_effective_routing_as_versioned_json(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(self._run(root, "init").returncode, 0)
+            config = root / ".agent-team" / "team.toml"
+            config.write_text(
+                config.read_text(encoding="utf-8")
+                + '\n[model_presets.codex.balanced]\ncoordinator_model = "project-coordinator"\n'
+                + '[model_presets.codex.balanced.effort]\nmedium = "high"\n',
+                encoding="utf-8",
+            )
+            result = self._run(root, "models", "show", "--target", "codex", "--format", "json")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["schema_version"], 1)
+            target = payload["targets"][0]
+            self.assertEqual(target["target"], "codex")
+            coordinator = next(item for item in target["roles"] if item["role_id"] == "coordinator")
+            explorer = next(item for item in target["roles"] if item["role_id"] == "explorer")
+            self.assertEqual(coordinator["native_model"], "project-coordinator")
+            self.assertEqual(coordinator["model_source"], "model_presets.codex.balanced.coordinator_model")
+            self.assertEqual(explorer["native_effort"], "high")
+            self.assertEqual(explorer["effort_source"], "model_presets.codex.balanced.effort.medium")
+
+    def test_models_fetch_reports_unavailable_source_with_nonzero_json_result(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(self._run(root, "init").returncode, 0)
+            result = self._run(
+                root,
+                "models",
+                "fetch",
+                "--target",
+                "claude",
+                "--format",
+                "json",
+                environment_overrides={"ANTHROPIC_API_KEY": ""},
+            )
+            self.assertEqual(result.returncode, 1, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["schema_version"], 1)
+            self.assertEqual(payload["status"], "unavailable")
+            self.assertEqual(payload["source"], "anthropic-api-catalog")
+
+    def test_models_fetch_empty_live_catalog_exits_nonzero(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(self._run(root, "init").returncode, 0)
+            output = StringIO()
+            empty_catalog = CatalogResult(
+                "antigravity", "antigravity-cli", "unavailable", (),
+                "agy returned no usable models",
+            )
+            with (
+                patch("agent_team.cli.project_root", return_value=root),
+                patch("agent_team.cli.fetch_catalog", return_value=empty_catalog),
+                redirect_stdout(output),
+            ):
+                exit_code = cli.main([
+                    "models", "fetch", "--target", "antigravity", "--format", "json",
+                ])
+            self.assertEqual(exit_code, 1)
+            self.assertEqual(json.loads(output.getvalue())["status"], "unavailable")
+
+    def test_validate_checks_overrides_for_disabled_configured_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(self._run(root, "init").returncode, 0)
+            config = root / ".agent-team" / "team.toml"
+            config.write_text(
+                config.read_text(encoding="utf-8")
+                .replace('enabled_targets = ["codex", "claude", "antigravity"]', 'enabled_targets = ["codex"]')
+                + '\n[model_presets.claude.balanced]\ncoordinator_effort = "ultra"\n',
+                encoding="utf-8",
+            )
+            result = self._run(root, "validate", "--format", "json")
+            self.assertEqual(result.returncode, 1)
+            diagnostics = json.loads(result.stdout)["diagnostics"]
+            self.assertTrue(any(
+                item["path"] == "model_presets.claude.balanced.coordinator_effort"
+                for item in diagnostics
+            ))
+
     def test_render_uses_only_an_explicit_output_root(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             result = self._run(Path(directory), "render", "--help")
@@ -104,14 +191,11 @@ class CliTests(unittest.TestCase):
                 result.stdout,
             )
 
-    def test_version_output_contains_commit_hash(self) -> None:
+    def test_version_output_matches_available_version_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             result = self._run(Path(directory), "--version")
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertRegex(
-                result.stdout.strip(),
-                rf"^agent-team {re.escape(__base_version__)}\+[0-9a-zA-Z.]+$",
-            )
+            self.assertEqual(result.stdout.strip(), f"agent-team {get_version()}")
 
     def test_version_output_with_env_commit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -13,6 +13,7 @@ from agent_team.config import (
     parse_target_profile,
     parse_team_config,
     project_root,
+    resolve_target_profile,
     resolve_tier,
 )
 from agent_team.diagnostics import ValidationFailure
@@ -133,6 +134,93 @@ class ConfigTests(unittest.TestCase):
             item.path.endswith(".presets.quality.effort.high") and item.code == "enum"
             for item in context.exception.diagnostics
         ))
+
+    def test_model_preset_overrides_merge_leaves_over_the_selected_profile(self) -> None:
+        config_text = DEFAULT_TEAM_TOML + '''
+
+[model_presets.codex.balanced]
+coordinator_model = "project-coordinator"
+coordinator_effort = "xhigh"
+[model_presets.codex.balanced.models]
+fast = "project-fast"
+[model_presets.codex.balanced.effort]
+low = "high"
+'''
+        with self._project() as directory:
+            root = Path(directory)
+            (root / ".agent-team" / "team.toml").write_text(config_text, encoding="utf-8")
+            config = load_team_config(root)
+            profile = resolve_target_profile(config, "codex", root)
+            preset = profile.presets["balanced"]
+            self.assertEqual(preset.coordinator_model, "project-coordinator")
+            self.assertEqual(preset.coordinator_effort, "xhigh")
+            self.assertEqual(preset.models["fast"], "project-fast")
+            self.assertEqual(preset.models["deep"], "gpt-6-sol")
+            self.assertEqual(preset.effort["low"], "high")
+            self.assertEqual(preset.effort["high"], "high")
+
+    def test_model_preset_overrides_follow_replaced_target_profile(self) -> None:
+        config_text = DEFAULT_TEAM_TOML.replace(
+            'codex = "builtin:codex"', 'codex = "definitions/codex.toml"'
+        ) + '''
+
+[model_presets.codex.balanced.models]
+deep = "project-deep"
+'''
+        with self._project() as directory:
+            root = Path(directory)
+            definitions = root / "definitions"
+            definitions.mkdir()
+            profile_text = asset_text("definitions", "targets", "codex.toml").replace(
+                'coordinator_model = "gpt-6-sol"',
+                'coordinator_model = "profile-coordinator"',
+                1,
+            )
+            (definitions / "codex.toml").write_text(profile_text, encoding="utf-8")
+            (root / ".agent-team" / "team.toml").write_text(config_text, encoding="utf-8")
+            config = load_team_config(root)
+            preset = resolve_target_profile(config, "codex", root).presets["balanced"]
+            self.assertEqual(preset.coordinator_model, "profile-coordinator")
+            self.assertEqual(preset.models["deep"], "project-deep")
+
+    def test_model_preset_override_rejects_unknown_keys_and_empty_models(self) -> None:
+        data = tomllib.loads(DEFAULT_TEAM_TOML)
+        data["model_presets"] = {
+            "codex": {"balanced": {"models": {"unexpected": "model"}}},
+            "claude": {"quality": {"coordinator_model": ""}},
+            "antigravity": {"balanced": {"coordinator_model": "pro\n---\nInjected instructions"}},
+        }
+        with self.assertRaises(ValidationFailure) as context:
+            parse_team_config(data, Path("/tmp/project"))
+        paths = {item.path for item in context.exception.diagnostics}
+        self.assertIn("model_presets.codex.balanced.models.unexpected", paths)
+        self.assertIn("model_presets.claude.quality.coordinator_model", paths)
+        self.assertIn("model_presets.antigravity.balanced.coordinator_model", paths)
+
+    def test_model_preset_override_rejects_unsupported_effort(self) -> None:
+        config_text = DEFAULT_TEAM_TOML + '''
+
+[model_presets.claude.balanced]
+coordinator_effort = "ultra"
+[model_presets.antigravity.balanced.effort]
+low = "low"
+'''
+        with self._project() as directory:
+            root = Path(directory)
+            (root / ".agent-team" / "team.toml").write_text(config_text, encoding="utf-8")
+            config = load_team_config(root)
+            with self.assertRaises(ValidationFailure) as claude_context:
+                resolve_target_profile(config, "claude", root)
+            self.assertTrue(any(
+                item.path == "model_presets.claude.balanced.coordinator_effort" and item.code == "enum"
+                for item in claude_context.exception.diagnostics
+            ))
+            with self.assertRaises(ValidationFailure) as antigravity_context:
+                resolve_target_profile(config, "antigravity", root)
+            self.assertTrue(any(
+                item.path == "model_presets.antigravity.balanced.effort.low" and item.code == "invariant"
+                for item in antigravity_context.exception.diagnostics
+            ))
 
     def test_project_root_falls_back_to_git_toplevel(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

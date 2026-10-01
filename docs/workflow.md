@@ -124,7 +124,10 @@ syntax while retaining the explicit roles and boundaries.
 Create a plan before coding:
 
 ```text
-Act as the main-thread coordinator and use $team-plan for <feature>. Run
+If the user explicitly asks for the agent-team coordinator in the main thread,
+ask whether to load the coordinator harness into this thread or spawn a dedicated
+native coordinator subagent. Explain both options and wait for the choice before
+spawning. Then act as the selected coordinator and use $team-plan for <feature>. Run
 agent-team run init --slug <slug> --tier <tier>, complete requirements.md and
 plan.md, add design.md and decisions.md when deep discovery is enabled, add
 tasks.md for team tier, and propose the first implementation wave before
@@ -134,7 +137,10 @@ editing product code.
 Run parallel implementation:
 
 ```text
-Act as the main-thread coordinator and use $team-coordinate. Read
+If the user explicitly asks for the agent-team coordinator in the main thread,
+ask whether to load the coordinator harness into this thread or spawn a dedicated
+native coordinator subagent. Explain both options and wait for the choice before
+spawning. Then act as the selected coordinator and use $team-coordinate. Read
 .agent-team/runs/<slug>/run.toml and plan.md, plus tasks.md for team tier. For
 assisted tier, record bounded task entries in run.toml and serialize writers.
 Split the next wave into file-disjoint scopes and spawn implementer or ops custom

@@ -1,19 +1,21 @@
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import subprocess
 import sys
 from pathlib import Path, PurePosixPath
 
 from agent_team import __version__
-from agent_team.adapters import load_skills, render_target, write_rendered
+from agent_team.adapters import _mapped_role, load_skills, render_target, write_rendered
+from agent_team.catalog import fetch_catalog
 from agent_team.config import (
     DEFAULT_TEAM_TOML,
     load_roles,
-    load_target_profile,
     load_team_config,
     project_root,
+    resolve_target_profile,
     resolve_tier,
 )
 from agent_team.diagnostics import Diagnostic, ValidationFailure, render_diagnostics
@@ -65,6 +67,19 @@ def _parser() -> argparse.ArgumentParser:
 
     doctor = subcommands.add_parser("doctor", help="check the environment and project")
     doctor.add_argument("--format", choices=("text", "json"), default="text")
+
+    models = subcommands.add_parser("models", help="inspect effective routing or live model catalogs")
+    model_commands = models.add_subparsers(dest="models_command", required=True)
+    show = model_commands.add_parser("show", help="show configured effective model routing")
+    show.add_argument("--target", choices=TARGETS)
+    selection = show.add_mutually_exclusive_group()
+    selection.add_argument("--model-preset", choices=PRESETS)
+    selection.add_argument("--run", dest="run_slug", help="use the model preset from this run")
+    show.add_argument("--format", choices=("text", "json"), default="text")
+    fetch = model_commands.add_parser("fetch", help="fetch a live model catalog")
+    fetch.add_argument("--target", choices=TARGETS, required=True)
+    fetch.add_argument("--format", choices=("text", "json"), default="text")
+    fetch.add_argument("--timeout", type=float, default=10.0)
     return parser
 
 
@@ -162,9 +177,10 @@ def _collect_validation(root: Path) -> list[Diagnostic]:
         load_skills(config, root)
     except ValidationFailure as exc:
         diagnostics.extend(exc.diagnostics)
-    for target in config.enabled_targets:
+    targets_to_resolve = tuple(dict.fromkeys((*config.enabled_targets, *config.model_presets)))
+    for target in targets_to_resolve:
         try:
-            load_target_profile(target, config.target_profiles[target], root)
+            resolve_target_profile(config, target, root)
         except ValidationFailure as exc:
             diagnostics.extend(exc.diagnostics)
     diagnostics.extend(validate_all_runs(root, config))
@@ -245,6 +261,112 @@ def _install(root: Path, args: argparse.Namespace) -> int:
     return 0
 
 
+def _model_preset(root: Path, config: object, args: argparse.Namespace) -> str:
+    if args.run_slug:
+        return load_run_model_preset(root, config, args.run_slug)
+    return args.model_preset or config.default_model_preset
+
+
+def _source_for_role(config: object, target: str, preset: str, role: object) -> tuple[str, str | None]:
+    override = config.model_presets.get(target, {}).get(preset)
+    profile_source = config.target_profiles[target]
+    if override is None:
+        return profile_source, profile_source
+    prefix = f"model_presets.{target}.{preset}"
+    if role.role_id == "coordinator":
+        return (
+            f"{prefix}.coordinator_model" if override.coordinator_model is not None else profile_source,
+            f"{prefix}.coordinator_effort" if override.coordinator_effort is not None else profile_source,
+        )
+    return (
+        f"{prefix}.models.{role.model_class}" if role.model_class in override.models else profile_source,
+        f"{prefix}.effort.{role.effort}" if role.effort in override.effort else profile_source,
+    )
+
+
+def _effective_routing(root: Path, args: argparse.Namespace) -> dict[str, object]:
+    config = load_team_config(root)
+    targets = (args.target,) if args.target else config.enabled_targets
+    if args.target and args.target not in config.enabled_targets:
+        raise ValidationFailure([Diagnostic("target", f"{args.target} is not enabled", code="disabled")])
+    preset_name = _model_preset(root, config, args)
+    roles = load_roles(config, root)
+    output: list[dict[str, object]] = []
+    for target in targets:
+        profile = resolve_target_profile(config, target, root)
+        if preset_name not in profile.presets:
+            raise ValidationFailure([Diagnostic(
+                "model_preset", f"{preset_name} is not defined by the {target} profile", code="enum"
+            )])
+        resolved_roles: list[dict[str, object]] = []
+        for role in roles:
+            model, effort = _mapped_role(profile, preset_name, role)
+            model_source, effort_source = _source_for_role(config, target, preset_name, role)
+            resolved_roles.append({
+                "role_id": role.role_id,
+                "model_class": "coordinator" if role.role_id == "coordinator" else role.model_class,
+                "native_model": model,
+                "native_effort": effort,
+                "model_source": model_source,
+                "effort_source": effort_source if effort is not None else None,
+            })
+        output.append({"target": target, "preset": preset_name, "roles": resolved_roles})
+    return {"schema_version": 1, "kind": "effective-routing", "targets": output}
+
+
+def _models_show(root: Path, args: argparse.Namespace) -> int:
+    payload = _effective_routing(root, args)
+    if args.format == "json":
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    for target in payload["targets"]:
+        print(f"{target['target']} ({target['preset']})")
+        for role in target["roles"]:
+            effort = role["native_effort"] if role["native_effort"] is not None else "none"
+            print(
+                f"  {role['role_id']}: class={role['model_class']} model={role['native_model']} "
+                f"effort={effort} model_source={role['model_source']} "
+                f"effort_source={role['effort_source'] or 'none'}"
+            )
+    return 0
+
+
+def _models_fetch(root: Path, args: argparse.Namespace) -> int:
+    config = load_team_config(root)
+    if args.target not in config.enabled_targets:
+        raise ValidationFailure([Diagnostic("target", f"{args.target} is not enabled", code="disabled")])
+    profile = resolve_target_profile(config, args.target, root)
+    try:
+        catalog = fetch_catalog(args.target, args.timeout)
+    except ValueError as exc:
+        raise ValidationFailure([Diagnostic("timeout", str(exc), code="range")]) from exc
+    payload: dict[str, object] = {
+        "schema_version": 1,
+        "kind": "live-catalog",
+        "target": catalog.target,
+        "source": catalog.source,
+        "status": catalog.status,
+        "models": list(catalog.models),
+        "profile_effort_levels": list(profile.effort_levels),
+        "profile_effort_source": config.target_profiles[args.target],
+    }
+    if catalog.message:
+        payload["message"] = catalog.message
+    if args.format == "json":
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(f"{catalog.target}: {catalog.status} via {catalog.source}")
+        if catalog.message:
+            print(f"  {catalog.message}")
+        for model in catalog.models:
+            effort = model["effort_options"]
+            effort_text = ",".join(effort) if effort is not None else "not reported"
+            print(f"  {model['model_id']}: {model['display_name']} (effort: {effort_text})")
+        levels = ",".join(profile.effort_levels) if profile.effort_levels else "none"
+        print(f"  profile effort levels: {levels} ({config.target_profiles[args.target]})")
+    return 0 if catalog.status == "ok" else 1
+
+
 def _doctor(root: Path, output_format: str) -> int:
     diagnostics = [
         Diagnostic("python", f"Python {sys.version.split()[0]}", severity="info", code="ok")
@@ -320,6 +442,11 @@ def main(argv: list[str] | None = None) -> int:
             return _render(root, args)
         if args.command == "install":
             return _install(root, args)
+        if args.command == "models":
+            if args.models_command == "show":
+                return _models_show(root, args)
+            if args.models_command == "fetch":
+                return _models_fetch(root, args)
         if args.command == "doctor":
             return _doctor(root, args.format)
     except ValidationFailure as exc:
