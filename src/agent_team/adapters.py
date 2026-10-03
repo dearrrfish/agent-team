@@ -140,15 +140,19 @@ def _render_agent(target: str, role: RoleDefinition, profile: TargetProfile, pre
 
 def load_skills(config: TeamConfig, root: Path) -> Iterable[tuple[str, str]]:
     selected: dict[str, str] = {}
-    for source in config.skill_sources:
+    from agent_team.config import _ensure_contained
+
+    for scope_root, source in config.scoped_skill_sources or tuple((root, source) for source in config.skill_sources):
         if source == "builtin:skills":
             for skill_id in ("team-workflow", "team-plan", "team-coordinate", "team-review"):
                 selected[skill_id] = asset_text("skills", skill_id, "SKILL.md")
             continue
-        directory = (root / source).resolve()
+        directory = (scope_root / source).resolve()
+        _ensure_contained(scope_root, directory, source)
         if not directory.is_dir():
             raise ValidationFailure([Diagnostic(source, "skill source directory does not exist", code="missing")])
         for skill_file in sorted(directory.glob("*/SKILL.md")):
+            _ensure_contained(scope_root, skill_file, str(skill_file))
             skill_id = skill_file.parent.name
             if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", skill_id):
                 raise ValidationFailure([Diagnostic(str(skill_file), "skill directory must be kebab-case", code="format")])

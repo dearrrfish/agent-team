@@ -1,27 +1,116 @@
 # Configuration reference
 
-`agent-team init` creates `.agent-team/team.toml`, upserts common workflow
-prompt templates under `.agent-team/templates/prompts`, and ignores the four
-stock prompt files and local state. A successful project-scoped `install
---apply` adds exact ignore rules for its managed native agents and skills.
-Preview and user-scope installs leave the project's `.gitignore` unchanged.
-Configuration is strict:
-unknown keys, invalid enums, unsafe paths, and cross-field policy violations are
-errors. Resolution order is packaged target defaults, a whole project target
-profile replacement, sparse project model-preset overrides, then explicit run
-preset selection. Environment
-variables never override workflow policy.
+## Scopes and inheritance
 
-Track `team.toml`, project instructions, and any configured custom role,
-skill, or target-profile sources. Keep authored prompts outside the four stock
-prompt paths because `init` overwrites those examples. Native directories can
-also contain hand-written files, so neither `init` nor `install` adds blanket
-`.agents/`, `.codex/`, or `.claude/` ignores. Existing project ignore rules
-are preserved. Git ignores do not untrack files that are already committed.
+`agent-team init --scope user` creates the complete, annotated configuration
+at `~/.agent-team/team.toml`. It includes descriptions of supported fields and
+commented target-profile and model-preset examples. Existing files are preserved
+with a warning. User initialization creates no runs, templates, backups, or
+Git ignore file.
+Project commands reject the home directory and the user configuration tree as
+project context; run them from a separate project directory.
 
-`run init --model-preset PRESET` records an explicit run selection. Pass the
-run to `render` or `install` with `--run SLUG` to render native agent profiles
-from that selection; omitting `--run` uses `default_model_preset`.
+Plain `agent-team init` creates a sparse project configuration that inherits
+user settings live. For example:
+
+```toml
+schema_version = 1
+inherit_user_defaults = true
+
+[model_presets.codex.balanced.models]
+fast = "my-project-model"
+```
+
+Configuration resolves in this order: packaged defaults, user configuration,
+then project configuration. Tables merge recursively; scalar values and arrays
+replace inherited values. Role and skill source lists are the exception for
+definition loading: each scope supplies its custom source layer, so project
+sources overlay user definitions instead of discarding them. A target-profile
+reference selects a complete profile
+rather than merging profile files. Sparse model-preset overrides then update
+individual fields of that profile. A run selects which preset is used.
+
+Changing user settings affects opted-in projects on their next command. It does
+not rewrite installed native files: rerun `install --scope user --apply` with
+the relevant targets to refresh shared output. A project can install its own
+native files with `install --scope project` whenever needed.
+
+`init --scope project` writes complete builtin defaults and persists
+`inherit_user_defaults = false`. Existing files are never rewritten by init;
+change that field in an existing config to opt out. Opt-out skips user config
+reads, including malformed user files. It controls agent-team configuration
+resolution, while native clients can still discover globally installed agents.
+
+Project source and profile paths resolve relative to the project root. User
+source and profile paths resolve relative to `~/.agent-team`. References must
+stay inside their originating root, including after following symlinks. The
+workflow run directory always resolves inside the project. Role and skill
+sources retain their original scope even when project settings override other
+fields.
+
+Named role and skill definitions use whole-definition replacement:
+builtin < user custom < project custom. Later custom sources in the same scope
+win by ID. Builtin markers do not reload defaults after custom definitions.
+Instructions and permissions are not concatenated across same-name definitions.
+
+Unknown keys, malformed values, unsafe paths, and policy violations are errors.
+Existing complete project configs remain valid and their explicit fields take
+priority over user settings. Environment variables do not override workflow
+policy.
+
+### Native discovery differs from source resolution
+
+The priority above is an agent-team source contract. Native clients have their
+own discovery behavior:
+
+- Codex combines global and increasingly specific project instruction files.
+  Its skills documentation says duplicate names can both appear in selectors.
+  See [AGENTS.md](https://learn.chatgpt.com/docs/agent-configuration/agents-md),
+  [skills](https://learn.chatgpt.com/docs/build-skills), and
+  [subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents).
+- Claude Code documents project custom subagents ahead of user subagents.
+  See [subagent scopes](https://code.claude.com/docs/en/sub-agents) and
+  [skill locations](https://code.claude.com/docs/en/skills).
+- Antigravity documents global and workspace locations for
+  [agents](https://antigravity.google/docs/subagents?tab=cli) and
+  [skills](https://antigravity.google/docs/skills). The reviewed sources do not
+  establish a universal duplicate-name winner across these locations.
+
+Project configuration cannot guarantee that a native loader suppresses a
+same-name global skill. User setup reduces repeated installation; project
+installation supplies local exceptions where the native client supports them.
+
+### Explicit project generation
+
+`agent-team generate gitignore,templates` populates optional project artifacts.
+Either selector can be requested separately; no selector requests both.
+Initialization and installation only manage their own configuration or native
+output, so run generate explicitly when you want project ignore rules.
+
+Generated rules use wildcards across hidden native roots, matching builtin
+agent names and `team-*` skill directories, plus local workflow state and stock
+prompt paths. Skill rules match directories such as
+`.agents/skills/team-plan/SKILL.md`. Existing rules are preserved and rerunning
+generation does not duplicate entries. Same-prefix authored native files can
+also match these patterns; use distinct names or an explicit Git negation rule
+when tracking them. Configured custom role and skill sources receive explicit
+exceptions so
+those directories remain trackable even when their names match native output
+patterns. Target-profile sources remain trackable as well. Git ignores do not
+untrack committed files.
+
+Track `team.toml`, project instructions, and configured source definitions.
+Keep authored prompts outside the four stock paths because template generation
+overwrites those examples.
+
+### Scope migration
+
+`install --scope user` now reads only `~/.agent-team/team.toml`; it no longer
+renders a project's configuration into user directories. Initialize and edit
+the user config first. `install --scope project` reads effective project
+configuration and supports `--run SLUG`. User installation rejects `--run`
+because runs stay project-scoped. Comma-separated `--target` values install
+multiple targets after preflight checks; single-target invocations still work.
 
 ## Project policy
 
@@ -39,7 +128,7 @@ adds a required `review.md` artifact and approval gate.
 `[install]` defaults to project scope, always refuses implicit overwrite,
 requires backups, and cannot modify native client settings in schema v1.
 
-Paths are relative to the project and cannot contain traversal outside it.
+Paths retain the defining scope as described above and cannot escape it.
 
 ## Roles
 
@@ -85,7 +174,8 @@ fast = "my-fast-model"
 high = "xhigh"
 ```
 
-Only the listed fields change. `models` accepts `fast`, `balanced`, and
+Only the listed fields change; inherited preset fields remain active. `models`
+accepts `fast`, `balanced`, and
 `deep`; `effort` accepts semantic `low`, `medium`, and `high` keys whose
 values must be supported by that target. The override is applied after loading
 the selected target profile, including a custom complete profile. Targets
@@ -110,8 +200,9 @@ target-specific guidance for whether parallel writers may use worktree
 isolation.
 
 Use `agent-team models show [--target TARGET] [--model-preset PRESET | --run
-SLUG] [--format text|json]` to inspect effective role routing without network
-access. Use `agent-team models fetch --target TARGET [--format text|json]` to
+SLUG] [--format text|json|table]` to inspect effective role routing without network
+access. Use `agent-team models fetch --target TARGET
+[--format text|json|table]` to
 query a live catalog. Fetch output labels its source and separates
 catalog-reported per-model effort support from effort values configured in the
 target profile. Codex app-server catalogs may include bundled entries and do

@@ -5,11 +5,22 @@ set -euo pipefail
 agent_team_bin=${1:?"usage: release_smoke.sh AGENT_TEAM_BIN SMOKE_ROOT"}
 smoke_root=${2:?"usage: release_smoke.sh AGENT_TEAM_BIN SMOKE_ROOT"}
 
-mkdir -p "${smoke_root}"
-cd "${smoke_root}"
+if [[ "${AGENT_TEAM_SMOKE_ISOLATED:-}" != "1" ]]; then
+  mkdir -p "${smoke_root}/home" "${smoke_root}/project"
+  exec env HOME="${smoke_root}/home" AGENT_TEAM_SMOKE_ISOLATED=1 \
+    bash "$0" "${agent_team_bin}" "${smoke_root}"
+fi
+cd "${smoke_root}/project"
 
 "${agent_team_bin}" --version
+"${agent_team_bin}" init --scope user
+"${agent_team_bin}" install --scope user --target codex,claude,antigravity --apply
+"${agent_team_bin}" install --scope user --target codex,claude,antigravity --apply | grep -q "unchanged"
+test ! -e "${HOME}/.agent-team/runs"
+test ! -e "${HOME}/.agent-team/templates"
+test ! -e "${HOME}/.agent-team/backups"
 "${agent_team_bin}" init
+"${agent_team_bin}" generate
 "${agent_team_bin}" validate --format json
 "${agent_team_bin}" run init \
   --slug release-smoke \

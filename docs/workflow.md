@@ -82,6 +82,29 @@ agent-team install --target claude
 agent-team install --target claude --apply
 ```
 
+Use user scope for a one-time shared setup:
+
+```console
+agent-team init --scope user
+agent-team install --scope user --target codex,claude,antigravity --apply
+```
+
+User installs require user configuration and do not load a project run. Plain
+project init creates live inherited settings; local installation is optional
+unless a project needs local native definitions. Use `generate` explicitly for
+project prompt templates and ignore rules.
+
+All requested targets are checked before application, including predictable
+conflicts, resolved aliases, and planned file/directory collisions, including
+ownership-state paths. Writes remain atomic per file;
+this is not a transaction covering filesystem failures across all targets.
+
+Runs and prompt templates are always project-scoped. User install ownership
+state is stored in `~/.agent-team/install-state.json`. Forced user replacement
+backs up conflicts beneath the invoking project's `.agent-team/backups`, and
+requires a project context when a backup is needed. No user backup directory is
+created. Project installation keeps state and backups inside the project.
+
 The ownership manifest records SHA-256 content hashes. A later installation may
 update an unchanged managed file, but refuses unmanaged content or locally
 drifted managed content. `--force` permits replacement only with a timestamped
@@ -114,10 +137,12 @@ of substituting a generic child.
 
 ### Common usage prompts
 
-`agent-team init` writes these common workflow prompts to
+`agent-team generate templates` writes these common workflow prompts to
 `.agent-team/templates/prompts/` (`plan.md`, `coordinate.md`, `review.md`, and
-`discovery.md`). The stock examples are ignored by Git and overwritten when
-`init` is rerun. Put authored prompts at separate paths. These examples use
+`discovery.md`). Run `agent-team generate gitignore` to ignore the stock
+examples. They are
+overwritten when template generation is rerun. Put authored prompts at separate
+paths. These examples use
 Codex skill syntax. Other targets should use their native skill invocation
 syntax while retaining the explicit roles and boundaries.
 

@@ -6,11 +6,36 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- User configuration initialization with `init --scope user`, annotated schema
+  fields, and complete commented target-profile and model-preset examples.
+- Live `builtin < user < project` configuration inheritance, sparse project
+  overrides, scoped custom role/skill resolution, and isolated project setup
+  with `init --scope project`.
+- Explicit `generate gitignore,templates` for optional project artifacts,
+  generic native-output ignore patterns, and authored-source exceptions.
+- Comma-separated installation targets with complete destination preflight,
+  including symlink aliases, file/directory conflicts, and ownership state.
+- Effective model routing and live catalog inspection, sparse preset overrides,
+  and opt-in `--format table` output for `models show` and `models fetch`.
+
 ### Changed
 
-- `init` ignores its four generated workflow prompt examples, while successful
-  project installation adds exact ignore rules for managed native agents and
-  skills. Project-authored configuration and source files remain trackable.
+- `init` creates configuration only; template and Git ignore generation move to
+  `generate`. Installation no longer updates `.gitignore`.
+- `install --scope user` reads user configuration instead of project routing;
+  initialize user configuration first. Project runs remain project-scoped.
+- User-install replacement backups remain in the invoking project, while
+  ownership metadata stays beside the user configuration.
+
+### Fixed
+
+- Complete `init --help` descriptions of scope, inheritance, and setup examples.
+- User configuration discovery no longer captures projects beneath HOME, and
+  project-only commands reject the user configuration as execution context.
+- Generated wildcard ignores preserve configured authored role, skill, and
+  target-profile sources.
 
 ## [0.3.0] - 2026-09-25
 

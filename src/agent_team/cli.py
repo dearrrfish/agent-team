@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import shutil
 import subprocess
@@ -11,17 +12,21 @@ from agent_team import __version__
 from agent_team.adapters import _mapped_role, load_skills, render_target, write_rendered
 from agent_team.catalog import fetch_catalog
 from agent_team.config import (
-    DEFAULT_TEAM_TOML,
     load_roles,
     load_team_config,
+    load_user_config,
+    project_init_toml,
     project_root,
+    require_project_context,
     resolve_target_profile,
     resolve_tier,
+    user_config_root,
+    user_init_toml,
 )
 from agent_team.diagnostics import Diagnostic, ValidationFailure, render_diagnostics
 from agent_team.fs import atomic_write
 from agent_team.installer import install_files
-from agent_team.models import PRESETS, TARGETS, TIERS
+from agent_team.models import PRESETS, ROLE_IDS, TARGETS, TIERS
 from agent_team.runs import init_run, load_run_model_preset, validate_all_runs
 from agent_team.templates import load_prompt_templates
 
@@ -37,10 +42,26 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subcommands = parser.add_subparsers(dest="command", required=True)
 
-    subcommands.add_parser(
-        "init",
-        help="initialize project configuration, workflow prompt templates, and gitignore",
+    init = subcommands.add_parser(
+        "init", help="initialize user or project configuration only",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="""Initialize configuration without generating templates or ignore rules.
+
+Default: create a sparse project config that inherits live user defaults.
+--scope user: create full annotated ~/.agent-team/team.toml shared by projects.
+--scope project: create full isolated project defaults (user inheritance disabled).
+Existing configuration is preserved. Native global agents remain discoverable.
+
+Examples:
+  agent-team init --scope user
+  agent-team install --scope user --target codex,claude,antigravity --apply
+  agent-team init
+  agent-team generate
+  agent-team init --scope project""",
     )
+    init.add_argument("--scope", choices=("user", "project"))
+    generate = subcommands.add_parser("generate", help="generate project gitignore and prompt templates")
+    generate.add_argument("selectors", nargs="*", help="gitignore,templates (comma or space separated; default both)")
 
     validate = subcommands.add_parser("validate", help="validate project configuration and runs")
     validate.add_argument("--format", choices=("text", "json"), default="text")
@@ -59,7 +80,7 @@ def _parser() -> argparse.ArgumentParser:
     render.add_argument("--run", dest="run_slug", help="use the model preset from this run")
 
     install = subcommands.add_parser("install", help="preview or apply native agent installation")
-    install.add_argument("--target", choices=TARGETS, required=True)
+    install.add_argument("--target", required=True, help="comma-separated native targets")
     install.add_argument("--scope", choices=("project", "user"))
     install.add_argument("--apply", action="store_true")
     install.add_argument("--force", action="store_true")
@@ -75,10 +96,10 @@ def _parser() -> argparse.ArgumentParser:
     selection = show.add_mutually_exclusive_group()
     selection.add_argument("--model-preset", choices=PRESETS)
     selection.add_argument("--run", dest="run_slug", help="use the model preset from this run")
-    show.add_argument("--format", choices=("text", "json"), default="text")
+    show.add_argument("--format", choices=("text", "json", "table"), default="text")
     fetch = model_commands.add_parser("fetch", help="fetch a live model catalog")
     fetch.add_argument("--target", choices=TARGETS, required=True)
-    fetch.add_argument("--format", choices=("text", "json"), default="text")
+    fetch.add_argument("--format", choices=("text", "json", "table"), default="text")
     fetch.add_argument("--timeout", type=float, default=10.0)
     return parser
 
@@ -89,6 +110,8 @@ def _print_failure(exc: ValidationFailure, output_format: str = "text") -> int:
 
 
 AGENT_TEAM_GITIGNORE_ENTRIES: tuple[str, ...] = (
+    ".*/skills/team-*/",
+    *(f".*/agents/{role}*" for role in ROLE_IDS),
     ".worktrees/",
     ".agent-team/runs/",
     ".agent-team/backups/",
@@ -150,19 +173,77 @@ def _upsert_gitignore(
     return missing
 
 
-def _init(root: Path) -> int:
-    path = root / ".agent-team" / "team.toml"
-    if not path.exists():
-        atomic_write(path, DEFAULT_TEAM_TOML)
-        print(f"initialized {path}")
-    templates = _upsert_prompt_templates(root)
-    print(
-        f"upserted {len(templates)} prompt templates in "
-        f"{root / '.agent-team' / 'templates' / 'prompts'}"
-    )
-    added_ignores = _upsert_gitignore(root)
-    if added_ignores:
-        print(f"upserted {len(added_ignores)} entries in {root / '.gitignore'}")
+def _init(root: Path, scope: str | None = None) -> int:
+    if scope != "user":
+        require_project_context(root)
+    path = user_config_root() / "team.toml" if scope == "user" else root / ".agent-team" / "team.toml"
+    if path.exists():
+        print(f"warning: existing configuration preserved at {path}", file=sys.stderr)
+        return 0
+    content = user_init_toml() if scope == "user" else project_init_toml(isolated=scope == "project")
+    atomic_write(path, content)
+    print(f"initialized {path}")
+    return 0
+
+
+def _generate(root: Path, selectors: list[str]) -> int:
+    require_project_context(root)
+    selected = [part.strip() for value in selectors for part in value.split(",") if part.strip()] or ["gitignore", "templates"]
+    unknown = [part for part in selected if part not in {"gitignore", "templates"}]
+    if unknown:
+        raise ValidationFailure([Diagnostic("generate", f"unknown selector: {part}", code="enum") for part in unknown])
+    entries = AGENT_TEAM_GITIGNORE_ENTRIES
+    if "gitignore" in selected and (root / ".agent-team" / "team.toml").is_file():
+        config = load_team_config(root)
+        paths: dict[PurePosixPath, str] = {}
+        for target in config.enabled_targets:
+            paths.update(render_target(target, config, root, config.default_model_preset, "project"))
+        entries += tuple(
+            _literal_gitignore_entry(path) for path in sorted(paths)
+            if not any(fnmatch.fnmatchcase(path.as_posix(), pattern.rstrip("/") + ("*" if pattern.endswith("/") else ""))
+                       for pattern in AGENT_TEAM_GITIGNORE_ENTRIES)
+        )
+        # Authored definitions may themselves live beneath the generic native
+        # patterns. Reopen their directories after the generated output rules.
+        source_directories: set[PurePosixPath] = set()
+        for scoped_sources, marker in (
+            (config.scoped_role_sources, "role.toml"),
+            (config.scoped_skill_sources, "SKILL.md"),
+        ):
+            for source_root, reference in scoped_sources:
+                if source_root.resolve() == root.resolve() and not reference.startswith("builtin:"):
+                    source = (source_root / reference).resolve()
+                    if source == root.resolve():
+                        source_directories.update(
+                            PurePosixPath(path.parent.relative_to(root.resolve()).as_posix())
+                            for path in source.glob(f"*/{marker}")
+                        )
+                    else:
+                        source_directories.add(PurePosixPath(source.relative_to(root.resolve()).as_posix()))
+        for directory in sorted(source_directories):
+            ancestors = reversed((directory, *directory.parents))
+            entries += tuple(
+                "!" + _literal_gitignore_entry(parent) + "/"
+                for parent in ancestors if parent != PurePosixPath(".")
+            )
+            entries += ("!" + _literal_gitignore_entry(directory) + "/**",)
+        for target, reference in config.target_profiles.items():
+            origin = config.target_profile_roots.get(target, root)
+            if origin.resolve() != root.resolve() or reference.startswith("builtin:"):
+                continue
+            profile_path = (origin / reference).resolve().relative_to(root.resolve())
+            relative = PurePosixPath(profile_path.as_posix())
+            entries += tuple(
+                "!" + _literal_gitignore_entry(parent) + "/"
+                for parent in reversed(relative.parents) if parent != PurePosixPath(".")
+            )
+            entries += ("!" + _literal_gitignore_entry(relative),)
+    if "templates" in selected:
+        templates = _upsert_prompt_templates(root)
+        print(f"upserted {len(templates)} prompt templates")
+    if "gitignore" in selected:
+        added = _upsert_gitignore(root, entries)
+        print(f"upserted {len(added)} entries in {root / '.gitignore'}")
     return 0
 
 
@@ -221,41 +302,56 @@ def _render(root: Path, args: argparse.Namespace) -> int:
 
 
 def _install(root: Path, args: argparse.Namespace) -> int:
-    config = load_team_config(root)
+    targets = args.target.split(",")
+    if any(target not in TARGETS for target in targets) or len(set(targets)) != len(targets):
+        raise ValidationFailure([Diagnostic("target", "targets must be unique nonempty names: " + ",".join(TARGETS), code="enum")])
+    if args.scope == "user":
+        if args.run_slug:
+            raise ValidationFailure([Diagnostic("run", "--run is unavailable with user scope", code="scope")])
+        if not (user_config_root() / "team.toml").is_file():
+            raise ValidationFailure([Diagnostic("user", "warning: user configuration is missing; run init --scope user first", code="missing")])
+        config = load_user_config()
+    else:
+        config = load_team_config(root)
     scope = args.scope or config.install.default_scope
+    if scope == "user" and args.scope != "user":
+        args.scope = "user"
+        return _install(root, args)
     target_root = root if scope == "project" else Path.home()
-    model_preset = (
-        load_run_model_preset(root, config, args.run_slug)
-        if args.run_slug else config.default_model_preset
+    config_root = root if scope == "project" else user_config_root()
+    model_preset = load_run_model_preset(root, config, args.run_slug) if args.run_slug else config.default_model_preset
+    project_context = root != Path.home().resolve() and (root / ".agent-team" / "team.toml").is_file()
+    backup_root = root / ".agent-team" / "backups" if scope == "project" or project_context else None
+    rendered: dict[str, dict[PurePosixPath, str]] = {}
+    shared: dict[PurePosixPath, str] = {}
+    for target in targets:
+        files = render_target(target, config, config_root, model_preset, scope)
+        for path, content in files.items():
+            if path in shared and shared[path] != content:
+                raise ValidationFailure([Diagnostic(str(path), "targets render different content to a shared destination", code="collision")])
+            shared[path] = content
+        rendered[target] = files
+        install_files(target=target, target_root=target_root, files=files, apply=False,
+                      force=args.force, backups=config.install.backups, backup_root=backup_root,
+                      backup_containment_root=root if backup_root is not None else None,
+                      require_backup_root=scope == "user")
+    # The union also catches resolved aliases and file/ancestor conflicts that
+    # cannot be seen by checking each target's output in isolation.
+    install_files(
+        target=targets[0], target_root=target_root, files=shared, apply=False,
+        force=args.force, backups=config.install.backups, backup_root=backup_root,
+        backup_containment_root=root if backup_root is not None else None,
+        require_backup_root=scope == "user",
     )
-    files = render_target(args.target, config, root, model_preset, scope)
-    actions = install_files(
-        target=args.target,
-        target_root=target_root,
-        files=files,
-        apply=args.apply,
-        force=args.force,
-        backups=config.install.backups,
-    )
-    if args.apply and scope == "project":
-        managed_paths = set(files)
-        managed_paths.update(
-            PurePosixPath(action.path) for action in actions if action.action == "stale"
-        )
-        entries = tuple(_literal_gitignore_entry(path) for path in sorted(managed_paths))
-        try:
-            _upsert_gitignore(root, entries)
-        except OSError as exc:
-            raise ValidationFailure([Diagnostic(
-                ".gitignore",
-                f"native files were installed but ignore rules could not be updated: {exc}; "
-                "rerun the same install --apply command to retry",
-                code="write",
-            )]) from exc
-    mode = "applied" if args.apply else "preview"
-    print(f"{mode} for {args.target} ({scope} scope, {model_preset} preset):")
-    for action in actions:
-        print(f"  {action.action:9} {action.path} — {action.reason}")
+    for target, files in rendered.items():
+        actions = install_files(target=target, target_root=target_root, files=files, apply=args.apply,
+                                force=args.force, backups=config.install.backups, backup_root=backup_root,
+                                backup_containment_root=root if backup_root is not None else None,
+                                require_backup_root=scope == "user")
+        mode = "applied" if args.apply else "preview"
+        print(f"{mode} for {target} ({scope} scope, {model_preset} preset):")
+        for action in actions:
+            print(f"  {action.action:9} {action.path} — {action.reason}")
     if not args.apply:
         print("preview only; rerun with --apply to write files")
     return 0
@@ -270,17 +366,21 @@ def _model_preset(root: Path, config: object, args: argparse.Namespace) -> str:
 def _source_for_role(config: object, target: str, preset: str, role: object) -> tuple[str, str | None]:
     override = config.model_presets.get(target, {}).get(preset)
     profile_source = config.target_profiles[target]
+    if config.field_origins.get(f"target_profiles.{target}") == "user":
+        profile_source = f"user:{profile_source}"
     if override is None:
         return profile_source, profile_source
     prefix = f"model_presets.{target}.{preset}"
+    def source(key: str) -> str:
+        return f"user:{key}" if config.field_origins.get(key) == "user" else key
     if role.role_id == "coordinator":
         return (
-            f"{prefix}.coordinator_model" if override.coordinator_model is not None else profile_source,
-            f"{prefix}.coordinator_effort" if override.coordinator_effort is not None else profile_source,
+            source(f"{prefix}.coordinator_model") if override.coordinator_model is not None else profile_source,
+            source(f"{prefix}.coordinator_effort") if override.coordinator_effort is not None else profile_source,
         )
     return (
-        f"{prefix}.models.{role.model_class}" if role.model_class in override.models else profile_source,
-        f"{prefix}.effort.{role.effort}" if role.effort in override.effort else profile_source,
+        source(f"{prefix}.models.{role.model_class}") if role.model_class in override.models else profile_source,
+        source(f"{prefix}.effort.{role.effort}") if role.effort in override.effort else profile_source,
     )
 
 
@@ -314,10 +414,24 @@ def _effective_routing(root: Path, args: argparse.Namespace) -> dict[str, object
     return {"schema_version": 1, "kind": "effective-routing", "targets": output}
 
 
+def _print_table(headers: tuple[str, ...], rows: list[tuple[object, ...]]) -> None:
+    values = [tuple("none" if value is None else str(value) for value in row) for row in rows]
+    widths = [max([len(header), *(len(row[index]) for row in values)]) for index, header in enumerate(headers)]
+    print(" | ".join(header.ljust(width) for header, width in zip(headers, widths)))
+    print("-+-".join("-" * width for width in widths))
+    for row in values:
+        print(" | ".join(value.ljust(width) for value, width in zip(row, widths)))
+
+
 def _models_show(root: Path, args: argparse.Namespace) -> int:
     payload = _effective_routing(root, args)
     if args.format == "json":
         print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.format == "table":
+        rows = [(target["target"], target["preset"], role["role_id"], role["model_class"], role["native_model"], role["native_effort"], role["model_source"], role["effort_source"])
+                for target in payload["targets"] for role in target["roles"]]
+        _print_table(("Target", "Preset", "Role", "Class", "Model", "Effort", "Model source", "Effort source"), rows)
         return 0
     for target in payload["targets"]:
         print(f"{target['target']} ({target['preset']})")
@@ -358,7 +472,12 @@ def _models_fetch(root: Path, args: argparse.Namespace) -> int:
         print(f"{catalog.target}: {catalog.status} via {catalog.source}")
         if catalog.message:
             print(f"  {catalog.message}")
-        for model in catalog.models:
+        if args.format == "table":
+            _print_table(("Model ID", "Display name", "Effort options", "Effort source"), [
+                (model["model_id"], model["display_name"], ",".join(model["effort_options"]) if model["effort_options"] is not None else "not reported", model.get("effort_source"))
+                for model in catalog.models
+            ])
+        for model in catalog.models if args.format != "table" else ():
             effort = model["effort_options"]
             effort_text = ",".join(effort) if effort is not None else "not reported"
             print(f"  {model['model_id']}: {model['display_name']} (effort: {effort_text})")
@@ -433,7 +552,9 @@ def main(argv: list[str] | None = None) -> int:
     root = project_root()
     try:
         if args.command == "init":
-            return _init(root)
+            return _init(root, args.scope)
+        if args.command == "generate":
+            return _generate(root, args.selectors)
         if args.command == "validate":
             return _validate(root, args.format)
         if args.command == "run":

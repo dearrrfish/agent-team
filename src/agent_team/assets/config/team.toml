@@ -1,0 +1,321 @@
+# Personal defaults, shared live by projects unless they opt out.
+# Relative sources and profiles are rooted at ~/.agent-team.
+# workflow.run_root is always interpreted relative to the active project.
+
+# Configuration schema; version 1 is supported.
+# Projects may set this top-level field false to isolate their defaults.
+inherit_user_defaults = true
+schema_version = 1
+# Team identifier in lowercase kebab-case.
+id = "default"
+# Human-readable team name.
+name = "Native agent team"
+# Short team description.
+description = "Portable role-based agent team"
+# adaptive, solo, assisted, or team.
+default_tier = "adaptive"
+# economy, balanced, or quality.
+default_model_preset = "balanced"
+# Native targets available to install and render.
+enabled_targets = ["codex", "claude", "antigravity"]
+# Ordered custom directories; whole role IDs replace builtins.
+role_sources = ["builtin:roles"]
+# Ordered custom directories; whole skill IDs replace builtins.
+skill_sources = ["builtin:skills"]
+
+[target_profiles]
+# Target profile reference: builtin target or a relative TOML file.
+codex = "builtin:codex"
+# Target profile reference: builtin target or a relative TOML file.
+claude = "builtin:claude"
+# Target profile reference: builtin target or a relative TOML file.
+antigravity = "builtin:antigravity"
+
+[workflow]
+# Project-relative directory containing run artifacts.
+run_root = ".agent-team/runs"
+# Maximum independent review cycles (1 through 3).
+review_cycle_limit = 2
+# Enable deep discovery by default.
+deep_discovery_default = false
+# Require an explicit worktree decision.
+require_worktree_decision = true
+# Persist structured worker reports.
+persist_agent_reports = true
+
+[tiers.solo]
+# Solo requires exactly zero workers.
+max_workers = 0
+# Assisted and team require durable artifacts; solo may disable them.
+durable_artifacts = false
+# Team requires a separate read-only reviewer; other tiers may disable it.
+independent_review = false
+# Required isolation policy for this tier.
+write_isolation = "coordinator-only"
+
+[tiers.assisted]
+# Assisted permits one or two workers.
+max_workers = 2
+# Assisted and team require durable artifacts; solo may disable them.
+durable_artifacts = true
+# Team requires a separate read-only reviewer; other tiers may disable it.
+independent_review = false
+# Required isolation policy for this tier.
+write_isolation = "serialized"
+
+[tiers.team]
+# Team permits two through eight workers.
+max_workers = 4
+# Assisted and team require durable artifacts; solo may disable them.
+durable_artifacts = true
+# Team requires a separate read-only reviewer; other tiers may disable it.
+independent_review = true
+# Required isolation policy for this tier.
+write_isolation = "file-disjoint-or-worktree"
+
+[install]
+# Default installation destination: project or user.
+default_scope = "project"
+# Conflict behavior; version 1 requires refuse.
+overwrite = "refuse"
+# Preserve replaced managed files in project backups.
+backups = true
+# Version 1 requires false; native settings remain managed separately.
+modify_native_settings = false
+
+
+# Effort fields are supported only for targets whose features.supports_effort is true.
+# Each complete profile below is a separate file, not a section to uncomment here.
+# Complete custom target profile example: save the following target sections
+# into e.g. targets/codex.toml, then use target_profiles.codex = "targets/codex.toml".
+
+# --- Complete codex profile example (codex.toml) ---
+# schema_version = 1
+# id = "codex"
+# adapter = "codex"
+# agent_destination = ".codex/agents"
+# skill_destination = ".agents/skills"
+# user_agent_destination = ".codex/agents"
+# user_skill_destination = ".agents/skills"
+# models_without_effort = []
+#
+# [features]
+# supports_effort = true
+# effort_levels = ["low", "medium", "high", "xhigh", "max", "ultra"]
+# supports_worktree_isolation = true
+# team_runtime = "subagents"
+#
+# [presets.economy]
+# coordinator_model = "gpt-5.6-terra"
+# coordinator_effort = "medium"
+# [presets.economy.models]
+# fast = "gpt-6-luna"
+# balanced = "gpt-5.6-terra"
+# deep = "gpt-5.6-terra"
+# [presets.economy.effort]
+# low = "low"
+# medium = "medium"
+# high = "medium"
+#
+# [presets.balanced]
+# coordinator_model = "gpt-6-sol"
+# coordinator_effort = "medium"
+# [presets.balanced.models]
+# fast = "gpt-6-luna"
+# balanced = "gpt-5.6-terra"
+# deep = "gpt-6-sol"
+# [presets.balanced.effort]
+# low = "low"
+# medium = "medium"
+# high = "high"
+#
+# [presets.quality]
+# coordinator_model = "gpt-6-astra"
+# coordinator_effort = "medium"
+# [presets.quality.models]
+# fast = "gpt-5.6-terra"
+# balanced = "gpt-6-sol"
+# deep = "gpt-6-astra"
+# [presets.quality.effort]
+# low = "medium"
+# medium = "high"
+# high = "xhigh"
+
+# --- Sparse codex model preset override examples ---
+# [model_presets.codex.economy]
+# coordinator_model = "gpt-5.6-terra"
+# coordinator_effort = "medium"
+# [model_presets.codex.economy.models]
+# fast = "gpt-6-luna"
+# balanced = "gpt-5.6-terra"
+# deep = "gpt-5.6-terra"
+# [model_presets.codex.economy.effort]
+# low = "low"
+# medium = "medium"
+# high = "medium"
+# [model_presets.codex.balanced]
+# coordinator_model = "gpt-6-sol"
+# coordinator_effort = "medium"
+# [model_presets.codex.balanced.models]
+# fast = "gpt-6-luna"
+# balanced = "gpt-5.6-terra"
+# deep = "gpt-6-sol"
+# [model_presets.codex.balanced.effort]
+# low = "low"
+# medium = "medium"
+# high = "high"
+# [model_presets.codex.quality]
+# coordinator_model = "gpt-6-astra"
+# coordinator_effort = "medium"
+# [model_presets.codex.quality.models]
+# fast = "gpt-5.6-terra"
+# balanced = "gpt-6-sol"
+# deep = "gpt-6-astra"
+# [model_presets.codex.quality.effort]
+# low = "medium"
+# medium = "high"
+# high = "xhigh"
+
+# --- Complete claude profile example (claude.toml) ---
+# schema_version = 1
+# id = "claude"
+# adapter = "claude"
+# agent_destination = ".claude/agents"
+# skill_destination = ".claude/skills"
+# user_agent_destination = ".claude/agents"
+# user_skill_destination = ".claude/skills"
+# models_without_effort = ["haiku"]
+#
+# [features]
+# supports_effort = true
+# effort_levels = ["low", "medium", "high", "xhigh", "max"]
+# supports_worktree_isolation = true
+# team_runtime = "subagents"
+#
+# [presets.economy]
+# coordinator_model = "sonnet"
+# coordinator_effort = "medium"
+# [presets.economy.models]
+# fast = "haiku"
+# balanced = "sonnet"
+# deep = "sonnet"
+# [presets.economy.effort]
+# low = "low"
+# medium = "medium"
+# high = "medium"
+#
+# [presets.balanced]
+# coordinator_model = "sonnet"
+# coordinator_effort = "high"
+# [presets.balanced.models]
+# fast = "haiku"
+# balanced = "sonnet"
+# deep = "sonnet"
+# [presets.balanced.effort]
+# low = "low"
+# medium = "medium"
+# high = "high"
+#
+# [presets.quality]
+# coordinator_model = "opus"
+# coordinator_effort = "high"
+# [presets.quality.models]
+# fast = "sonnet"
+# balanced = "sonnet"
+# deep = "opus"
+# [presets.quality.effort]
+# low = "medium"
+# medium = "high"
+# high = "xhigh"
+
+# --- Sparse claude model preset override examples ---
+# [model_presets.claude.economy]
+# coordinator_model = "sonnet"
+# coordinator_effort = "medium"
+# [model_presets.claude.economy.models]
+# fast = "haiku"
+# balanced = "sonnet"
+# deep = "sonnet"
+# [model_presets.claude.economy.effort]
+# low = "low"
+# medium = "medium"
+# high = "medium"
+# [model_presets.claude.balanced]
+# coordinator_model = "sonnet"
+# coordinator_effort = "high"
+# [model_presets.claude.balanced.models]
+# fast = "haiku"
+# balanced = "sonnet"
+# deep = "sonnet"
+# [model_presets.claude.balanced.effort]
+# low = "low"
+# medium = "medium"
+# high = "high"
+# [model_presets.claude.quality]
+# coordinator_model = "opus"
+# coordinator_effort = "high"
+# [model_presets.claude.quality.models]
+# fast = "sonnet"
+# balanced = "sonnet"
+# deep = "opus"
+# [model_presets.claude.quality.effort]
+# low = "medium"
+# medium = "high"
+# high = "xhigh"
+
+# --- Complete antigravity profile example (antigravity.toml) ---
+# schema_version = 1
+# id = "antigravity"
+# adapter = "antigravity"
+# agent_destination = ".agents/agents"
+# skill_destination = ".agents/skills"
+# user_agent_destination = ".gemini/config/agents"
+# user_skill_destination = ".gemini/antigravity-cli/skills"
+# models_without_effort = []
+#
+# [features]
+# supports_effort = false
+# effort_levels = []
+# supports_worktree_isolation = true
+# team_runtime = "subagents"
+#
+# [presets.economy]
+# coordinator_model = "flash"
+# [presets.economy.models]
+# fast = "flash"
+# balanced = "flash"
+# deep = "pro"
+#
+# [presets.balanced]
+# coordinator_model = "pro"
+# [presets.balanced.models]
+# fast = "flash"
+# balanced = "pro"
+# deep = "pro"
+#
+# [presets.quality]
+# coordinator_model = "pro"
+# [presets.quality.models]
+# fast = "flash"
+# balanced = "pro"
+# deep = "pro"
+
+# --- Sparse antigravity model preset override examples ---
+# [model_presets.antigravity.economy]
+# coordinator_model = "flash"
+# [model_presets.antigravity.economy.models]
+# fast = "flash"
+# balanced = "flash"
+# deep = "pro"
+# [model_presets.antigravity.balanced]
+# coordinator_model = "pro"
+# [model_presets.antigravity.balanced.models]
+# fast = "flash"
+# balanced = "pro"
+# deep = "pro"
+# [model_presets.antigravity.quality]
+# coordinator_model = "pro"
+# [model_presets.antigravity.quality.models]
+# fast = "flash"
+# balanced = "pro"
+# deep = "pro"

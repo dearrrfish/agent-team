@@ -96,7 +96,8 @@ def _classify(
 
 def install_files(
     *, target: str, target_root: Path, files: dict[PurePosixPath, str], apply: bool,
-    force: bool, backups: bool,
+    force: bool, backups: bool, backup_root: Path | None = None,
+    backup_containment_root: Path | None = None, require_backup_root: bool = False,
 ) -> list[InstallAction]:
     target_root = target_root.resolve()
     path_diagnostics: list[Diagnostic] = []
@@ -105,6 +106,20 @@ def install_files(
         for relative in files
     ]
     destinations.append((str(_state_path(target_root)), _state_path(target_root).resolve()))
+    state_destination = _state_path(target_root).resolve()
+    contents: dict[Path, str] = {}
+    for relative, content in files.items():
+        destination = (target_root / Path(relative)).resolve()
+        if destination == state_destination:
+            path_diagnostics.append(Diagnostic(
+                str(relative), "managed output collides with installation state", code="collision"
+            ))
+        if destination in contents and contents[destination] != content:
+            path_diagnostics.append(Diagnostic(
+                str(relative), "managed paths resolve to different content at one destination", code="collision"
+            ))
+        contents[destination] = content
+    planned_files = {destination for _, destination in destinations}
     for label, destination in destinations:
         if destination != target_root and target_root not in destination.parents:
             path_diagnostics.append(Diagnostic(label, "install path escapes target root", code="path"))
@@ -114,6 +129,12 @@ def install_files(
             path_diagnostics.append(Diagnostic(
                 label, f"parent path is not a directory: {blocker}", code="parent"
             ))
+        for parent in destination.parents:
+            if parent in planned_files:
+                path_diagnostics.append(Diagnostic(
+                    label, f"planned file would also be a parent directory: {parent}", code="collision"
+                ))
+                break
     if path_diagnostics:
         raise ValidationFailure(path_diagnostics)
 
@@ -136,12 +157,15 @@ def install_files(
             for action in conflicts
         ])
     if conflicts and force:
-        backup_root = (target_root / ".agent-team" / "backups").resolve()
-        if backup_root != target_root and target_root not in backup_root.parents:
+        if require_backup_root and backup_root is None:
+            raise ValidationFailure([Diagnostic("backup", "forced user replacement requires a project context for backups", code="backup")])
+        backup_root = (backup_root or target_root / ".agent-team" / "backups").resolve()
+        containment_root = (backup_containment_root or target_root).resolve()
+        if backup_root != containment_root and containment_root not in backup_root.parents:
             raise ValidationFailure([
-                Diagnostic(str(backup_root), "backup path escapes target root", code="path")
+                Diagnostic(str(backup_root), "backup path escapes project root", code="path")
             ])
-        blocker = non_directory_parent(target_root, backup_root / "placeholder")
+        blocker = non_directory_parent(containment_root, backup_root / "placeholder")
         if blocker is not None:
             raise ValidationFailure([
                 Diagnostic(str(backup_root), f"parent path is not a directory: {blocker}", code="parent")
@@ -164,10 +188,10 @@ def install_files(
         previous_backup = previous.get("backup")
         backup_reference = previous_backup if isinstance(previous_backup, str) else None
         if action.action in {"conflict", "drift"}:
-            backup = target_root / ".agent-team" / "backups" / backup_stamp / Path(relative)
+            backup = backup_root / backup_stamp / Path(relative)
             backup.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(destination, backup)
-            backup_reference = str(backup.relative_to(target_root))
+            backup_reference = str(backup) if backup_containment_root is not None else str(backup.relative_to(target_root))
         if action.action != "adopt":
             atomic_write(destination, content)
         state["files"][relative.as_posix()] = {

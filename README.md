@@ -241,43 +241,70 @@ not a claim of packaged or continuously tested macOS support.
 
 ### Use the CLI
 
-After either setup, including an activated macOS `.venv`, run the existing CLI
-from the root of the project where you want an agent team:
+Set up personal configuration and native agents once:
 
 ```console
+agent-team init --scope user
+agent-team install --scope user --target codex,claude,antigravity
+agent-team install --scope user --target codex,claude,antigravity --apply
+```
+
+User initialization creates `~/.agent-team/team.toml` with field descriptions
+and commented customization examples. Review it before installation. An
+existing configuration is preserved. Native agents and skills are installed
+into each client's user directories; installation previews unless `--apply`
+is present.
+
+Then initialize each project:
+
+```console
+cd /path/to/project
 agent-team init
 agent-team validate
 agent-team doctor
 ```
 
-Generation and validation work without a native client; `doctor` reports a
-missing client as a warning. Running generated agents still requires a suitable
-installed and authenticated native client.
+Plain `init` creates a small `.agent-team/team.toml` that inherits user settings
+live. Add only project-specific overrides. Existing project files remain
+unchanged. Global native agents and skills are available according to the
+client's discovery rules. After changing shared routing or definitions, rerun
+the user installation to refresh native output.
 
-`init` creates `.agent-team/team.toml`, upserts common workflow prompt
-templates under `.agent-team/templates/prompts`, and ignores those four stock
-examples along with local run and install state. It overwrites edited stock
-prompts when rerun; keep project-specific prompts at separate paths. Review
-`team.toml`, then preview and apply the native files for your client:
+To initialize a project with builtin defaults and disable user configuration
+inheritance, use `agent-team init --scope project`. This persists
+`inherit_user_defaults = false`; it cannot hide agents already installed in
+the native client's user directories.
+
+Generate optional project conveniences explicitly:
 
 ```console
-agent-team install --target codex
-agent-team install --target codex --apply
+agent-team generate gitignore,templates
 ```
 
-Project installation adds exact `.gitignore` rules for the native agents and
-skills it manages. Preview and user-scope installation do not change the
-project ignore file. Commit `.agent-team/team.toml`, project instructions such
-as `AGENTS.md`, and any custom role, skill, or target-profile source files.
-Keep the four stock prompt examples and installed native output local. This
-does not require collaborators to run `agent-team`; those who do not run it
-will not have the generated native files. To refresh local output after an
-upgrade, rerun `agent-team init` and the relevant `agent-team install --target
-<client> --apply`. Ignoring output does not pin the tool version or remove
-stale installed files.
+`generate` accepts either selector separately and defaults to both when no
+selector is supplied. It refreshes the four stock workflow prompts beneath
+`.agent-team/templates/prompts/` and adds generic ignore rules for local output
+and state. Keep authored prompts at separate paths because generating templates
+overwrites stock examples. Initialization and installation do not update
+`.gitignore`.
 
-Project installation is the default. Use `--scope user` only when you want the
-same generated team available across projects.
+Install local native definitions whenever a project needs its own routing:
+
+```console
+agent-team install --scope project --target codex
+agent-team install --scope project --target codex --apply
+```
+
+Commit `.agent-team/team.toml`, project instructions such as `AGENTS.md`, and
+custom role, skill, and target-profile sources. Keep generated native files,
+stock prompts, runs, and backups local. Source resolution follows
+builtin < user < project; native same-name discovery rules vary by client.
+See [Configuration reference](docs/configuration.md) for sparse overrides and
+scope behavior.
+
+Generation and validation work without a native client; `doctor` reports a
+missing client as a warning. Running generated agents requires an installed,
+authenticated native client.
 
 For work that needs durable coordination, initialize a run and bind its model
 preset to the installed agents:
@@ -351,19 +378,20 @@ trees, and reviewer is part of the run lifecycle rather than a task-DAG worker.
 ## CLI
 
 ```text
-agent-team init
+agent-team init [--scope user|project]
+agent-team generate [gitignore,templates]
 agent-team validate [--format text|json]
 agent-team run init --slug SLUG [--title TITLE]
                     [--tier adaptive|solo|assisted|team]
                     [--model-preset economy|balanced|quality]
 agent-team models show [--target codex|claude|antigravity]
                        [--model-preset economy|balanced|quality | --run SLUG]
-                       [--format text|json]
+                       [--format text|json|table]
 agent-team models fetch --target codex|claude|antigravity
-                        [--format text|json] [--timeout SECONDS]
+                        [--format text|json|table] [--timeout SECONDS]
 agent-team render --target codex|claude|antigravity
                   [--run SLUG] --output PATH
-agent-team install --target codex|claude|antigravity
+agent-team install --target TARGET[,TARGET...]
                    [--scope project|user] [--run SLUG]
                    [--apply] [--force]
 agent-team doctor [--format text|json]

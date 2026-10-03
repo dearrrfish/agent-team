@@ -78,8 +78,11 @@ _CAPABILITIES = {"filesystem.read", "filesystem.write", "shell", "docs.read", "w
 
 def project_root(start: Path | None = None) -> Path:
     current = (start or Path.cwd()).resolve()
+    home = Path.home().resolve()
+    user_file = (user_config_root() / "team.toml").resolve()
     for candidate in (current, *current.parents):
-        if (candidate / ".agent-team" / "team.toml").is_file():
+        config_file = candidate / ".agent-team" / "team.toml"
+        if candidate != home and config_file.resolve() != user_file and config_file.is_file():
             return candidate
     try:
         result = subprocess.run(
@@ -94,6 +97,18 @@ def project_root(start: Path | None = None) -> Path:
     if result.returncode == 0:
         return Path(result.stdout.strip()).resolve()
     return current
+
+
+def require_project_context(root: Path) -> None:
+    root = root.resolve()
+    user_root = user_config_root().resolve()
+    if root == Path.home().resolve() or root == user_root or user_root in root.parents:
+        raise ValidationFailure([Diagnostic(
+            str(root),
+            "project commands require a project directory outside the user configuration; "
+            "change to a project, or use --scope user for personal init/install",
+            code="scope",
+        )])
 
 
 def _unknown_keys(
@@ -170,9 +185,10 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
     allowed = {
         "schema_version", "id", "name", "description", "default_tier",
         "default_model_preset", "enabled_targets", "role_sources", "skill_sources",
-        "target_profiles", "model_presets", "workflow", "tiers", "install",
+        "target_profiles", "model_presets", "workflow", "tiers", "install", "inherit_user_defaults",
     }
     _unknown_keys(data, allowed, "", diagnostics)
+    inherit_user_defaults = _boolean(data.get("inherit_user_defaults", True), "inherit_user_defaults", diagnostics)
     schema_version = _integer(_required(data, "schema_version", "", diagnostics), "schema_version", diagnostics)
     team_id = _string(_required(data, "id", "", diagnostics), "id", diagnostics)
     name = _string(_required(data, "name", "", diagnostics), "name", diagnostics)
@@ -212,6 +228,8 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
         if target not in target_profiles:
             diagnostics.append(Diagnostic(f"target_profiles.{target}", "enabled target needs a profile", code="required"))
     for target, reference in target_profiles.items():
+        if reference.startswith("builtin:") and reference != f"builtin:{target}":
+            diagnostics.append(Diagnostic(f"target_profiles.{target}", "unsupported builtin profile", code="enum"))
         if not reference.startswith("builtin:"):
             _contained_path(root, reference, f"target_profiles.{target}", diagnostics)
 
@@ -354,6 +372,8 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
 
     for source_kind, sources in (("role_sources", role_sources), ("skill_sources", skill_sources)):
         for index, source in enumerate(sources):
+            if source.startswith("builtin:") and source != f"builtin:{source_kind.removesuffix('_sources')}s":
+                diagnostics.append(Diagnostic(f"{source_kind}.{index}", "unsupported builtin source", code="enum"))
             if not source.startswith("builtin:"):
                 _contained_path(root, source, f"{source_kind}.{index}", diagnostics)
 
@@ -363,21 +383,149 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
         schema_version, team_id, name, description, default_tier, default_preset,
         enabled_targets, role_sources, skill_sources, target_profiles, model_presets, workflow,
         tiers, InstallConfig(default_scope, overwrite, backups, modify_settings),
+        inherit_user_defaults=inherit_user_defaults,
     )
 
 
-def load_team_config(root: Path) -> TeamConfig:
-    path = root / ".agent-team" / "team.toml"
+def user_config_root() -> Path:
+    return Path.home() / ".agent-team"
+
+
+def _read_config(path: Path) -> dict[str, Any]:
     try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
+        return tomllib.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        raise ValidationFailure([Diagnostic(str(path), "configuration file does not exist", code="missing")])
+        raise ValidationFailure(
+            [
+                Diagnostic(
+                    str(path),
+                    "configuration file does not exist; run agent-team init --scope user for user setup or agent-team init for a project",
+                    code="missing",
+                )
+            ]
+        )
     except OSError as exc:
         raise ValidationFailure([Diagnostic(str(path), str(exc), code="read")])
     except tomllib.TOMLDecodeError as exc:
         raise ValidationFailure([Diagnostic(str(path), str(exc), code="toml")])
-    return parse_team_config(data, root.resolve())
 
+
+def _merge(base: dict[str, Any], layer: dict[str, Any]) -> dict[str, Any]:
+    result = dict(base)
+    for key, value in layer.items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = _merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def _leaves(data: dict[str, Any], prefix: str = "") -> Iterable[str]:
+    for key, value in data.items():
+        path = f"{prefix}.{key}".strip(".")
+        if isinstance(value, dict):
+            yield from _leaves(value, path)
+        else:
+            yield path
+
+
+def _layered_config(
+    root: Path, layers: list[tuple[str, Path, dict[str, Any]]]
+) -> TeamConfig:
+    builtin = tomllib.loads(DEFAULT_TEAM_TOML)
+    merged = builtin
+    origins = {key: "builtin" for key in _leaves(builtin)}
+    profile_roots = {target: root for target in TARGETS}
+    sources: dict[str, list[tuple[Path, str]]] = {
+        "role": [(root, "builtin:roles")],
+        "skill": [(root, "builtin:skills")],
+    }
+    for name, scope_root, data in layers:
+        # Validate each explicit layer before a later layer can mask bad values.
+        validation_data = _merge(builtin, data)
+        workflow = validation_data.get("workflow")
+        if isinstance(workflow, dict):
+            validation_data["workflow"] = {
+                **workflow,
+                "run_root": builtin["workflow"]["run_root"],
+            }
+        parse_team_config(validation_data, scope_root)
+        if isinstance(data.get("workflow"), dict) and "run_root" in data["workflow"]:
+            parse_team_config(
+                _merge(
+                    builtin, {"workflow": {"run_root": data["workflow"]["run_root"]}}
+                ),
+                root,
+            )
+        merged = _merge(merged, data)
+        origins.update({key: name for key in _leaves(data)})
+        for target in data.get("target_profiles", {}):
+            profile_roots[target] = scope_root
+        for kind, references in sources.items():
+            for reference in data.get(f"{kind}_sources", []):
+                if not reference.startswith("builtin:"):
+                    references.append((scope_root, reference))
+    # The scoped references have already been checked at their defining root.
+    safe = dict(merged)
+    safe["target_profiles"] = {
+        target: f"builtin:{target}" for target in merged["target_profiles"]
+    }
+    safe["role_sources"] = ["builtin:roles"]
+    safe["skill_sources"] = ["builtin:skills"]
+    config = parse_team_config(safe, root)
+    return replace(
+        config,
+        target_profiles=merged["target_profiles"],
+        role_sources=tuple(merged["role_sources"]),
+        skill_sources=tuple(merged["skill_sources"]),
+        field_origins=origins,
+        target_profile_roots=profile_roots,
+        scoped_role_sources=tuple(sources["role"]),
+        scoped_skill_sources=tuple(sources["skill"]),
+    )
+
+
+def load_user_config() -> TeamConfig:
+    root = user_config_root().resolve()
+    return _layered_config(root, [("user", root, _read_config(root / "team.toml"))])
+
+
+def load_team_config(root: Path) -> TeamConfig:
+    root = root.resolve()
+    require_project_context(root)
+    project = _read_config(root / ".agent-team" / "team.toml")
+    inherit = project.get("inherit_user_defaults", True)
+    if not isinstance(inherit, bool):
+        raise ValidationFailure(
+            [Diagnostic("inherit_user_defaults", "must be a boolean", code="type")]
+        )
+    layers = []
+    user_root = user_config_root().resolve()
+    if inherit and (user_root / "team.toml").exists():
+        layers.append(("user", user_root, _read_config(user_root / "team.toml")))
+    layers.append(("project", root, project))
+    return _layered_config(root, layers)
+
+
+def project_init_toml(isolated: bool = False) -> str:
+    if isolated:
+        return DEFAULT_TEAM_TOML.replace(
+            "schema_version = 1", "schema_version = 1\ninherit_user_defaults = false", 1
+        )
+    return (
+        "# Project exceptions override live user defaults in ~/.agent-team/team.toml.\n"
+        "# Set inherit_user_defaults = false to isolate this project.\n"
+        "schema_version = 1\n"
+        "inherit_user_defaults = true\n"
+    )
+
+
+def user_init_toml() -> str:
+    return (
+        resources.files("agent_team.assets")
+        .joinpath("config", "team.toml")
+        .read_text(encoding="utf-8")
+    )
 
 def parse_role(data: dict[str, Any], instructions: str, source: str) -> RoleDefinition:
     diagnostics: list[Diagnostic] = []
@@ -476,6 +624,7 @@ def parse_role(data: dict[str, Any], instructions: str, source: str) -> RoleDefi
         capabilities=capabilities,
         use_when=use_when,
         avoid_when=avoid_when,
+        source=source,
     )
 
 
@@ -492,15 +641,18 @@ def load_builtin_roles() -> tuple[RoleDefinition, ...]:
 
 def load_roles(config: TeamConfig, root: Path) -> tuple[RoleDefinition, ...]:
     roles: dict[str, RoleDefinition] = {}
-    for source in config.role_sources:
+    for scope_root, source in config.scoped_role_sources or tuple((root, source) for source in config.role_sources):
         if source == "builtin:roles":
             roles.update((role.role_id, role) for role in load_builtin_roles())
             continue
-        directory = (root / source).resolve()
+        directory = (scope_root / source).resolve()
+        _ensure_contained(scope_root, directory, source)
         if not directory.is_dir():
             raise ValidationFailure([Diagnostic(source, "role source directory does not exist", code="missing")])
         for role_file in sorted(directory.glob("*/role.toml")):
             instruction_file = role_file.with_name("instructions.md")
+            _ensure_contained(scope_root, role_file, str(role_file))
+            _ensure_contained(scope_root, instruction_file, str(instruction_file))
             try:
                 data = tomllib.loads(role_file.read_text(encoding="utf-8"))
                 instructions = instruction_file.read_text(encoding="utf-8")
@@ -697,7 +849,7 @@ def resolve_target_profile(config: TeamConfig, target: str, root: Path) -> Targe
         raise ValidationFailure([
             Diagnostic(f"target_profiles.{target}", "target profile is not configured", code="required")
         ])
-    profile = load_target_profile(target, config.target_profiles[target], root)
+    profile = load_target_profile(target, config.target_profiles[target], config.target_profile_roots.get(target, root))
     overrides = config.model_presets.get(target, {})
     if not overrides:
         return profile
@@ -766,3 +918,10 @@ def resolve_tier(config: TeamConfig, root: Path, requested: str | None) -> str:
             if count > 200:
                 return "team"
     return "solo" if count <= 25 else "assisted"
+
+
+def _ensure_contained(root: Path, path: Path, label: str) -> None:
+    resolved = path.resolve()
+    boundary = root.resolve()
+    if resolved != boundary and boundary not in resolved.parents:
+        raise ValidationFailure([Diagnostic(label, "must stay within its defining scope", code="path")])

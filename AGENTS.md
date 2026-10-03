@@ -2,7 +2,32 @@
 
 This repository dogfoods its own `agent-team` setup. All non-trivial work is
 tracked via an `agent-team` run under `.agent-team/runs/<slug>/` governed by
-`.agent-team/team.toml`.
+the effective configuration in `.agent-team/team.toml` and user defaults.
+
+## Configuration and Generated Files
+
+- For shared user setup, run `agent-team init --scope user`, then preview or
+  apply `agent-team install --scope user --target codex,claude,antigravity`.
+  User installation reads `~/.agent-team/team.toml`; `--apply` writes native
+  agents and skills into each client's user directories.
+- Plain `agent-team init` creates sparse project overrides with live
+  `builtin < user < project` configuration inheritance. Explicit
+  `init --scope project` creates complete builtin defaults with
+  `inherit_user_defaults = false`. Existing configurations are preserved.
+- `init` manages configuration only. Run
+  `agent-team generate gitignore,templates` for project ignore rules and stock
+  prompts; either selector can be requested separately. Installation does not
+  update `.gitignore`. Keep authored prompts outside the stock template paths.
+- Use `install --scope project` for local native definitions. Multiple targets
+  are comma-separated; `--run <slug>` is supported only in project scope.
+  Reinstall native output after changing its effective configuration.
+- User source paths are relative to `~/.agent-team`; project source paths are
+  relative to the project root. Named roles and skills resolve as whole
+  definitions with `project > user > builtin` priority. Native discovery rules
+  remain client-specific; config isolation does not hide installed user agents.
+- Runs, templates, and backups remain project-scoped. Forced user replacement
+  requires an initialized project for backup storage. Preserve durable run
+  evidence before removing a worktree.
 
 ## Workflow Tiers and Runs
 
@@ -19,7 +44,10 @@ tracked via an `agent-team` run under `.agent-team/runs/<slug>/` governed by
   `tasks.md`, `decisions.md`, `review.md`, `final-report.md`) are
   authoritative for rationale, contracts, evidence, and verdicts.
 - Model routing is governed by target profiles and presets (`economy`,
-  `balanced`, `quality`) configured in `.agent-team/team.toml`.
+  `balanced`, `quality`) from effective user/project configuration. Project
+  profile references and sparse preset overrides take precedence over user
+  values; complete profile files replace rather than merge. Inspect routing
+  with `agent-team models show --format table` before selecting a run preset.
 
 ## Roles and Delegation
 

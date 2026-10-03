@@ -28,6 +28,7 @@ class CliTests(unittest.TestCase):
     ) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
         environment["PYTHONPATH"] = SOURCE
+        environment["HOME"] = str(root / "isolated-home")
         environment.update(environment_overrides or {})
         return subprocess.run(
             [sys.executable, "-m", "agent_team", *arguments],
@@ -41,7 +42,7 @@ class CliTests(unittest.TestCase):
     def test_fresh_project_end_to_end(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            self.assertEqual(self._run(root, "init").returncode, 0)
+            self.assertEqual(self._run(root, "init", "--scope", "project").returncode, 0)
             validation = self._run(root, "validate", "--format", "json")
             self.assertEqual(validation.returncode, 0, validation.stderr)
             self.assertTrue(json.loads(validation.stdout)["ok"])
@@ -72,7 +73,7 @@ class CliTests(unittest.TestCase):
     def test_invalid_config_has_nonzero_structured_result(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            self._run(root, "init")
+            self._run(root, "init", "--scope", "project")
             config = root / ".agent-team" / "team.toml"
             config.write_text(config.read_text(encoding="utf-8").replace("max_workers = 2", "max_workers = 8"), encoding="utf-8")
             result = self._run(root, "validate", "--format", "json")
@@ -84,7 +85,7 @@ class CliTests(unittest.TestCase):
     def test_models_show_reports_effective_routing_as_versioned_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            self.assertEqual(self._run(root, "init").returncode, 0)
+            self.assertEqual(self._run(root, "init", "--scope", "project").returncode, 0)
             config = root / ".agent-team" / "team.toml"
             config.write_text(
                 config.read_text(encoding="utf-8")
@@ -108,7 +109,7 @@ class CliTests(unittest.TestCase):
     def test_models_fetch_reports_unavailable_source_with_nonzero_json_result(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            self.assertEqual(self._run(root, "init").returncode, 0)
+            self.assertEqual(self._run(root, "init", "--scope", "project").returncode, 0)
             result = self._run(
                 root,
                 "models",
@@ -128,7 +129,7 @@ class CliTests(unittest.TestCase):
     def test_models_fetch_empty_live_catalog_exits_nonzero(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            self.assertEqual(self._run(root, "init").returncode, 0)
+            self.assertEqual(self._run(root, "init", "--scope", "project").returncode, 0)
             output = StringIO()
             empty_catalog = CatalogResult(
                 "antigravity", "antigravity-cli", "unavailable", (),
@@ -148,7 +149,7 @@ class CliTests(unittest.TestCase):
     def test_validate_checks_overrides_for_disabled_configured_targets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            self.assertEqual(self._run(root, "init").returncode, 0)
+            self.assertEqual(self._run(root, "init", "--scope", "project").returncode, 0)
             config = root / ".agent-team" / "team.toml"
             config.write_text(
                 config.read_text(encoding="utf-8")
@@ -174,7 +175,8 @@ class CliTests(unittest.TestCase):
     def test_antigravity_user_install_uses_native_global_paths(self) -> None:
         with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as home:
             root = Path(directory)
-            self.assertEqual(self._run(root, "init").returncode, 0)
+            self.assertEqual(self._run(root, "init", "--scope", "project").returncode, 0)
+            self.assertEqual(self._run(root, "init", "--scope", "user", environment_overrides={"HOME": home}).returncode, 0)
             result = self._run(
                 root,
                 "install",
@@ -212,8 +214,9 @@ class CliTests(unittest.TestCase):
     def test_init_upserts_prompts_and_gitignore(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            result = self._run(root, "init")
+            result = self._run(root, "init", "--scope", "project")
             self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self._run(root, "generate").returncode, 0)
 
             # verify team.toml
             self.assertTrue((root / ".agent-team" / "team.toml").is_file())
@@ -243,23 +246,27 @@ class CliTests(unittest.TestCase):
     def test_init_is_idempotent_and_preserves_config(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            self.assertEqual(self._run(root, "init").returncode, 0)
+            self.assertEqual(self._run(root, "init", "--scope", "project").returncode, 0)
 
             # modify team.toml
             team_toml = root / ".agent-team" / "team.toml"
             custom_config = team_toml.read_text(encoding="utf-8") + "\n# custom comment\n"
             team_toml.write_text(custom_config, encoding="utf-8")
 
+            self.assertEqual(self._run(root, "generate").returncode, 0)
+
             # modify one prompt template to verify update
             plan_prompt = root / ".agent-team" / "templates" / "prompts" / "plan.md"
             plan_prompt.write_text("modified", encoding="utf-8")
 
             # run init again
-            second = self._run(root, "init")
+            second = self._run(root, "init", "--scope", "project")
             self.assertEqual(second.returncode, 0, second.stderr)
 
             # team.toml is preserved
             self.assertEqual(team_toml.read_text(encoding="utf-8"), custom_config)
+
+            self.assertEqual(self._run(root, "generate").returncode, 0)
 
             # modified prompt template was updated/upserted
             self.assertNotEqual(plan_prompt.read_text(encoding="utf-8"), "modified")
@@ -282,7 +289,7 @@ class CliTests(unittest.TestCase):
             gitignore = root / ".gitignore"
             gitignore.write_text("node_modules/\n/.agent-team/runs/\n.worktrees", encoding="utf-8")
 
-            result = self._run(root, "init")
+            result = self._run(root, "generate", "gitignore")
             self.assertEqual(result.returncode, 0, result.stderr)
 
             content = gitignore.read_text(encoding="utf-8")
@@ -294,85 +301,18 @@ class CliTests(unittest.TestCase):
             self.assertEqual(lines.count(".agent-team/runs"), 1)
             self.assertEqual(lines.count(".worktrees"), 1)
 
-    def test_project_install_ignores_exact_native_files_for_each_target(self) -> None:
+    def test_install_does_not_generate_gitignore(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             self.assertEqual(self._run(root, "init").returncode, 0)
-            ignore = root / ".gitignore"
-            initial = ignore.read_text(encoding="utf-8")
-            preview = self._run(root, "install", "--target", "codex")
-            self.assertEqual(preview.returncode, 0, preview.stderr)
-            self.assertEqual(ignore.read_text(encoding="utf-8"), initial)
-
-            for target in ("codex", "claude", "antigravity"):
-                applied = self._run(root, "install", "--target", target, "--apply")
-                self.assertEqual(applied.returncode, 0, applied.stderr)
-
-            rules = ignore.read_text(encoding="utf-8").splitlines()
-            self.assertIn("/.codex/agents/coordinator.toml", rules)
-            self.assertIn("/.claude/agents/coordinator.md", rules)
-            self.assertIn("/.agents/agents/coordinator/agent.md", rules)
-            self.assertIn("/.agents/skills/team-workflow/SKILL.md", rules)
-            self.assertIn("/.claude/skills/team-workflow/SKILL.md", rules)
-            self.assertNotIn(".agents/", rules)
-            self.assertNotIn(".codex/", rules)
-            self.assertNotIn(".claude/", rules)
-            self.assertEqual(len([rule for rule in rules if rule.startswith("/.codex/agents/")]), 6)
-            self.assertEqual(len([rule for rule in rules if rule.startswith("/.claude/agents/")]), 6)
-            self.assertEqual(len([rule for rule in rules if rule.startswith("/.agents/agents/")]), 6)
-            self.assertEqual(len([rule for rule in rules if rule.startswith("/.agents/skills/")]), 4)
-            self.assertEqual(len([rule for rule in rules if rule.startswith("/.claude/skills/")]), 4)
-
-            repeated = self._run(root, "install", "--target", "codex", "--apply")
-            self.assertEqual(repeated.returncode, 0, repeated.stderr)
-            self.assertEqual(ignore.read_text(encoding="utf-8").splitlines(), rules)
-
-    def test_user_install_and_failed_project_install_do_not_change_gitignore(self) -> None:
-        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as home:
-            root = Path(directory)
-            self.assertEqual(self._run(root, "init").returncode, 0)
-            ignore = root / ".gitignore"
-            initial = ignore.read_bytes()
-            user = self._run(
-                root, "install", "--target", "codex", "--scope", "user", "--apply",
-                environment_overrides={"HOME": home},
-            )
-            self.assertEqual(user.returncode, 0, user.stderr)
-            self.assertEqual(ignore.read_bytes(), initial)
-
-            conflict = root / ".codex" / "agents" / "coordinator.toml"
-            conflict.parent.mkdir(parents=True)
-            conflict.write_text("user content", encoding="utf-8")
-            failed = self._run(root, "install", "--target", "codex", "--apply")
-            self.assertNotEqual(failed.returncode, 0)
-            self.assertEqual(ignore.read_bytes(), initial)
-            self.assertEqual(conflict.read_text(encoding="utf-8"), "user content")
-
-    def test_ignore_write_failure_can_be_repaired_by_repeating_install(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            self.assertEqual(self._run(root, "init").returncode, 0)
-            ignore = root / ".gitignore"
-            saved = root / "saved-gitignore"
-            ignore.rename(saved)
-            ignore.mkdir()
-
-            first = self._run(root, "install", "--target", "codex", "--apply")
-            self.assertNotEqual(first.returncode, 0)
-            self.assertIn("rerun the same install --apply command", first.stderr)
-            self.assertTrue((root / ".agent-team" / "install-state.json").exists())
-            self.assertTrue((root / ".codex" / "agents" / "coordinator.toml").exists())
-
-            ignore.rmdir()
-            saved.rename(ignore)
-            second = self._run(root, "install", "--target", "codex", "--apply")
-            self.assertEqual(second.returncode, 0, second.stderr)
-            self.assertIn("/.codex/agents/coordinator.toml", ignore.read_text(encoding="utf-8"))
+            applied = self._run(root, "install", "--target", "codex,claude,antigravity", "--apply")
+            self.assertEqual(applied.returncode, 0, applied.stderr)
+            self.assertFalse((root / ".gitignore").exists())
 
     def test_install_ignores_custom_sources_destinations_and_stale_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            self.assertEqual(self._run(root, "init").returncode, 0)
+            self.assertEqual(self._run(root, "init", "--scope", "project").returncode, 0)
             config = root / ".agent-team" / "team.toml"
             config.write_text(
                 config.read_text(encoding="utf-8")
@@ -401,6 +341,7 @@ class CliTests(unittest.TestCase):
 
             first = self._run(root, "install", "--target", "codex", "--apply")
             self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertEqual(self._run(root, "generate", "gitignore").returncode, 0)
             ignore = root / ".gitignore"
             rules = ignore.read_text(encoding="utf-8").splitlines()
             self.assertIn("/.codex/generated\\[agents\\]/analyst.toml", rules)

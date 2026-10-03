@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 TIERS = ("solo", "assisted", "team")
@@ -51,6 +51,11 @@ class TeamConfig:
     workflow: WorkflowConfig
     tiers: Mapping[str, TierConfig]
     install: InstallConfig
+    inherit_user_defaults: bool = True
+    field_origins: Mapping[str, str] = field(default_factory=dict)
+    target_profile_roots: Mapping[str, Path] = field(default_factory=dict)
+    scoped_role_sources: tuple[tuple[Path, str], ...] = ()
+    scoped_skill_sources: tuple[tuple[Path, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -67,6 +72,7 @@ class RoleDefinition:
     capabilities: tuple[str, ...]
     use_when: str
     avoid_when: str
+    source: str = "builtin"
 
 
 @dataclass(frozen=True)
