@@ -23,6 +23,7 @@ from agent_team.config import (
     user_config_root,
     user_init_toml,
 )
+from agent_team.config_editor import edit_model_presets, edit_roles
 from agent_team.diagnostics import Diagnostic, ValidationFailure, render_diagnostics
 from agent_team.fs import atomic_write
 from agent_team.installer import install_files
@@ -88,6 +89,19 @@ Examples:
 
     doctor = subcommands.add_parser("doctor", help="check the environment and project")
     doctor.add_argument("--format", choices=("text", "json"), default="text")
+
+    config = subcommands.add_parser("config", help="edit configuration interactively")
+    config_commands = config.add_subparsers(dest="config_command", required=True)
+    presets = config_commands.add_parser("model-presets", help="preview and edit model routing presets")
+    presets.add_argument("--scope", choices=("user", "project"), default="project")
+    presets.add_argument("--target", help="comma-separated enabled native targets (default installed clients)")
+    presets.add_argument("--preset", choices=PRESETS, help="edit one preset (default all three)")
+    presets.add_argument("--dry-run", action="store_true")
+
+    roles = config_commands.add_parser("roles", help="preview and edit semantic role routing")
+    roles.add_argument("--scope", choices=("user", "project"), default="project")
+    roles.add_argument("--role", choices=ROLE_IDS, help="edit one role (default all builtin roles)")
+    roles.add_argument("--dry-run", action="store_true")
 
     models = subcommands.add_parser("models", help="inspect effective routing or live model catalogs")
     model_commands = models.add_subparsers(dest="models_command", required=True)
@@ -373,15 +387,20 @@ def _source_for_role(config: object, target: str, preset: str, role: object) -> 
     prefix = f"model_presets.{target}.{preset}"
     def source(key: str) -> str:
         return f"user:{key}" if config.field_origins.get(key) == "user" else key
-    if role.role_id == "coordinator":
-        return (
-            source(f"{prefix}.coordinator_model") if override.coordinator_model is not None else profile_source,
-            source(f"{prefix}.coordinator_effort") if override.coordinator_effort is not None else profile_source,
-        )
-    return (
-        source(f"{prefix}.models.{role.model_class}") if role.model_class in override.models else profile_source,
-        source(f"{prefix}.effort.{role.effort}") if role.effort in override.effort else profile_source,
+    coordinator = role.role_id == "coordinator"
+    use_class = not coordinator or "model_class" in role.routing_override_origins
+    use_effort = not coordinator or "effort" in role.routing_override_origins
+    model_source = (
+        source(f"{prefix}.models.{role.model_class}") if role.model_class in override.models else profile_source
+    ) if use_class else (
+        source(f"{prefix}.coordinator_model") if override.coordinator_model is not None else profile_source
     )
+    effort_source = (
+        source(f"{prefix}.effort.{role.effort}") if role.effort in override.effort else profile_source
+    ) if use_effort else (
+        source(f"{prefix}.coordinator_effort") if override.coordinator_effort is not None else profile_source
+    )
+    return model_source, effort_source
 
 
 def _effective_routing(root: Path, args: argparse.Namespace) -> dict[str, object]:
@@ -404,7 +423,10 @@ def _effective_routing(root: Path, args: argparse.Namespace) -> dict[str, object
             model_source, effort_source = _source_for_role(config, target, preset_name, role)
             resolved_roles.append({
                 "role_id": role.role_id,
-                "model_class": "coordinator" if role.role_id == "coordinator" else role.model_class,
+                "model_class": (
+                    "coordinator" if role.role_id == "coordinator" and "model_class" not in role.routing_override_origins
+                    else role.model_class
+                ),
                 "native_model": model,
                 "native_effort": effort,
                 "model_source": model_source,
@@ -563,6 +585,11 @@ def main(argv: list[str] | None = None) -> int:
             return _render(root, args)
         if args.command == "install":
             return _install(root, args)
+        if args.command == "config":
+            if args.config_command == "roles":
+                return edit_roles(root, scope=args.scope, role=args.role, dry_run=args.dry_run)
+            return edit_model_presets(root, scope=args.scope, target=args.target,
+                                      preset=args.preset, dry_run=args.dry_run)
         if args.command == "models":
             if args.models_command == "show":
                 return _models_show(root, args)

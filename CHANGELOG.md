@@ -8,6 +8,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Interactive `config model-presets` for user/project routing, with installed
+  target detection, live model/effort menus, `--preset` selection, diff previews,
+  `--dry-run`, confirmed scoped saves, and reinstall guidance.
+- Partial `[roles.<id>]` model-class and effort overrides with per-field
+  inheritance, plus `config roles` for editing builtin role routing without
+  installed clients or catalog access.
+- Explicit coordinator role overrides select semantic mappings independently
+  for model and effort; omitted fields retain dedicated coordinator presets.
+- Configuration edits preserve unrelated TOML settings/comments, validate
+  candidates, detect changed sources, and recover interrupted replacements.
 - User configuration initialization with `init --scope user`, annotated schema
   fields, and complete commented target-profile and model-preset examples.
 - Live `builtin < user < project` configuration inheritance, sparse project

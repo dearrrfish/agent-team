@@ -19,8 +19,14 @@ def _quoted_content(value: str) -> str:
 def _mapped_role(profile: TargetProfile, preset_name: str, role: RoleDefinition) -> tuple[str, str | None]:
     preset = profile.presets[preset_name]
     if role.role_id == "coordinator":
-        model = preset.coordinator_model
-        effort = preset.coordinator_effort
+        model = (
+            preset.models[role.model_class]
+            if "model_class" in role.routing_override_origins else preset.coordinator_model
+        )
+        effort = (
+            preset.effort.get(role.effort)
+            if "effort" in role.routing_override_origins else preset.coordinator_effort
+        ) if profile.supports_effort else None
     else:
         model = preset.models[role.model_class]
         effort = preset.effort.get(role.effort) if profile.supports_effort else None

@@ -152,6 +152,79 @@ their command tools can write workspace files, and their per-agent execution
 modes do not guarantee a non-mutating shell under every parent configuration.
 The coordinator or a write-isolated worker must run commands for those roles.
 
+### Partial routing overrides
+
+Use `[roles.<id>]` in the selected scope's `team.toml` to change routing while
+retaining the complete role definition:
+
+```toml
+[roles.implementer]
+model_class = "balanced"
+effort = "low"
+```
+
+Both fields are optional. `model_class` accepts `fast`, `balanced`, or `deep`;
+`effort` accepts semantic `low`, `medium`, or `high`. These selectors use each
+target's active model preset, so they apply across targets and presets. A
+semantic effort value may map to a different native effort label; inspect the
+result with `agent-team models show`. Targets without effort support and models
+marked as effort-free continue to omit native effort.
+
+Whole role definitions resolve from builtin, user, then project sources. Sparse
+routing overrides apply afterwards, merging user and project values by field.
+For example, a project class override retains an inherited user effort
+override. A user routing override also applies to a project-authored replacement
+role unless the project supplies its own override for that field. Instructions,
+permissions, capabilities, activation, delegation, and turn limits remain in
+complete authored definitions.
+
+TOML may name builtin or loaded custom roles; an unknown role ID, unsupported
+field, wrong type, or invalid semantic value is an error. Overrides do not create
+roles. Existing configurations without `[roles]` retain their current routing.
+Older agent-team binaries reject this new optional table; update the binary
+before adding it.
+
+Coordinator routing has separate defaults. Without an explicit coordinator
+role override, it uses the preset's `coordinator_model` and
+`coordinator_effort`. Setting `[roles.coordinator].model_class` selects the
+preset's class mapping instead; setting `.effort` selects its semantic effort
+mapping. Each field switches independently, so an effort-only override retains
+the dedicated coordinator model. Explicit `deep` or `high` still changes this
+routing choice even when the underlying role definition has the same value.
+
+### Interactive role editing
+
+```console
+agent-team config roles
+agent-team config roles --role implementer --dry-run
+agent-team config roles --scope user --role implementer
+```
+
+Scope defaults to `project`; omitting `--role` visits all six builtin roles in
+stable order. The filter accepts `coordinator`, `explorer`, `design-agent`,
+`implementer`, `ops`, or `reviewer`. Custom-role overlays can be authored in TOML.
+This editor needs no installed native client, model catalog, or authentication.
+
+Menus display effective settings and their definition/override sources. Enter
+retains the current state. Explicitly choosing a class or effort pins that field
+in the selected scope, including values equal to an inherited default. For a
+coordinator field without an override, the default keeps its dedicated preset;
+choose a semantic value explicitly to switch that field.
+
+The editor previews the diff and requires explicit `yes` before saving.
+`--dry-run`, declining confirmation, end of input, or interruption leaves files
+unchanged. Only the selected scope's `team.toml` is edited; role definitions,
+instructions, profiles, and inherited user files remain untouched. Candidate
+validation and source snapshots reject stale configuration or changed role
+sources before saving. Conservative TOML editing and atomic-write recovery
+follow the model-preset editor's rules.
+
+Run the scoped reinstall command printed after saving to refresh enabled native
+targets. Resetting overrides is a manual operation in this version: remove the
+field from the config that defines it. Removing a project field alone retains
+any inherited user value. Unsupported role-specific keys under `model_presets`
+are not migrated automatically; semantic role settings belong under `[roles]`.
+
 ## Target profiles and model presets
 
 Target profile references default to `builtin:codex`, `builtin:claude`, and
@@ -211,6 +284,60 @@ when `ANTHROPIC_API_KEY` is present, so results may differ from a Claude Code
 subscription. Antigravity discovery depends on the installed `agy models`
 machine-output protocol. A missing client, credential, or usable catalog is
 reported as unavailable rather than presented as live data.
+
+### Interactive preset editing
+
+Initialize the selected scope first, then run:
+
+```console
+agent-team config model-presets
+agent-team config model-presets --target codex --preset balanced --dry-run
+agent-team config model-presets --scope user --target codex,claude
+```
+
+`--scope` defaults to `project`. User scope reads only `~/.agent-team/team.toml`;
+project scope uses effective project configuration, including opted-in user
+settings. `--preset` accepts `economy`, `balanced`, or `quality`. Without it,
+the command visits all three; a selected preset leaves the other two untouched.
+
+Default targets are enabled, configured profiles with a native executable on
+PATH: `codex`, `claude`, or `agy`. `--target` accepts comma-separated names and
+rejects invalid, disabled, unconfigured, or uninstalled targets. No installed
+enabled target is an error. Every selected target must supply a usable live
+catalog before selections begin. Catalog authentication and availability follow
+`models fetch`, described above; no configured-model fallback is used.
+
+For each target and preset, select coordinator, fast, balanced, and deep models,
+then coordinator effort and shared semantic low, medium, and high effort
+mappings where supported. Current values are defaults only when valid in the
+available choices. Effort choices respect the profile and reported model
+capabilities. Missing catalog effort metadata uses explicitly labeled profile
+levels. Models explicitly reporting no effort support are rejected unless the
+profile already supports omitting effort for them. Targets without effort
+support skip effort selection.
+
+The command previews all file diffs before a default-negative save confirmation.
+`--dry-run`, declining confirmation, end of input, and interruption leave files
+unchanged. Builtin profiles write sparse `model_presets` overrides into the
+selected scope's `team.toml`. A file profile within that scope updates its
+`presets` settings and synchronizes existing overrides that would mask the
+new values. A project inheriting a user-owned file profile receives a local
+copy and a project profile reference; shared user files remain untouched. The
+copy freezes the inherited profile's other settings for that project.
+
+Edits preserve unrelated settings and comments in supported TOML layouts.
+Unsupported affected layouts fail before saving; simplify those assignments to
+ordinary table headers and string keys before retrying. Candidate settings are
+validated, and stale files changed since preview cause an error. Writes are
+atomic per file; a failure during a multi-file save attempts to restore earlier
+writes and reports any restoration failure.
+
+Saving configuration does not refresh installed native definitions. Run the
+scoped reinstall command printed after saving, for example:
+
+```console
+agent-team install --scope project --target codex --apply
+```
 
 ## Diagnostics
 

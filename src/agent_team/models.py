@@ -36,6 +36,12 @@ class InstallConfig:
 
 
 @dataclass(frozen=True)
+class RoleOverride:
+    model_class: str | None = None
+    effort: str | None = None
+
+
+@dataclass(frozen=True)
 class TeamConfig:
     schema_version: int
     team_id: str
@@ -56,6 +62,7 @@ class TeamConfig:
     target_profile_roots: Mapping[str, Path] = field(default_factory=dict)
     scoped_role_sources: tuple[tuple[Path, str], ...] = ()
     scoped_skill_sources: tuple[tuple[Path, str], ...] = ()
+    role_overrides: Mapping[str, RoleOverride] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -73,6 +80,7 @@ class RoleDefinition:
     use_when: str
     avoid_when: str
     source: str = "builtin"
+    routing_override_origins: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

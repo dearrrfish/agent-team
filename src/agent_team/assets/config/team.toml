@@ -84,6 +84,18 @@ backups = true
 modify_native_settings = false
 
 
+# --- Sparse role routing override example ---
+# Roles must already exist in builtin or authored sources; overrides do not create them.
+# Only model_class (fast/balanced/deep) and semantic effort (low/medium/high) are supported.
+# Fields merge from user and project config after complete role-source resolution.
+# [roles.implementer]
+# model_class = "balanced"
+# effort = "low"
+# Explicit coordinator fields select class/effort mappings instead of dedicated preset fields.
+# Omitted coordinator fields retain coordinator_model/coordinator_effort.
+# [roles.coordinator]
+# effort = "high"
+
 # Effort fields are supported only for targets whose features.supports_effort is true.
 # Each complete profile below is a separate file, not a section to uncomment here.
 # Complete custom target profile example: save the following target sections

@@ -380,6 +380,12 @@ trees, and reviewer is part of the run lifecycle rather than a task-DAG worker.
 ```text
 agent-team init [--scope user|project]
 agent-team generate [gitignore,templates]
+agent-team config roles [--scope project|user]
+                        [--role coordinator|explorer|design-agent|implementer|ops|reviewer]
+                        [--dry-run]
+agent-team config model-presets [--scope project|user]
+                                [--target TARGET[,TARGET...]]
+                                [--preset economy|balanced|quality] [--dry-run]
 agent-team validate [--format text|json]
 agent-team run init --slug SLUG [--title TITLE]
                     [--tier adaptive|solo|assisted|team]
@@ -409,6 +415,19 @@ in that run. Without it, the command uses `default_model_preset` from
 network access. `models fetch` queries a live catalog when the installed
 client or provider supports it and labels the source and effort provenance;
 catalog entries do not prove account entitlement.
+
+`config model-presets` walks through live model and effort choices, previews
+the configuration diff, and asks before saving. It defaults to project scope,
+all installed enabled targets, and all three presets. Use `--preset balanced`
+to change only balanced routing, or `--dry-run` to preview without saving.
+See [interactive preset editing](docs/configuration.md#interactive-preset-editing)
+for scope and profile behavior. Reinstall the affected targets after saving.
+
+`config roles` edits semantic role routing through partial `[roles.<id>]`
+overrides. Use `--role implementer` to change only that role, or omit it to
+visit all builtin roles. It works without installed clients or a live catalog.
+See [partial routing overrides](docs/configuration.md#partial-routing-overrides)
+for inheritance and coordinator behavior.
 
 ## Generated native files
 
@@ -470,7 +489,8 @@ review limits, deep-discovery behavior, role and skill sources, and install
 scope. Parsing is strict: unknown keys, unsafe paths, invalid enum values, and
 cross-field policy violations fail validation.
 
-Projects may replace a complete target profile, add sparse `model_presets`
+Projects may partially override role routing with `[roles.<id>]`, replace a
+complete target profile, add sparse `model_presets`
 overrides in `team.toml`, or add and override roles from project-relative
 source directories. Built-in target profiles deliberately map
 semantic classes (`fast`, `balanced`, and `deep`) rather than embedding native
