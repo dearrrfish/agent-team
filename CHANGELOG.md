@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Target-bound `[roles.<id>.targets.<target>]` routing overrides and optional
+  comma-separated `config roles --target` selection, with per-target rendering
+  and model inspection. Existing global fields remain fallback values.
 - Interactive `config model-presets` for user/project routing, with installed
   target detection, live model/effort menus, `--preset` selection, diff previews,
   `--dry-run`, confirmed scoped saves, and reinstall guidance.

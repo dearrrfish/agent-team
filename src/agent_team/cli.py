@@ -101,6 +101,7 @@ Examples:
     roles = config_commands.add_parser("roles", help="preview and edit semantic role routing")
     roles.add_argument("--scope", choices=("user", "project"), default="project")
     roles.add_argument("--role", choices=ROLE_IDS, help="edit one role (default all builtin roles)")
+    roles.add_argument("--target", help="comma-separated configured targets (default all enabled targets)")
     roles.add_argument("--dry-run", action="store_true")
 
     models = subcommands.add_parser("models", help="inspect effective routing or live model catalogs")
@@ -409,9 +410,9 @@ def _effective_routing(root: Path, args: argparse.Namespace) -> dict[str, object
     if args.target and args.target not in config.enabled_targets:
         raise ValidationFailure([Diagnostic("target", f"{args.target} is not enabled", code="disabled")])
     preset_name = _model_preset(root, config, args)
-    roles = load_roles(config, root)
     output: list[dict[str, object]] = []
     for target in targets:
+        roles = load_roles(config, root, target=target)
         profile = resolve_target_profile(config, target, root)
         if preset_name not in profile.presets:
             raise ValidationFailure([Diagnostic(
@@ -587,7 +588,7 @@ def main(argv: list[str] | None = None) -> int:
             return _install(root, args)
         if args.command == "config":
             if args.config_command == "roles":
-                return edit_roles(root, scope=args.scope, role=args.role, dry_run=args.dry_run)
+                return edit_roles(root, scope=args.scope, role=args.role, target=args.target, dry_run=args.dry_run)
             return edit_model_presets(root, scope=args.scope, target=args.target,
                                       preset=args.preset, dry_run=args.dry_run)
         if args.command == "models":

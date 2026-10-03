@@ -63,6 +63,7 @@ class TeamConfig:
     scoped_role_sources: tuple[tuple[Path, str], ...] = ()
     scoped_skill_sources: tuple[tuple[Path, str], ...] = ()
     role_overrides: Mapping[str, RoleOverride] = field(default_factory=dict)
+    target_role_overrides: Mapping[str, Mapping[str, RoleOverride]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

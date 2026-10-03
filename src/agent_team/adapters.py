@@ -186,7 +186,7 @@ def render_target(
         raise ValidationFailure([Diagnostic(
             "model_preset", f"{preset_name} is not defined by the {target} profile", code="enum"
         )])
-    roles = load_roles(config, root)
+    roles = load_roles(config, root, target)
     agent_destination = (
         profile.agent_destination if scope == "project" else profile.user_agent_destination
     )

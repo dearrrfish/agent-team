@@ -381,6 +381,7 @@ trees, and reviewer is part of the run lifecycle rather than a task-DAG worker.
 agent-team init [--scope user|project]
 agent-team generate [gitignore,templates]
 agent-team config roles [--scope project|user]
+                        [--target TARGET[,TARGET...]]
                         [--role coordinator|explorer|design-agent|implementer|ops|reviewer]
                         [--dry-run]
 agent-team config model-presets [--scope project|user]
@@ -423,9 +424,10 @@ to change only balanced routing, or `--dry-run` to preview without saving.
 See [interactive preset editing](docs/configuration.md#interactive-preset-editing)
 for scope and profile behavior. Reinstall the affected targets after saving.
 
-`config roles` edits semantic role routing through partial `[roles.<id>]`
-overrides. Use `--role implementer` to change only that role, or omit it to
-visit all builtin roles. It works without installed clients or a live catalog.
+`config roles` edits semantic routing through `[roles.<id>.targets.<target>]`
+blocks. Use `--target codex --role implementer` to change only that target and
+role. Omitting `--target` visits all enabled targets; omitting `--role` visits
+all builtin roles. It works without installed clients or a live catalog.
 See [partial routing overrides](docs/configuration.md#partial-routing-overrides)
 for inheritance and coordinator behavior.
 
@@ -489,9 +491,9 @@ review limits, deep-discovery behavior, role and skill sources, and install
 scope. Parsing is strict: unknown keys, unsafe paths, invalid enum values, and
 cross-field policy violations fail validation.
 
-Projects may partially override role routing with `[roles.<id>]`, replace a
-complete target profile, add sparse `model_presets`
-overrides in `team.toml`, or add and override roles from project-relative
+Projects may bind role routing to targets with `[roles.<id>.targets.<target>]`,
+replace a complete target profile, add sparse `model_presets` overrides in
+`team.toml`, or add and override roles from project-relative
 source directories. Built-in target profiles deliberately map
 semantic classes (`fast`, `balanced`, and `deep`) rather than embedding native
 model names in role definitions.

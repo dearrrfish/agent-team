@@ -197,6 +197,124 @@ class RoleOverrideTests(unittest.TestCase):
         self.assertEqual(_mapped_role(profile, 'balanced', roles['coordinator']), (preset.models['fast'], None))
         self.assertIsNone(_mapped_role(profile, 'balanced', roles['implementer'])[1])
 
+    def target_roles(self, target):
+        config = load_team_config(self.project)
+        return config, {r.role_id: r for r in load_roles(config, self.project, target)}
+
+    def test_target_isolation_fallback_inheritance_and_specificity(self):
+        self.write_user('[roles.implementer.targets.codex]\nmodel_class = "fast"\neffort = "low"\n')
+        self.write_project('[roles.implementer]\nmodel_class = "deep"\neffort = "high"\n'
+                           '[roles.implementer.targets.codex]\neffort = "medium"\n'
+                           '[roles.implementer.targets.claude]\nmodel_class = "balanced"\n')
+        config, roles = self.target_roles('codex')
+        self.assertEqual(config.target_role_overrides['codex']['implementer'], RoleOverride('fast', 'medium'))
+        role = roles['implementer']
+        self.assertEqual((role.model_class, role.effort), ('fast', 'medium'))
+        self.assertEqual(role.routing_override_origins, {'model_class': 'user', 'effort': 'project'})
+        _, roles = self.target_roles('claude')
+        self.assertEqual((roles['implementer'].model_class, roles['implementer'].effort), ('balanced', 'high'))
+        _, roles = self.target_roles('antigravity')
+        self.assertEqual((roles['implementer'].model_class, roles['implementer'].effort), ('deep', 'high'))
+        _, roles = self.roles()
+        self.assertEqual((roles['implementer'].model_class, roles['implementer'].effort), ('deep', 'high'))
+        self.write_project('inherit_user_defaults = false\n[roles.implementer.targets.codex]\neffort = "medium"\n')
+        config, roles = self.target_roles('codex')
+        self.assertEqual(config.target_role_overrides['codex']['implementer'], RoleOverride(None, 'medium'))
+        self.assertEqual(roles['implementer'].model_class, load_builtin_roles()[3].model_class)
+
+    def test_target_strict_validation_masked_layers(self):
+        invalid = (
+            'targets = true', 'targets = []', 'targets = {codex = 1}',
+            '[roles.implementer.targets.unknown]\neffort = "low"',
+            '[roles.implementer.targets.codex]\nmodel_class = true',
+            '[roles.implementer.targets.codex]\neffort = "xhigh"',
+            '[roles.implementer.targets.codex]\neffort = 3',
+            '[roles.implementer.targets.codex]\nmodel_class = "unknown"',
+            '[roles.implementer.targets.codex]\ntargets = {}',
+            '[roles.implementer.targets.codex]\ninstructions = "bad"',
+        )
+        for text in invalid:
+            if text.startswith('targets'):
+                text = '[roles.implementer]\n' + text
+            with self.subTest(text=text):
+                self.write_user(text)
+                self.write_project('[roles.implementer.targets.codex]\nmodel_class = "deep"\neffort = "high"\n')
+                with self.assertRaises(ValidationFailure):
+                    load_team_config(self.project)
+                self.write_user('')
+                self.write_project(text)
+                with self.assertRaises(ValidationFailure):
+                    load_team_config(self.project)
+        data = tomllib.loads(DEFAULT_TEAM_TOML)
+        data['enabled_targets'] = ['claude']
+        del data['target_profiles']['codex']
+        data['roles'] = {'implementer': {'targets': {'codex': {'effort': 'low'}}}}
+        with self.assertRaises(ValidationFailure):
+            parse_team_config(data, self.project)
+
+    def test_unselected_unknown_role_and_invalid_target(self):
+        self.write_project('[roles.absent.targets.claude]\n')
+        config = load_team_config(self.project)
+        for target in (None, 'codex', 'claude'):
+            with self.subTest(target=target), self.assertRaises(ValidationFailure):
+                load_roles(config, self.project, target)
+        self.write_project('schema_version = 1\n')
+        config = load_team_config(self.project)
+        with self.assertRaises(ValidationFailure):
+            load_roles(config, self.project, 'unknown')
+        config = replace(config, target_profiles={'claude': 'builtin:claude'})
+        with self.assertRaises(ValidationFailure):
+            load_roles(config, self.project, 'codex')
+
+    def test_target_custom_role_preserves_complete_definition(self):
+        source = self.make_role(self.project, 'analyst', 'custom instructions')
+        self.write_user('[roles.analyst.targets.codex]\nmodel_class = "fast"\n')
+        self.write_project('role_sources = ["definitions"]\n[roles.analyst]\neffort = "low"\n')
+        _, roles = self.target_roles('codex')
+        role = roles['analyst']
+        self.assertEqual((role.model_class, role.effort), ('fast', 'low'))
+        self.assertEqual((role.source, role.instructions), (str(source), 'custom instructions'))
+        base = load_builtin_roles()[3]
+        self.assertEqual((role.write_policy, role.capabilities, role.delegation),
+                         (base.write_policy, base.capabilities, base.delegation))
+
+    def test_target_coordinator_pins_independent_fields_and_suppression(self):
+        base = load_builtin_roles()[0]
+        for fields in ({'model_class': base.model_class}, {'effort': base.effort}):
+            with self.subTest(fields=fields):
+                self.write_project('[roles.coordinator.targets.codex]\n' +
+                                   ''.join(f'{key} = "{value}"\n' for key, value in fields.items()))
+                config, roles = self.target_roles('codex')
+                profile = resolve_target_profile(config, 'codex', self.project)
+                preset = profile.presets['balanced']
+                profile = replace(profile, presets={**profile.presets, 'balanced': replace(
+                    preset, coordinator_model='dedicated-model', coordinator_effort='dedicated-effort')})
+                role = roles['coordinator']
+                self.assertEqual(role.routing_override_origins, dict.fromkeys(fields, 'project'))
+                expected_model = preset.models[base.model_class] if 'model_class' in fields else 'dedicated-model'
+                expected_effort = preset.effort[base.effort] if 'effort' in fields else 'dedicated-effort'
+                self.assertEqual(_mapped_role(profile, 'balanced', role), (expected_model, expected_effort))
+                profile = replace(profile, models_without_effort=(expected_model,))
+                self.assertEqual(_mapped_role(profile, 'balanced', role), (expected_model, None))
+                profile = replace(profile, models_without_effort=(), supports_effort=False)
+                self.assertEqual(_mapped_role(profile, 'balanced', role), (expected_model, None))
+                _, other_roles = self.target_roles('claude')
+                self.assertEqual(other_roles['coordinator'].routing_override_origins, {})
+
+    def test_target_rendering_all_targets_and_presets(self):
+        classes = dict(zip(TARGETS, ('fast', 'balanced', 'deep'), strict=True))
+        self.write_project(''.join(
+            f'[roles.implementer.targets.{target}]\nmodel_class = "{model_class}"\neffort = "low"\n'
+            for target, model_class in classes.items()))
+        config = load_team_config(self.project)
+        for target, model_class in classes.items():
+            profile = resolve_target_profile(config, target, self.project)
+            for preset in PRESETS:
+                with self.subTest(target=target, preset=preset):
+                    rendered = render_target(target, config, self.project, preset)
+                    content = next(value for path, value in rendered.items() if 'implementer' in str(path))
+                    self.assertIn(profile.presets[preset].models[model_class], content)
+
 
 if __name__ == '__main__':
     unittest.main()

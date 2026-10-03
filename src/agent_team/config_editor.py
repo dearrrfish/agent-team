@@ -440,7 +440,7 @@ def _role_choice(
 
 
 def _edit_roles(
-    root: Path, *, scope: str, role: str | None, dry_run: bool,
+    root: Path, *, scope: str, role: str | None, target: str | None, dry_run: bool,
     read: Callable[[str], str], emit: Callable[[str], None],
 ) -> int:
     if scope not in ("project", "user") or (role is not None and role not in ROLE_IDS):
@@ -468,12 +468,32 @@ def _edit_roles(
     layers.append((scope, boundary, scoped_data))
     config = _layered_config(boundary, layers)
     source_snapshot = _role_source_snapshot(config, boundary, snapshots)
-    definitions = {item.role_id: item for item in load_roles(config, boundary)}
+    targets = tuple(item.strip() for item in target.split(",")) if target is not None else config.enabled_targets
+    if not targets:
+        raise _fail("targets", "no enabled targets; select a configured target explicitly")
+    if len(set(targets)) != len(targets):
+        raise _fail("targets", "target names must be unique")
+    for name in targets:
+        if name not in TARGETS or name not in config.target_profiles:
+            raise _fail("targets", f"target {name!r} must be known and have a configured profile")
+    profile_paths: dict[Path, Path] = {}
+    for name, reference in config.target_profiles.items():
+        if not reference.startswith("builtin:"):
+            path = config.target_profile_roots[name] / reference
+            snapshots[path] = _read(path)
+            profile_paths[path] = path.resolve()
+    definitions = {
+        name: {item.role_id: item for item in load_roles(config, boundary, target=name)}
+        for name in targets
+    }
 
     def check_sources() -> None:
         for path, original in snapshots.items():
             if _read(path) != original:
                 raise _fail(path, "configuration changed since preview; rerun the command", "conflict")
+        for path, resolved in profile_paths.items():
+            if path.resolve() != resolved:
+                raise _fail(path, "profile source resolution changed; rerun the command", "conflict")
         if inherits and inherited_path.exists() != inherited_present:
             raise _fail(inherited_path, "inherited configuration discovery changed; rerun the command", "conflict")
         if _role_source_snapshot(config, boundary) != source_snapshot:
@@ -481,32 +501,41 @@ def _edit_roles(
 
     check_sources()
     changes: dict[tuple[str, ...], str] = {}
-    for role_id in (role,) if role else ROLE_IDS:
-        definition = definitions[role_id]
-        emit(f"{role_id}: definition source {definition.source}")
-        for field, options, current in (
-            ("model_class", _CLASSES, definition.model_class),
-            ("effort", _EFFORTS, definition.effort),
-        ):
-            origin = definition.routing_override_origins.get(field)
-            dedicated = role_id == "coordinator" and origin is None
-            display = "dedicated coordinator preset" if dedicated else current
-            source = f"{origin} routing overlay" if origin else f"definition {definition.source}"
-            emit(f"  {field}: {display} (semantic value {current}; source {source})")
-            choice = _role_choice(f"{role_id} / {field}", options, current, dedicated, read, emit)
-            if choice is not None:
-                changes[("roles", role_id, field)] = choice
+    for name in targets:
+        for role_id in (role,) if role else ROLE_IDS:
+            definition = definitions[name][role_id]
+            emit(f"{name} / {role_id}: definition source {definition.source}")
+            for field, options, current in (
+                ("model_class", _CLASSES, definition.model_class),
+                ("effort", _EFFORTS, definition.effort),
+            ):
+                origin = definition.routing_override_origins.get(field)
+                dedicated = role_id == "coordinator" and origin is None
+                display = "dedicated coordinator preset" if dedicated else current
+                bound = config.target_role_overrides.get(name, {}).get(role_id)
+                binding = "target-bound" if bound is not None and getattr(bound, field) is not None else "global"
+                source = f"{origin} {binding} routing overlay" if origin else f"definition {definition.source}"
+                emit(f"  {field}: {display} (semantic value {current}; source {source})")
+                choice = _role_choice(f"{name} / {role_id} / {field}", options, current, dedicated, read, emit)
+                if choice is not None:
+                    changes[("roles", role_id, "targets", name, field)] = choice
     content = upsert_strings(scoped_text, changes)
 
     def validate_candidate() -> None:
         candidate_layers = [*layers[:-1], (scope, boundary, _parse(content, config_path))]
         candidate = _layered_config(boundary, candidate_layers)
-        roles = {item.role_id: item for item in load_roles(candidate, boundary)}
-        for (_, role_id, field), expected in changes.items():
-            if getattr(roles[role_id], field) != expected or roles[role_id].routing_override_origins.get(field) != scope:
-                raise _fail(role_id, "candidate does not preserve explicitly selected scoped routing")
-        for target in dict.fromkeys((*candidate.enabled_targets, *candidate.model_presets)):
-            resolve_target_profile(candidate, target, boundary)
+        load_roles(candidate, boundary)
+        for name in candidate.target_profiles:
+            roles = {item.role_id: item for item in load_roles(candidate, boundary, target=name)}
+            resolve_target_profile(candidate, name, boundary)
+            for (_, role_id, _, selected_target, field), expected in changes.items():
+                if selected_target != name:
+                    continue
+                pin = candidate.target_role_overrides.get(name, {}).get(role_id)
+                if (pin is None or getattr(pin, field) != expected
+                        or getattr(roles[role_id], field) != expected
+                        or roles[role_id].routing_override_origins.get(field) != scope):
+                    raise _fail(role_id, "candidate does not preserve explicitly selected scoped routing")
 
     check_sources()
     validate_candidate()
@@ -527,20 +556,21 @@ def _edit_roles(
     validate_candidate()
     check_sources()
     apply_candidates((Candidate(config_path, scoped_text, content, boundary),), snapshots)
-    if config.enabled_targets:
-        emit(f"Saved role routing. Reinstall with: agent-team install --scope {scope} --target {','.join(config.enabled_targets)} --apply")
+    affected = tuple(name for name in targets if name in config.enabled_targets and any(leaf[3] == name for leaf in changes))
+    if affected:
+        emit(f"Saved role routing. Reinstall with: agent-team install --scope {scope} --target {','.join(affected)} --apply")
     else:
-        emit("Saved role routing. No native targets enabled; reinstall not required.")
+        emit("Saved role routing.")
     return 0
 
 
 def edit_roles(
-    root: Path, *, scope: str = "project", role: str | None = None, dry_run: bool = False,
+    root: Path, *, scope: str = "project", role: str | None = None, target: str | None = None, dry_run: bool = False,
     read: Callable[[str], str] | None = None, emit: Callable[[str], None] = print,
 ) -> int:
     """Interactively pin semantic routing leaves without discovering native clients."""
     try:
-        return _edit_roles(root, scope=scope, role=role, dry_run=dry_run, read=read or input, emit=emit)
+        return _edit_roles(root, scope=scope, role=role, target=target, dry_run=dry_run, read=read or input, emit=emit)
     except (EOFError, KeyboardInterrupt):
         emit("Cancelled: no files saved.")
         return 0

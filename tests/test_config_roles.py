@@ -40,10 +40,10 @@ class ConfigRolesTests(unittest.TestCase):
 
     def edit(self, answers: list[str], *, role: str | None = 'implementer', **kwargs: object) -> int:
         iterator = iter(answers)
-        return edit_roles(self.root, role=role, read=lambda _: next(iterator), emit=self.output.append, **kwargs)
+        return edit_roles(self.root, role=role, target=kwargs.pop('target', 'codex'), read=lambda _: next(iterator), emit=self.output.append, **kwargs)
 
     def definitions(self) -> dict[str, object]:
-        return {item.role_id: item for item in load_roles(load_team_config(self.root), self.root)}
+        return {item.role_id: item for item in load_roles(load_team_config(self.root), self.root, target='codex')}
 
     def source_role(self, role_id: str = 'implementer', *, boundary: Path | None = None) -> Path:
         boundary = boundary or self.root
@@ -66,7 +66,10 @@ class ConfigRolesTests(unittest.TestCase):
         self.assertFalse(args.dry_run)
         with patch('agent_team.cli.project_root', return_value=self.root), patch('agent_team.cli.edit_roles', return_value=0) as editor:
             self.assertEqual(main(['config', 'roles', '--role', 'ops', '--dry-run']), 0)
-            editor.assert_called_once_with(self.root, scope='project', role='ops', dry_run=True)
+            editor.assert_called_once_with(self.root, scope='project', role='ops', target=None, dry_run=True)
+        with patch('agent_team.cli.project_root', return_value=self.root), patch('agent_team.cli.edit_roles', return_value=0) as editor:
+            self.assertEqual(main(['config', 'roles', '--target', 'codex,claude', '--role', 'ops']), 0)
+            editor.assert_called_once_with(self.root, scope='project', role='ops', target='codex,claude', dry_run=False)
         with patch('sys.stderr', new_callable=io.StringIO), self.assertRaises(SystemExit):
             _parser().parse_args(['config', 'roles', '--role', 'custom-agent'])
 
@@ -74,14 +77,14 @@ class ConfigRolesTests(unittest.TestCase):
         before = self.definitions()
         self.edit(['fast', 'low', 'yes'])
         data = tomllib.loads(self.path.read_text())
-        self.assertEqual(data['roles'], {'implementer': {'model_class': 'fast', 'effort': 'low'}})
+        self.assertEqual(data['roles'], {'implementer': {'targets': {'codex': {'model_class': 'fast', 'effort': 'low'}}}})
         self.assertIn('# retained comment', self.path.read_text())
         after = self.definitions()
         self.assertEqual(after['implementer'].model_class, 'fast')
         self.assertEqual(after['implementer'].effort, 'low')
         self.assertEqual(after['explorer'], before['explorer'])
         self.assertIn('source definition roles.implementer', '\n'.join(self.output))
-        self.assertIn('--scope project --target codex,claude,antigravity --apply', self.output[-1])
+        self.assertIn('--scope project --target codex --apply', self.output[-1])
 
     def test_default_visits_all_builtin_roles_in_order(self) -> None:
         self.edit(['deep', 'high'] * 6 + ['yes'], role=None)
@@ -111,12 +114,12 @@ class ConfigRolesTests(unittest.TestCase):
         self.edit(['', ''])
         self.assertNotIn('roles', tomllib.loads(self.path.read_text()))
         self.edit(['balanced', '', 'yes'])
-        self.assertEqual(tomllib.loads(self.path.read_text())['roles']['implementer'], {'model_class': 'balanced'})
+        self.assertEqual(tomllib.loads(self.path.read_text())['roles']['implementer']['targets']['codex'], {'model_class': 'balanced'})
         role = self.definitions()['implementer']
         self.assertEqual(role.effort, 'low')
         self.assertEqual(role.routing_override_origins, {'model_class': 'project', 'effort': 'user'})
         self.assertEqual(user_path.read_bytes(), before)
-        self.assertIn('user routing overlay', '\n'.join(self.output))
+        self.assertIn('user global routing overlay', '\n'.join(self.output))
 
     def test_user_scope_changes_only_user_config(self) -> None:
         user_path = self.user / 'team.toml'
@@ -124,13 +127,66 @@ class ConfigRolesTests(unittest.TestCase):
         before = self.path.read_bytes()
         self.edit(['fast', '', 'yes'], scope='user')
         self.assertEqual(self.path.read_bytes(), before)
-        self.assertEqual(tomllib.loads(user_path.read_text())['roles']['implementer'], {'model_class': 'fast'})
+        self.assertEqual(tomllib.loads(user_path.read_text())['roles']['implementer']['targets']['codex'], {'model_class': 'fast'})
 
     def test_empty_enabled_targets_omits_invalid_reinstall_command(self) -> None:
         self.path.write_text(self.path.read_text() + 'enabled_targets = []\n')
         self.edit(['fast', '', 'yes'])
-        self.assertEqual(self.output[-1], 'Saved role routing. No native targets enabled; reinstall not required.')
+        self.assertEqual(self.output[-1], 'Saved role routing.')
         self.assertNotIn('--target  --apply', '\n'.join(self.output))
+
+    def test_default_targets_are_all_enabled_in_order(self) -> None:
+        self.edit(['fast', '', 'balanced', '', 'deep', '', 'yes'], target=None)
+        pins = tomllib.loads(self.path.read_text())['roles']['implementer']['targets']
+        self.assertEqual(tuple(pins), ('codex', 'claude', 'antigravity'))
+        self.assertEqual([pin['model_class'] for pin in pins.values()], ['fast', 'balanced', 'deep'])
+
+    def test_multiple_targets_leave_unselected_routing_unchanged(self) -> None:
+        self.path.write_text(self.path.read_text() + '\n[roles.implementer]\neffort = "medium"\n')
+        self.edit(['fast', 'low', 'deep', '', 'yes'], target='codex,claude')
+        config = load_team_config(self.root)
+        roles = {name: {item.role_id: item for item in load_roles(config, self.root, target=name)}
+                 for name in ('codex', 'claude', 'antigravity')}
+        self.assertEqual(roles['codex']['implementer'].effort, 'low')
+        self.assertEqual(roles['claude']['implementer'].model_class, 'deep')
+        self.assertEqual(roles['antigravity']['implementer'].effort, 'medium')
+        self.assertNotIn('antigravity', tomllib.loads(self.path.read_text())['roles']['implementer']['targets'])
+
+    def test_invalid_targets_and_empty_default_fail(self) -> None:
+        for target in ('', 'codex,', 'codex,codex', 'unknown'):
+            with self.subTest(target=target), self.assertRaises(ValidationFailure):
+                self.edit([], target=target)
+        self.path.write_text(self.path.read_text() + 'enabled_targets = []\n')
+        with self.assertRaisesRegex(ValidationFailure, 'no enabled targets'):
+            self.edit([], target=None)
+
+    def test_target_bound_user_leaf_wins_project_global_and_can_be_pinned(self) -> None:
+        self.path.write_text('schema_version = 1\n[roles.implementer]\nmodel_class = "deep"\n')
+        (self.user / 'team.toml').write_text('schema_version = 1\n[roles.implementer.targets.codex]\nmodel_class = "fast"\n')
+        self.edit(['', ''])
+        self.assertEqual(self.definitions()['implementer'].model_class, 'fast')
+        self.edit(['fast', '', 'yes'])
+        self.assertEqual(self.definitions()['implementer'].routing_override_origins['model_class'], 'project')
+
+    def test_target_profile_changes_during_confirmation_are_detected(self) -> None:
+        profile = self.root / 'codex.toml'
+        profile.write_text(resources.files('agent_team.assets').joinpath('definitions/targets/codex.toml').read_text())
+        self.path.write_text(self.path.read_text() + '\n[target_profiles]\ncodex = "codex.toml"\n')
+        self.change_during_confirmation(lambda: profile.write_text(profile.read_text() + '# changed\n'))
+
+    def test_models_show_target_binding_changes_only_bound_coordinator(self) -> None:
+        self.path.write_text(self.path.read_text() + '\n[roles.coordinator.targets.codex]\nmodel_class = "deep"\neffort = "high"\n')
+        args = _parser().parse_args(['models', 'show', '--format', 'json'])
+        targets = _effective_routing(self.root, args)['targets']
+        rows = {entry['target']: entry['roles'][0] for entry in targets}
+        self.assertEqual(rows['codex']['model_class'], 'deep')
+        self.assertEqual(rows['claude']['model_class'], 'coordinator')
+        self.assertEqual(rows['antigravity']['model_class'], 'coordinator')
+        for entry in targets:
+            config = load_team_config(self.root)
+            role = load_roles(config, self.root, target=entry['target'])[0]
+            expected = _mapped_role(resolve_target_profile(config, entry['target'], self.root), 'balanced', role)
+            self.assertEqual((entry['roles'][0]['native_model'], entry['roles'][0]['native_effort']), expected)
 
     def test_repeated_explicit_pin_is_noop(self) -> None:
         self.edit(['fast', 'low', 'yes'])
@@ -204,7 +260,7 @@ class ConfigRolesTests(unittest.TestCase):
                 return 'yes'
             return next(iterator)
         with self.assertRaises(ValidationFailure):
-            edit_roles(self.root, role='implementer', read=read, emit=self.output.append)
+            edit_roles(self.root, role='implementer', target='codex', read=read, emit=self.output.append)
         self.assertNotIn('roles', tomllib.loads(self.path.read_text()))
 
     def test_scoped_config_change_during_confirmation(self) -> None:

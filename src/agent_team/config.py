@@ -291,6 +291,24 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
 
     roles_data = _mapping(data.get("roles", {}), "roles", diagnostics)
     role_overrides: dict[str, RoleOverride] = {}
+    target_role_overrides: dict[str, dict[str, RoleOverride]] = {}
+
+    def parse_override(item: dict[str, Any], path: str) -> RoleOverride:
+        values: dict[str, str] = {}
+        for key, allowed_values in (
+            ("model_class", ("fast", "balanced", "deep")),
+            ("effort", ("low", "medium", "high")),
+        ):
+            if key in item:
+                value = _string(item[key], f"{path}.{key}", diagnostics)
+                if value not in allowed_values:
+                    diagnostics.append(Diagnostic(
+                        f"{path}.{key}",
+                        f"must be one of {', '.join(allowed_values)}", code="enum",
+                    ))
+                values[key] = value
+        return RoleOverride(**values)
+
     for role_id, raw_override in roles_data.items():
         role_path = f"roles.{role_id}"
         if not _ID.fullmatch(role_id):
@@ -298,21 +316,21 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
                 role_path, "must be a lowercase kebab-case identifier", code="format"
             ))
         item = _mapping(raw_override, role_path, diagnostics)
-        _unknown_keys(item, {"model_class", "effort"}, role_path, diagnostics)
-        values: dict[str, str] = {}
-        for key, allowed_values in (
-            ("model_class", ("fast", "balanced", "deep")),
-            ("effort", ("low", "medium", "high")),
-        ):
-            if key in item:
-                value = _string(item[key], f"{role_path}.{key}", diagnostics)
-                if value not in allowed_values:
+        _unknown_keys(item, {"model_class", "effort", "targets"}, role_path, diagnostics)
+        role_overrides[role_id] = parse_override(item, role_path)
+        targets = _mapping(item.get("targets", {}), f"{role_path}.targets", diagnostics)
+        _unknown_keys(targets, TARGETS, f"{role_path}.targets", diagnostics)
+        for target, raw_target in targets.items():
+            target_path = f"{role_path}.targets.{target}"
+            target_item = _mapping(raw_target, target_path, diagnostics)
+            _unknown_keys(target_item, {"model_class", "effort"}, target_path, diagnostics)
+            override = parse_override(target_item, target_path)
+            if target in TARGETS:
+                if target not in target_profiles:
                     diagnostics.append(Diagnostic(
-                        f"{role_path}.{key}",
-                        f"must be one of {', '.join(allowed_values)}", code="enum",
+                        target_path, "target needs a configured profile", code="required"
                     ))
-                values[key] = value
-        role_overrides[role_id] = RoleOverride(**values)
+                target_role_overrides.setdefault(target, {})[role_id] = override
 
     workflow_data = _mapping(_required(data, "workflow", "", diagnostics), "workflow", diagnostics)
     _unknown_keys(
@@ -411,6 +429,7 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
         tiers, InstallConfig(default_scope, overwrite, backups, modify_settings),
         inherit_user_defaults=inherit_user_defaults,
         role_overrides=role_overrides,
+        target_role_overrides=target_role_overrides,
     )
 
 
@@ -666,7 +685,11 @@ def load_builtin_roles() -> tuple[RoleDefinition, ...]:
     return tuple(roles)
 
 
-def load_roles(config: TeamConfig, root: Path) -> tuple[RoleDefinition, ...]:
+def load_roles(
+    config: TeamConfig, root: Path, target: str | None = None,
+) -> tuple[RoleDefinition, ...]:
+    if target is not None and (target not in TARGETS or target not in config.target_profiles):
+        raise ValidationFailure([Diagnostic("target", "target needs a supported configured profile", code="enum")])
     roles: dict[str, RoleDefinition] = {}
     for scope_root, source in config.scoped_role_sources or tuple((root, source) for source in config.role_sources):
         if source == "builtin:roles":
@@ -692,24 +715,38 @@ def load_roles(config: TeamConfig, root: Path) -> tuple[RoleDefinition, ...]:
     missing = sorted(set(ROLE_IDS) - set(roles))
     if missing:
         raise ValidationFailure([Diagnostic("role_sources", f"missing roles: {', '.join(missing)}", code="required")])
-    unknown = sorted(set(config.role_overrides) - set(roles))
-    if unknown:
-        raise ValidationFailure([
-            Diagnostic(f"roles.{role_id}", "override names an unknown role", code="unknown-role")
-            for role_id in unknown
-        ])
-    for role_id, override in config.role_overrides.items():
-        values = {
-            key: value for key in ("model_class", "effort")
-            if (value := getattr(override, key)) is not None
-        }
-        roles[role_id] = replace(
-            roles[role_id], **values,
-            routing_override_origins={
-                key: config.field_origins.get(f"roles.{role_id}.{key}", "project")
-                for key in values
-            },
-        )
+    bindings = [("roles", config.role_overrides)]
+    bindings.extend(
+        (f"targets.{bound_target}", overrides)
+        for bound_target, overrides in config.target_role_overrides.items()
+    )
+    diagnostics = []
+    for binding, overrides in bindings:
+        for role_id in sorted(set(overrides) - set(roles)):
+            path = (f"roles.{role_id}" if binding == "roles"
+                    else f"roles.{role_id}.{binding}")
+            diagnostics.append(Diagnostic(path, "override names an unknown role", code="unknown-role"))
+    if diagnostics:
+        raise ValidationFailure(diagnostics)
+    overlays = [(config.role_overrides, "")]
+    if target is not None:
+        overlays.append((config.target_role_overrides.get(target, {}), f".targets.{target}"))
+    for overrides, suffix in overlays:
+        for role_id, override in overrides.items():
+            values = {
+                key: value for key in ("model_class", "effort")
+                if (value := getattr(override, key)) is not None
+            }
+            roles[role_id] = replace(
+                roles[role_id], **values,
+                routing_override_origins={
+                    **roles[role_id].routing_override_origins,
+                    **{
+                        key: config.field_origins.get(f"roles.{role_id}{suffix}.{key}", "project")
+                        for key in values
+                    },
+                },
+            )
     ordered = [roles[role_id] for role_id in ROLE_IDS]
     ordered.extend(roles[role_id] for role_id in sorted(set(roles) - set(ROLE_IDS)))
     return tuple(ordered)

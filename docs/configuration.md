@@ -154,40 +154,48 @@ The coordinator or a write-isolated worker must run commands for those roles.
 
 ### Partial routing overrides
 
-Use `[roles.<id>]` in the selected scope's `team.toml` to change routing while
-retaining the complete role definition:
+Use `[roles.<id>.targets.<target>]` in the selected scope's `team.toml` to bind
+routing to a target while retaining the complete role definition:
 
 ```toml
-[roles.implementer]
+[roles.implementer.targets.codex]
 model_class = "balanced"
 effort = "low"
 ```
 
 Both fields are optional. `model_class` accepts `fast`, `balanced`, or `deep`;
 `effort` accepts semantic `low`, `medium`, or `high`. These selectors use each
-target's active model preset, so they apply across targets and presets. A
-semantic effort value may map to a different native effort label; inspect the
+selected target's active model preset, so they apply across its presets. Other
+targets retain their own settings. A semantic effort value may map to a different
+native effort label; inspect the
 result with `agent-team models show`. Targets without effort support and models
 marked as effort-free continue to omit native effort.
 
-Whole role definitions resolve from builtin, user, then project sources. Sparse
-routing overrides apply afterwards, merging user and project values by field.
-For example, a project class override retains an inherited user effort
-override. A user routing override also applies to a project-authored replacement
-role unless the project supplies its own override for that field. Instructions,
+Whole role definitions resolve from builtin, user, then project sources. Legacy
+`[roles.<id>]` routing fields remain global fallbacks. Target-specific fields
+apply afterwards and win independently over those global values. User/project
+values merge per field within each path: a project target class override retains
+an inherited user effort for that target. A user target field also wins over a
+project global field because the target block is more specific. Unspecified
+fields fall back to global routing fields, then the complete role definition.
+Routing overrides also apply to project-authored replacement definitions.
+Instructions,
 permissions, capabilities, activation, delegation, and turn limits remain in
 complete authored definitions.
 
 TOML may name builtin or loaded custom roles; an unknown role ID, unsupported
 field, wrong type, or invalid semantic value is an error. Overrides do not create
-roles. Existing configurations without `[roles]` retain their current routing.
+roles. Targets must be `codex`, `claude`, or `antigravity` with configured
+profiles. Existing global overrides and configurations without `[roles]` retain
+their current routing.
 Older agent-team binaries reject this new optional table; update the binary
 before adding it.
 
 Coordinator routing has separate defaults. Without an explicit coordinator
-role override, it uses the preset's `coordinator_model` and
-`coordinator_effort`. Setting `[roles.coordinator].model_class` selects the
-preset's class mapping instead; setting `.effort` selects its semantic effort
+role override for the target (or a legacy global override), it uses the preset's
+`coordinator_model` and `coordinator_effort`. Setting
+`[roles.coordinator.targets.codex].model_class` selects the preset's class
+mapping instead; setting `.effort` selects its semantic effort
 mapping. Each field switches independently, so an effort-only override retains
 the dedicated coordinator model. Explicit `deep` or `high` still changes this
 routing choice even when the underlying role definition has the same value.
@@ -196,19 +204,25 @@ routing choice even when the underlying role definition has the same value.
 
 ```console
 agent-team config roles
-agent-team config roles --role implementer --dry-run
-agent-team config roles --scope user --role implementer
+agent-team config roles --target codex --role implementer --dry-run
+agent-team config roles --scope user --target codex,claude --role implementer
 ```
 
-Scope defaults to `project`; omitting `--role` visits all six builtin roles in
-stable order. The filter accepts `coordinator`, `explorer`, `design-agent`,
-`implementer`, `ops`, or `reviewer`. Custom-role overlays can be authored in TOML.
+Scope defaults to `project`. `--target` is optional and defaults to all enabled
+targets; comma-separated values select one or more configured targets. Explicit
+configured targets may be disabled, allowing preparation before enabling them.
+Unknown, unconfigured, empty, or duplicate targets are errors; no enabled targets
+requires an explicit selection. Omitting `--role` visits all six builtin roles
+for each selected target in stable order. The role filter accepts `coordinator`,
+`explorer`, `design-agent`, `implementer`, `ops`, or `reviewer`. Custom-role
+overlays can be authored in TOML.
 This editor needs no installed native client, model catalog, or authentication.
 
 Menus display effective settings and their definition/override sources. Enter
 retains the current state. Explicitly choosing a class or effort pins that field
-in the selected scope, including values equal to an inherited default. For a
-coordinator field without an override, the default keeps its dedicated preset;
+in the selected scope's target block, including values equal to an inherited
+default. For a coordinator field without an override, the default keeps its
+dedicated preset;
 choose a semantic value explicitly to switch that field.
 
 The editor previews the diff and requires explicit `yes` before saving.
@@ -219,11 +233,16 @@ validation and source snapshots reject stale configuration or changed role
 sources before saving. Conservative TOML editing and atomic-write recovery
 follow the model-preset editor's rules.
 
-Run the scoped reinstall command printed after saving to refresh enabled native
-targets. Resetting overrides is a manual operation in this version: remove the
-field from the config that defines it. Removing a project field alone retains
-any inherited user value. Unsupported role-specific keys under `model_presets`
-are not migrated automatically; semantic role settings belong under `[roles]`.
+New editor saves write target blocks, leaving global fallbacks and unrelated
+target blocks intact. Run the scoped reinstall command printed after saving to
+refresh affected enabled targets. Resetting overrides is a manual operation in
+this version: remove the field from the config that defines it. Removing a
+project field alone retains
+any inherited user value. Removing a target field also restores any global
+fallback for that field. To narrow an existing global rule, move its fields into
+the intended target blocks and remove the global leaves. Unsupported
+role-specific keys under `model_presets` are not migrated automatically; role
+settings belong under `[roles.<id>.targets.<target>]`.
 
 ## Target profiles and model presets
 
