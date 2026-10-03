@@ -2,34 +2,6 @@
 # Claude Code & Codex AI Agent Runtime Files
 # ==========================================
 
-# Project-scoped agent-team output; source definitions remain trackable
-/.codex/agents/coordinator.toml
-/.codex/agents/design-agent.toml
-/.codex/agents/explorer.toml
-/.codex/agents/implementer.toml
-/.codex/agents/ops.toml
-/.codex/agents/reviewer.toml
-/.claude/agents/coordinator.md
-/.claude/agents/design-agent.md
-/.claude/agents/explorer.md
-/.claude/agents/implementer.md
-/.claude/agents/ops.md
-/.claude/agents/reviewer.md
-/.claude/skills/team-coordinate/SKILL.md
-/.claude/skills/team-plan/SKILL.md
-/.claude/skills/team-review/SKILL.md
-/.claude/skills/team-workflow/SKILL.md
-/.agents/agents/coordinator/agent.md
-/.agents/agents/design-agent/agent.md
-/.agents/agents/explorer/agent.md
-/.agents/agents/implementer/agent.md
-/.agents/agents/ops/agent.md
-/.agents/agents/reviewer/agent.md
-/.agents/skills/team-coordinate/SKILL.md
-/.agents/skills/team-plan/SKILL.md
-/.agents/skills/team-review/SKILL.md
-/.agents/skills/team-workflow/SKILL.md
-
 # Per-project plugin local settings, tokens, and YAML frontmatter overlays
 # (Plugins use these for user-configurable local environments)
 .claude/*.local.md
@@ -75,6 +47,7 @@ Thumbs.db
 # local only
 *.local*
 .worktrees/
+
 .agent-team/runs/
 .agent-team/backups/
 .agent-team/install-state.json
@@ -82,3 +55,10 @@ Thumbs.db
 /.agent-team/templates/prompts/coordinate.md
 /.agent-team/templates/prompts/review.md
 /.agent-team/templates/prompts/discovery.md
+.*/skills/team-*/
+.*/agents/coordinator*
+.*/agents/explorer*
+.*/agents/design-agent*
+.*/agents/implementer*
+.*/agents/ops*
+.*/agents/reviewer*
