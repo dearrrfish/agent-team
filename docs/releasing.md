@@ -82,13 +82,17 @@ After pushing the tag, download the exact GitHub archive and calculate the
 checksum from the downloaded file:
 
 ```console
+release_version=0.4.0
+# Replace this value with the tag being released.
+archive_path="/tmp/agent-team-v${release_version}.tar.gz"
 curl --fail --location \
-  https://github.com/dearrrfish/agent-team/archive/refs/tags/v0.4.0.tar.gz \
-  --output /tmp/agent-team-v0.4.0.tar.gz
-sha256sum /tmp/agent-team-v0.4.0.tar.gz
+  "https://github.com/dearrrfish/agent-team/archive/refs/tags/v${release_version}.tar.gz" \
+  --output "${archive_path}"
+sha256sum "${archive_path}"
 ```
 
 Update `Formula/agent-team.rb` with that tag URL and checksum in a follow-up
-commit on `main`. Run `nix flake check`, confirm the release smoke check passes,
-and push the formula update before publishing the GitHub Release. Never reuse a
-previous release's checksum or enter a placeholder digest.
+change submitted through the repository's required pull-request process. Run
+`nix flake check`, confirm the release smoke check passes, and merge the formula
+update before publishing the GitHub Release. Never reuse a previous release's
+checksum or enter a placeholder digest.
