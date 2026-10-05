@@ -6,7 +6,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-__base_version__ = "0.3.0"
+__base_version__ = "0.4.0"
 
 
 def _read_baked_commit() -> str | None:

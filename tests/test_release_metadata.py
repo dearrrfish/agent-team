@@ -76,9 +76,24 @@ class ReleaseMetadataTests(unittest.TestCase):
         desc = project["project"]["description"]
         self.assertIn(f'desc "{desc}"', formula)
         self.assertIn(f'homepage "{CANONICAL_REPOSITORY}"', formula)
-        self.assertIn(
-            f'url "{CANONICAL_REPOSITORY}/archive/refs/tags/v{__base_version__}.tar.gz"',
+
+        changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        released_versions = re.findall(
+            r"^## \[(\d+\.\d+\.\d+)\] - \d{4}-\d{2}-\d{2}$",
+            changelog,
+            re.MULTILINE,
+        )
+        formula_url = re.search(
+            rf'^\s*url "{re.escape(CANONICAL_REPOSITORY)}/archive/refs/tags/v(\d+\.\d+\.\d+)\.tar\.gz"$',
             formula,
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(formula_url)
+        assert formula_url is not None
+        self.assertIn(
+            formula_url.group(1),
+            released_versions[:2],
+            "Homebrew formula may lag by at most one release while a new tag archive is prepared",
         )
         self.assertIn(f'head "{CANONICAL_REPOSITORY}.git", branch: "main"', formula)
         self.assertIn('license "MIT"', formula)

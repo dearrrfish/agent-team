@@ -70,3 +70,25 @@ release:
 ```console
 nix run github:dearrrfish/agent-team/v0.1.0 -- --version
 ```
+
+## 5. Update the Homebrew formula after the tag exists
+
+The Homebrew formula may point to the current or immediately previous dated
+release section in `CHANGELOG.md`. This allows the release commit and tag CI to
+pass before GitHub has generated the new tag archive. The metadata test rejects
+a formula more than one release behind.
+
+After pushing the tag, download the exact GitHub archive and calculate the
+checksum from the downloaded file:
+
+```console
+curl --fail --location \
+  https://github.com/dearrrfish/agent-team/archive/refs/tags/v0.4.0.tar.gz \
+  --output /tmp/agent-team-v0.4.0.tar.gz
+sha256sum /tmp/agent-team-v0.4.0.tar.gz
+```
+
+Update `Formula/agent-team.rb` with that tag URL and checksum in a follow-up
+commit on `main`. Run `nix flake check`, confirm the release smoke check passes,
+and push the formula update before publishing the GitHub Release. Never reuse a
+previous release's checksum or enter a placeholder digest.
