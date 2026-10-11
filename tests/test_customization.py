@@ -54,7 +54,7 @@ class CustomizationTests(unittest.TestCase):
             analyst = tomllib.loads(rendered[analyst_path])
             self.assertIn("Use when: A bounded analysis", analyst["description"])
             self.assertIn("Avoid when: The task requires changes", analyst["description"])
-            self.assertIn("within at most 12 turns", analyst["developer_instructions"])
+            self.assertIn("Execution budget: at most 12 turns.", analyst["developer_instructions"])
             self.assertIn("`agent-report` report contract", analyst["developer_instructions"])
 
     def test_deep_discovery_adds_design_artifact_and_opens_gate(self) -> None:

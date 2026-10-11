@@ -72,7 +72,7 @@ class AdapterAndInstallerTests(unittest.TestCase):
             review_skill = codex[next(
                 path for path in codex if str(path).endswith("team-review/SKILL.md")
             )]
-            self.assertIn("Increment `review.used`", review_skill)
+            self.assertIn("increment `review.used`", review_skill)
 
             quality_codex = render_target("codex", config, root, "quality")
             quality_coordinator = tomllib.loads(quality_codex[next(
@@ -81,7 +81,7 @@ class AdapterAndInstallerTests(unittest.TestCase):
             self.assertEqual(quality_coordinator["model"], "gpt-6-astra")
             self.assertIn("Use when:", coordinator["description"])
             self.assertIn("Avoid when:", coordinator["description"])
-            self.assertIn("within at most 64 turns", coordinator["developer_instructions"])
+            self.assertIn("Execution budget: at most 64 turns.", coordinator["developer_instructions"])
             self.assertIn("`agent-report` report contract", coordinator["developer_instructions"])
             self.assertIn("supports worktree isolation", coordinator["developer_instructions"])
             self.assertIn("Delegate only bounded work", coordinator["developer_instructions"])

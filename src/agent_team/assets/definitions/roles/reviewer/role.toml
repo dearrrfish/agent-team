@@ -9,7 +9,6 @@ delegation = false
 max_turns = 24
 report_kind = "review-cycle"
 capabilities = ["filesystem.read", "shell", "docs.read"]
-
 [activation]
 use_when = "A team run reaches its review gate or a high-risk change needs an independent verdict."
-avoid_when = "The reviewer authored the implementation or required artifacts are absent."
+avoid_when = "The reviewer authored the implementation; use a fresh reviewer instead."

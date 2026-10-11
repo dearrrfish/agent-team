@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Role harnesses clarify coordinator authority, report ownership, task-based
+  tier
+  choice, execution budgets, partial handoff, and revision-bound evidence.
+- Design-agent distinguishes architecture proposals from independent audits;
+  ops follows the project's existing operational toolchain.
+- Coordination and review guidance accounts for coordinator writes, shared
+  runtime
+  resources, failed workers, recurring findings, and invalidated evidence.
+
+### Fixed
+
+- Reviewer instructions and stock review prompts use the validator's `approved`
+  verdict, and read-only workers return reports for coordinator persistence.
+
 ## [0.4.0] - 2026-10-05
 
 ### Added

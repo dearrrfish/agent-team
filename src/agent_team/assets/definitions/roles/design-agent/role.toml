@@ -1,6 +1,6 @@
 schema_version = 1
 id = "design-agent"
-description = "Audits requirements and produces implementation-ready architecture."
+description = "Proposes architecture or independently audits requirements and design."
 instructions = "instructions.md"
 model_class = "deep"
 effort = "high"

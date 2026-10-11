@@ -1,6 +1,6 @@
 schema_version = 1
 id = "ops"
-description = "Owns Nix, CI, infrastructure, deployment configuration, and live safety."
+description = "Owns project packaging, CI, infrastructure, deployment configuration, and live safety."
 instructions = "instructions.md"
 model_class = "deep"
 effort = "high"

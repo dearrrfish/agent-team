@@ -55,13 +55,17 @@ the effective configuration in `.agent-team/team.toml` and user defaults.
   artifacts, delegates bounded tasks, and integrates evidence-backed results.
 - Available native roles:
   - `explorer`: read-only codebase and factual discovery.
-  - `design-agent`: read-only requirements and architectural audit.
+  - `design-agent`: read-only architecture proposal or independent design audit.
   - `implementer`: bounded code changes and test verification.
   - `ops`: Nix, packaging, CI, and operational infrastructure.
   - `reviewer`: independent, read-only lifecycle review.
 - Workers never delegate recursively.
 - Read-only roles in Claude Code and Antigravity lack shell tools; run required
   commands through the coordinator or an authorized writer.
+- Workers return report content; the coordinator persists it and owns task
+  state.
+- Respect active ownership in the coordinator, including shared runtime
+  resources.
 - Do not silently alter public interfaces, schemas, or lifecycle rules.
 
 ## Coordination and Review
@@ -74,8 +78,13 @@ the effective configuration in `.agent-team/team.toml` and user defaults.
 - Persist structured worker reports to `reports/` from the run template when
   `reports_required` is true.
 - Use `team-review` for mandatory review gates. The reviewer must remain
-  read-only, record findings and verdicts in `review.md`, and never author fixes.
-  Review cycles cannot exceed the configured limit.
+  read-only, return review content, and never author fixes. The coordinator
+  saves
+  that content verbatim in `review.md`. Use `approved`, `changes-requested`, or
+  `blocked`; review cycles cannot exceed the configured limit.
+- Bind checks and review to the verified revision and working-tree/diff
+  identity.
+  Partial work and budget exhaustion require a recovery action, not completion.
 
 ## Quality Gates and Verification
 
