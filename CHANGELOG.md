@@ -6,16 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-13
+
 ### Changed
 
 - Role harnesses clarify coordinator authority, report ownership, task-based
-  tier
-  choice, execution budgets, partial handoff, and revision-bound evidence.
+  tier choice, execution budgets, partial handoff, and revision-bound evidence.
 - Design-agent distinguishes architecture proposals from independent audits;
   ops follows the project's existing operational toolchain.
 - Coordination and review guidance accounts for coordinator writes, shared
-  runtime
-  resources, failed workers, recurring findings, and invalidated evidence.
+  runtime resources, failed workers, recurring findings, and invalidated evidence.
 
 ### Fixed
 
@@ -139,7 +139,8 @@ All notable changes to this project are documented here. The format follows
 - Claude Code and Antigravity read-only roles omit shell access because those
   clients cannot guarantee a non-mutating command boundary in every parent mode.
 
-[Unreleased]: https://github.com/dearrrfish/agent-team/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/dearrrfish/agent-team/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/dearrrfish/agent-team/releases/tag/v0.4.1
 [0.4.0]: https://github.com/dearrrfish/agent-team/releases/tag/v0.4.0
 [0.3.0]: https://github.com/dearrrfish/agent-team/releases/tag/v0.3.0
 [0.2.0]: https://github.com/dearrrfish/agent-team/releases/tag/v0.2.0
