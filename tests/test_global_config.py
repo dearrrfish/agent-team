@@ -56,7 +56,7 @@ class GlobalConfigTests(unittest.TestCase):
         self.write_user('enabled_targets = ["claude"]')
         self.assertEqual(load_team_config(self.project).enabled_targets, ('claude',))
 
-    def test_opt_out_bypasses_malformed_user_and_missing_project_fails(self):
+    def test_opt_out_bypasses_malformed_user_and_missing_project_inherits_user(self):
         self.write_user('malformed = [')
         self.write_project(project_init_toml(isolated=True))
         self.assertFalse(load_team_config(self.project).inherit_user_defaults)
@@ -64,9 +64,11 @@ class GlobalConfigTests(unittest.TestCase):
         with self.assertRaises(ValidationFailure):
             load_team_config(self.project)
         (self.project / '.agent-team/team.toml').unlink()
-        self.write_user(DEFAULT_TEAM_TOML)
         with self.assertRaises(ValidationFailure):
             load_team_config(self.project)
+        self.write_user(DEFAULT_TEAM_TOML)
+        config = load_team_config(self.project)
+        self.assertEqual(config.team_id, "default")
 
     def test_every_layer_rejects_explicit_invalid_values_before_masking(self):
         invalid = ('name = 3', 'bogus = true', '[workflow]\nreview_cycle_limit = "bad"',

@@ -81,10 +81,8 @@ def project_root(start: Path | None = None) -> Path:
     current = (start or Path.cwd()).resolve()
     home = Path.home().resolve()
     user_file = (user_config_root() / "team.toml").resolve()
-    for candidate in (current, *current.parents):
-        config_file = candidate / ".agent-team" / "team.toml"
-        if candidate != home and config_file.resolve() != user_file and config_file.is_file():
-            return candidate
+
+    git_root: Path | None = None
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
@@ -93,10 +91,27 @@ def project_root(start: Path | None = None) -> Path:
             capture_output=True,
             check=False,
         )
+        if result.returncode == 0 and result.stdout.strip():
+            git_root = Path(result.stdout.strip()).resolve()
     except OSError:
-        return current
-    if result.returncode == 0:
-        return Path(result.stdout.strip()).resolve()
+        git_root = None
+
+    candidates: list[Path] = []
+    if git_root is not None and (current == git_root or git_root in current.parents):
+        for candidate in (current, *current.parents):
+            candidates.append(candidate)
+            if candidate == git_root:
+                break
+    else:
+        candidates = [current, *current.parents]
+
+    for candidate in candidates:
+        config_file = candidate / ".agent-team" / "team.toml"
+        if candidate != home and config_file.resolve() != user_file and config_file.is_file():
+            return candidate
+
+    if git_root is not None:
+        return git_root
     return current
 
 
@@ -539,17 +554,49 @@ def load_user_config() -> TeamConfig:
 def load_team_config(root: Path) -> TeamConfig:
     root = root.resolve()
     require_project_context(root)
-    project = _read_config(root / ".agent-team" / "team.toml")
-    inherit = project.get("inherit_user_defaults", True)
-    if not isinstance(inherit, bool):
-        raise ValidationFailure(
-            [Diagnostic("inherit_user_defaults", "must be a boolean", code="type")]
-        )
-    layers = []
+    home = Path.home().resolve()
     user_root = user_config_root().resolve()
-    if inherit and (user_root / "team.toml").exists():
+
+    ancestor_layers: list[tuple[Path, dict[str, Any]]] = []
+    for parent in root.parents:
+        if parent == home or parent == user_root or user_root in parent.parents:
+            break
+        config_path = parent / ".agent-team" / "team.toml"
+        if config_path.is_file():
+            ancestor_layers.append((parent, _read_config(config_path)))
+
+    project_config_path = root / ".agent-team" / "team.toml"
+    project_data = _read_config(project_config_path) if project_config_path.is_file() else None
+
+    if project_data is not None:
+        project_inherit = project_data.get("inherit_user_defaults", True)
+        if not isinstance(project_inherit, bool):
+            raise ValidationFailure(
+                [Diagnostic("inherit_user_defaults", "must be a boolean", code="type")]
+            )
+        if not project_inherit:
+            return _layered_config(root, [("project", root, project_data)])
+
+    inherit_user = True
+    for index, (ancestor_root, ancestor_data) in enumerate(ancestor_layers):
+        ancestor_inherit = ancestor_data.get("inherit_user_defaults", True)
+        if not isinstance(ancestor_inherit, bool):
+            raise ValidationFailure(
+                [Diagnostic("inherit_user_defaults", "must be a boolean", code="type")]
+            )
+        if not ancestor_inherit:
+            ancestor_layers = ancestor_layers[:index + 1]
+            inherit_user = False
+            break
+
+    layers: list[tuple[str, Path, dict[str, Any]]] = []
+    if inherit_user and (user_root / "team.toml").exists():
         layers.append(("user", user_root, _read_config(user_root / "team.toml")))
-    layers.append(("project", root, project))
+    for ancestor_root, ancestor_data in reversed(ancestor_layers):
+        layers.append(("ancestor", ancestor_root, ancestor_data))
+    if project_data is not None:
+        layers.append(("project", root, project_data))
+
     return _layered_config(root, layers)
 
 

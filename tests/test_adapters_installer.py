@@ -3,6 +3,7 @@ import tempfile
 import tomllib
 import unittest
 from pathlib import Path, PurePosixPath
+from unittest.mock import patch
 
 from agent_team.adapters import render_target, write_rendered
 from agent_team.config import DEFAULT_TEAM_TOML, load_team_config
@@ -12,6 +13,13 @@ from agent_team.templates import asset_text
 
 
 class AdapterAndInstallerTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.home_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.home_dir.cleanup)
+        self.home_patch = patch("pathlib.Path.home", return_value=Path(self.home_dir.name))
+        self.home_patch.start()
+        self.addCleanup(self.home_patch.stop)
+
     def test_custom_profile_model_cannot_break_yaml_frontmatter(self) -> None:
         with self._project() as directory:
             root = Path(directory)

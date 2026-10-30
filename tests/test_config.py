@@ -3,6 +3,7 @@ import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from agent_team.config import (
     DEFAULT_TEAM_TOML,
@@ -21,6 +22,13 @@ from agent_team.templates import asset_text
 
 
 class ConfigTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.home_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.home_dir.cleanup)
+        self.home_patch = patch("pathlib.Path.home", return_value=Path(self.home_dir.name))
+        self.home_patch.start()
+        self.addCleanup(self.home_patch.stop)
+
     def _project(self) -> tempfile.TemporaryDirectory[str]:
         temporary = tempfile.TemporaryDirectory()
         root = Path(temporary.name)

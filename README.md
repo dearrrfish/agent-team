@@ -255,13 +255,22 @@ existing configuration is preserved. Native agents and skills are installed
 into each client's user directories; installation previews unless `--apply`
 is present.
 
-Then initialize each project:
+Then run commands in any project directory directly:
 
 ```console
 cd /path/to/project
-agent-team init
 agent-team validate
 agent-team doctor
+```
+
+When `.agent-team/team.toml` is absent, `agent-team` automatically inherits
+configuration from parent directories upward or falls back to user settings in
+`~/.agent-team/team.toml`. Running local `init` is optional.
+
+To create project-specific overrides:
+
+```console
+agent-team init
 ```
 
 Plain `init` creates a small `.agent-team/team.toml` that inherits user settings

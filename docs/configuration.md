@@ -22,13 +22,18 @@ fast = "my-project-model"
 ```
 
 Configuration resolves in this order: packaged defaults, user configuration,
-then project configuration. Tables merge recursively; scalar values and arrays
-replace inherited values. Role and skill source lists are the exception for
-definition loading: each scope supplies its custom source layer, so project
-sources overlay user definitions instead of discarding them. A target-profile
-reference selects a complete profile
-rather than merging profile files. Sparse model-preset overrides then update
-individual fields of that profile. A run selects which preset is used.
+optional parent directory configurations (from outermost to innermost ancestor),
+then project configuration. When the current project lacks `.agent-team/team.toml`,
+`agent-team` searches parent directories upward for configuration inheritance,
+ultimately pointing to the user configuration (`~/.agent-team/team.toml`) or
+packaged defaults if no user configuration exists. Running `agent-team init` in
+the project is therefore optional unless local overrides or project isolation are
+needed. Tables merge recursively; scalar values and arrays replace inherited values.
+Role and skill source lists are the exception for definition loading: each scope
+supplies its custom source layer, so ancestor and project sources overlay user
+definitions instead of discarding them. A target-profile reference selects a
+complete profile rather than merging profile files. Sparse model-preset overrides
+then update individual fields of that profile. A run selects which preset is used.
 
 Changing user settings affects opted-in projects on their next command. It does
 not rewrite installed native files: rerun `install --scope user --apply` with

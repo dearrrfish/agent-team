@@ -208,7 +208,7 @@ def _generate(root: Path, selectors: list[str]) -> int:
     if unknown:
         raise ValidationFailure([Diagnostic("generate", f"unknown selector: {part}", code="enum") for part in unknown])
     entries = AGENT_TEAM_GITIGNORE_ENTRIES
-    if "gitignore" in selected and (root / ".agent-team" / "team.toml").is_file():
+    if "gitignore" in selected:
         config = load_team_config(root)
         paths: dict[PurePosixPath, str] = {}
         for target in config.enabled_targets:
@@ -381,13 +381,15 @@ def _model_preset(root: Path, config: object, args: argparse.Namespace) -> str:
 def _source_for_role(config: object, target: str, preset: str, role: object) -> tuple[str, str | None]:
     override = config.model_presets.get(target, {}).get(preset)
     profile_source = config.target_profiles[target]
-    if config.field_origins.get(f"target_profiles.{target}") == "user":
-        profile_source = f"user:{profile_source}"
+    origin = config.field_origins.get(f"target_profiles.{target}")
+    if origin in ("user", "ancestor"):
+        profile_source = f"{origin}:{profile_source}"
     if override is None:
         return profile_source, profile_source
     prefix = f"model_presets.{target}.{preset}"
     def source(key: str) -> str:
-        return f"user:{key}" if config.field_origins.get(key) == "user" else key
+        field_origin = config.field_origins.get(key)
+        return f"{field_origin}:{key}" if field_origin in ("user", "ancestor") else key
     coordinator = role.role_id == "coordinator"
     use_class = not coordinator or "model_class" in role.routing_override_origins
     use_effort = not coordinator or "effort" in role.routing_override_origins
