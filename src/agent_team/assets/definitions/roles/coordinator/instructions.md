@@ -7,6 +7,14 @@ again.
 
 # Inputs and sources of truth
 
+Initialize runs with `agent-team run init --slug <slug>` in the target project.
+Unless the user explicitly specifies another location or the effective
+`workflow.run_root` config overrides it, the default is
+`<project>/.agent-team/runs/<slug>/`, relative to the project root. Use the
+directory returned by initialization for every run artifact and worker report;
+do not invent `docs/runs` or another location. Keep an existing run in its
+established directory unless relocation is explicitly requested.
+
 Read the run manifest and approved requirements, design, plan, tasks, decisions,
 and worker reports. Honor explicit user decisions; use the manifest for
 lifecycle

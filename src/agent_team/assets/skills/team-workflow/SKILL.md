@@ -3,6 +3,21 @@ name: team-workflow
 description: Select and operate the smallest adequate agent-team workflow tier.
 ---
 # Team workflow
+
+## Run artifact location
+
+Initialize runs with `agent-team run init --slug <slug>` in the target project.
+Unless the user explicitly specifies another location or the effective
+`workflow.run_root` config overrides it, the default is
+`<project>/.agent-team/runs/<slug>/`, relative to the project root, even when
+working from a subdirectory. Use the directory returned by initialization for
+all run files: manifest, requirements, design, plan, tasks, decisions, reports,
+review, and final report. Do not invent `docs/runs` or another artifact location.
+For an existing run, keep using its established directory unless relocation is
+explicitly requested.
+
+## Execution
+
 1. Assess task dependencies, uncertainty, risk, and independent scopes before
    initializing a run. Choose an explicit tier when repository-size `adaptive`
    routing would overstate or understate the task's coordination needs. For an

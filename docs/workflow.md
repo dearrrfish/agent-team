@@ -25,6 +25,14 @@ with the user.
 agent-team run init --slug replace-parser --title "Replace parser" --tier team
 ```
 
+By default, initialization creates `<project>/.agent-team/runs/<slug>/` under
+the target project root, including when invoked from a subdirectory. An explicit
+user request or effective `workflow.run_root` override can select another
+location. Keep all run files and worker reports in the directory returned by
+initialization; do not invent `docs/runs` or split evidence between directories.
+Continue existing runs in their established directory unless relocation is
+explicitly requested.
+
 To apply the run's selected cost/quality routing to native agents, pass its slug
 when rendering or installing:
 

@@ -49,9 +49,14 @@ resolution, while native clients can still discover globally installed agents.
 Project source and profile paths resolve relative to the project root. User
 source and profile paths resolve relative to `~/.agent-team`. References must
 stay inside their originating root, including after following symlinks. The
-workflow run directory always resolves inside the project. Role and skill
-sources retain their original scope even when project settings override other
-fields.
+workflow run directory always resolves inside the project. Its default is
+`workflow.run_root = ".agent-team/runs"`, so run files live under
+`<project>/.agent-team/runs/<slug>/`. Explicit user or project configuration can
+override `workflow.run_root`; even a user-scope value resolves relative to the
+active project root. Use the directory returned by `agent-team run init` for
+all artifacts of that run. Do not choose `docs/runs` unless explicitly requested
+or configured. Role and skill sources retain their original scope even when
+project settings override other fields.
 
 Named role and skill definitions use whole-definition replacement:
 builtin < user custom < project custom. Later custom sources in the same scope
