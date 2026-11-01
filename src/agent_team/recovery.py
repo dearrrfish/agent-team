@@ -212,7 +212,7 @@ def classify_workers(
             state = "stale-lease" if lease else "not-running"
         elif status == "running" and isinstance(lease, dict) and paths:
             try:
-                observed = datetime.fromisoformat(lease["last_observed_at"].replace("Z", "+00:00"))
+                observed = datetime.fromisoformat(lease["last_observed_at"])
                 age = (now - observed).total_seconds()
                 if (lease.get("host") == socket.gethostname() and 0 <= age <= ttl
                         and all(isinstance(lease.get(k), str) and lease[k]

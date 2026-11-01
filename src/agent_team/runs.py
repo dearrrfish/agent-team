@@ -562,9 +562,9 @@ def validate_run(
                 for key in ("claimed_at", "last_observed_at"):
                     if not _valid_timestamp(lease.get(key)):
                         diagnostics.append(Diagnostic(f"{prefix}.lease.{key}", "must be RFC3339 UTC", code="format"))
-                if all(_valid_timestamp(lease.get(k)) for k in ("claimed_at", "last_observed_at")):
-                    if datetime.fromisoformat(lease["last_observed_at"]) < datetime.fromisoformat(lease["claimed_at"]):
-                        diagnostics.append(Diagnostic(f"{prefix}.lease", "observation precedes claim", code="invariant"))
+                if (all(_valid_timestamp(lease.get(k)) for k in ("claimed_at", "last_observed_at"))
+                        and datetime.fromisoformat(lease["last_observed_at"]) < datetime.fromisoformat(lease["claimed_at"])):
+                    diagnostics.append(Diagnostic(f"{prefix}.lease", "observation precedes claim", code="invariant"))
                 paths = lease.get("owned_paths")
                 if not isinstance(paths, list) or not paths or any(
                     not isinstance(p, str) or not p or Path(p).is_absolute() or ".." in Path(p).parts

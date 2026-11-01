@@ -133,7 +133,7 @@ class RecoveryTests(unittest.TestCase):
 
     def test_git_fingerprint_tracks_staged_and_untracked_changes(self):
         def git(*args):
-            result = subprocess.run(["git", *args], cwd=self.root, capture_output=True)
+            result = subprocess.run(["git", *args], check=False, cwd=self.root, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
         git("init")
         git("config", "user.email", "test@example.invalid")

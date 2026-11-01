@@ -37,7 +37,7 @@ class HookTests(unittest.TestCase):
         for event in ("PreCompact", "SessionStart"):
             payload["hook_event_name"] = event
             command = groups[event][0]["hooks"][0]["command"]
-            result = subprocess.run(command, shell=True, cwd=self.root, env=environment,
+            result = subprocess.run(command, shell=True, check=False, cwd=self.root, env=environment,
                                     input=json.dumps(payload), text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             if event == "SessionStart":

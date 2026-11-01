@@ -2,11 +2,11 @@ import json
 import subprocess
 import sys
 import tomllib
+import unittest
 
 from agent_team.recovery import classify_evidence, discover_runs, recovery_status
 from agent_team.runs import validate_run
 from tests import test_recovery
-import unittest
 
 
 class RunStateTests(unittest.TestCase):
@@ -40,7 +40,7 @@ class RunStateTests(unittest.TestCase):
         path = self.create_run()
         (self.root / ".gitignore").write_text(".agent-team/\nisolated-home/\n")
         def git(*args):
-            result = subprocess.run(["git", *args], cwd=self.root, capture_output=True)
+            result = subprocess.run(["git", *args], check=False, cwd=self.root, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
         git("init")
         git("add", ".gitignore")
@@ -76,9 +76,9 @@ class RunStateTests(unittest.TestCase):
                             for d in validate_run(path, self.config)))
 
     def test_tracked_run_manifest_does_not_invalidate_evidence(self):
-        path = self.create_run()
+        self.create_run()
         def git(*args):
-            result = subprocess.run(["git", *args], cwd=self.root, capture_output=True)
+            result = subprocess.run(["git", *args], check=False, cwd=self.root, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
         git("init")
         git("add", "-A")

@@ -10,7 +10,12 @@ from typing import Any
 
 from agent_team.config import load_team_config
 from agent_team.fs import atomic_write
-from agent_team.recovery import discover_runs, recovery_status, render_context, select_run
+from agent_team.recovery import (
+    discover_runs,
+    recovery_status,
+    render_context,
+    select_run,
+)
 from agent_team.run_state import bind, fail
 from agent_team.runs import utc_now
 
@@ -146,7 +151,9 @@ def run_hook(action: str, fail_closed: bool = False) -> int:
         context = render_context(status)
         if notices:
             context = ("恢复指针存在诊断，请核对 resume status --json。\n" + context)[:9000]
-    except Exception as exc:
+    # Hook failures must never break the client session; every error becomes a
+    # documented exit code or an injected warning.
+    except Exception as exc:  # noqa: BLE001
         if action == "precompact":
             print(f"agent-team PreCompact: {exc}", file=sys.stderr)
             return 2 if fail_closed else 1

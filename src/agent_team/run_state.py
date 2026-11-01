@@ -87,7 +87,7 @@ def edit_lease(content: str, task_id: str, lease: dict | None) -> str:
                if content[start:end].strip().split("#", 1)[0].strip() == "[[tasks]]"]
     if len(headers) != len(original["tasks"]):
         fail("unsupported tasks layout; use ordinary [[tasks]] headers")
-    start, header_end = headers[index]
+    _, header_end = headers[index]
     end = len(content)
     for left, right in spans:
         if left >= header_end and content[left:right].lstrip().startswith("["):

@@ -28,7 +28,12 @@ from agent_team.diagnostics import Diagnostic, ValidationFailure, render_diagnos
 from agent_team.fs import atomic_write
 from agent_team.installer import install_files
 from agent_team.models import PRESETS, ROLE_IDS, TARGETS, TIERS
-from agent_team.recovery import discover_runs, recovery_status, render_context, select_run
+from agent_team.recovery import (
+    discover_runs,
+    recovery_status,
+    render_context,
+    select_run,
+)
 from agent_team.run_state import bind, lease_change, reconcile, verify
 from agent_team.runs import init_run, load_run_model_preset, validate_all_runs
 from agent_team.templates import load_prompt_templates
