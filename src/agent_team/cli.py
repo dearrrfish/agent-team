@@ -132,6 +132,8 @@ Examples:
                            help="list hook ownership records and their state")
     operation.add_argument("--reconcile", dest="hook_reconcile", action="store_true",
                            help="preview or apply migration and cleanup of hook state files")
+    hooks.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
+                       help="machine-readable output for --status")
     hooks.add_argument("--apply", action="store_true")
     hooks.add_argument("--fail-closed", action="store_true")
     hooks.add_argument("--target", choices=("claude", "codex", "antigravity"), default="claude",
@@ -656,10 +658,22 @@ def _doctor(root: Path, output_format: str) -> int:
 def _resume(root: Path, args: argparse.Namespace) -> int:
     require_project_context(root)
     if args.resume_command == "hooks":
-        from agent_team.hooks import hook_groups, hook_state_report, manage_hooks
+        from agent_team.hooks import (
+            hook_groups,
+            hook_state_payload,
+            hook_state_report,
+            manage_hooks,
+        )
 
+        json_output = getattr(args, "json", False)
+        if json_output and not args.hook_status:
+            raise ValidationFailure([Diagnostic(
+                "json", "--json is only supported with --status", code="usage")])
         if args.hook_status:
-            print(hook_state_report(root))
+            if json_output:
+                print(json.dumps(hook_state_payload(root), ensure_ascii=False, indent=2))
+            else:
+                print(hook_state_report(root))
         elif args.hook_reconcile:
             print(hook_state_report(root, apply=args.apply))
         elif args.print_hooks:

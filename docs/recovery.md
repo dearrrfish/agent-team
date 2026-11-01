@@ -112,7 +112,7 @@ refuses layouts it cannot edit safely, and validates the result before writing.
 agent-team resume hooks --print [--target {claude,codex,antigravity}] [--scope {project,user}] [--invocation {auto,cli,interpreter}] [--command-prefix CMD]
 agent-team resume hooks --install --apply [--target {claude,codex,antigravity}] [--scope {project,user}] [--invocation {auto,cli,interpreter}] [--command-prefix CMD]
 agent-team resume hooks --remove --apply [--target {claude,codex,antigravity}] [--scope {project,user}]
-agent-team resume hooks --status
+agent-team resume hooks --status [--json]
 agent-team resume hooks --reconcile [--apply]
 ```
 
@@ -277,7 +277,10 @@ agent-team resume hooks --reconcile --apply    # migrate and clean
 ```
 
 `--status` lists every known record as `ok`, `migrate`, `remove`, `manual`, or
-`error`. `--reconcile` previews the actions and, with `--apply`:
+`error`. `--status --json` returns `{"states": [...]}` with absolute
+`state_path` and `hooks_path`, plus `target`, `scope`, `status`, `legacy`, and
+`detail`; `--json` is rejected for other operations. `--reconcile` previews the
+actions and, with `--apply`:
 
 - migrates the legacy `.agent-team/hooks-state.json` to
   `hooks-state-claude.json`, adding `target` and `scope`;

@@ -407,6 +407,19 @@ def hook_state_report(root: Path, *, apply: bool = False) -> str:
     return "\n".join(lines)
 
 
+def hook_state_payload(root: Path) -> dict[str, Any]:
+    """Machine-readable form of inspect_hook_states for --status --json."""
+    return {"states": [{
+        "state_path": str(state.state_path),
+        "hooks_path": None if state.hooks_path is None else str(state.hooks_path),
+        "target": state.target,
+        "scope": state.scope,
+        "status": state.status,
+        "legacy": state.legacy,
+        "detail": state.detail,
+    } for state in inspect_hook_states(root)]}
+
+
 def run_hook(action: str, fail_closed: bool = False) -> int:
     global_antigravity = action == "antigravity-global-session-start"
     antigravity = action == "antigravity-session-start" or global_antigravity

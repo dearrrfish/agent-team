@@ -230,6 +230,26 @@ class HookTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((self.root / ".agent-team" / "hooks-state-antigravity.json").exists())
 
+    def test_cli_hook_status_json(self):
+        result = self.runner(self.root, "resume", "hooks", "--status", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), {"states": []})
+
+        manage_hooks(self.root, target="antigravity", apply=True, invocation="cli")
+        result = self.runner(self.root, "resume", "hooks", "--status", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        states = json.loads(result.stdout)["states"]
+        self.assertEqual(len(states), 1)
+        self.assertEqual(states[0]["target"], "antigravity")
+        self.assertEqual(states[0]["scope"], "project")
+        self.assertEqual(states[0]["status"], "managed")
+        self.assertFalse(states[0]["legacy"])
+        self.assertTrue(states[0]["state_path"].endswith("hooks-state-antigravity.json"))
+        self.assertTrue(states[0]["hooks_path"].endswith(".agents/hooks.json"))
+
+        result = self.runner(self.root, "resume", "hooks", "--install", "--json")
+        self.assertEqual(result.returncode, 2)
+
     def test_migrate_nix_store_hook_to_stable_cli(self):
         target = self.root / ".claude" / "settings.local.json"
         state_path = self.root / ".agent-team" / "hooks-state.json"
