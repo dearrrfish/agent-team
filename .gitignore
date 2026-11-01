@@ -64,5 +64,10 @@ Thumbs.db
 .*/agents/reviewer*
 .agent-team/sessions/
 .agent-team/hooks-state.json
+.agent-team/hooks-state-claude.json
+.agent-team/hooks-state-codex.json
+.agent-team/hooks-state-antigravity.json
 .agent-team/state.lock
 .claude/settings.local.json
+.codex/hooks.json
+.agents/hooks.json

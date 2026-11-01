@@ -67,10 +67,11 @@ Identity covers `git rev-parse HEAD`, `git diff --binary HEAD` (including staged
 changes), and a hash of untracked, non-ignored files. Large, special, or
 unreadable inputs are reported as `dirty-unbounded` and never count as bound.
 Ignored paths do not enter the fingerprint. `agent-team`'s own state is excluded
-even when it is tracked: `.agent-team/**` and `.claude/settings.local.json` are
-left out, so recording a check, binding a session, writing a snapshot, or
-installing hooks cannot invalidate the evidence it just recorded. Changes to
-source, configuration, and other tracked files still do.
+even when it is tracked: `.agent-team/**`, `.claude/settings.local.json`,
+`.codex/hooks.json`, and `.agents/hooks.json` are left out, so recording a
+check, binding a session, writing a snapshot, or installing hooks cannot
+invalidate the evidence it just recorded. Changes to source, configuration, and
+other tracked files still do.
 
 ## Worker ownership
 
@@ -108,18 +109,25 @@ refuses layouts it cannot edit safely, and validates the result before writing.
 ## Optional Claude Code hooks
 
 ```console
-agent-team resume hooks --print
-agent-team resume hooks --install --apply
-agent-team resume hooks --remove --apply
+agent-team resume hooks --print [--target {claude,codex,antigravity}] [--scope {project,user}] [--invocation {auto,cli,interpreter}] [--command-prefix CMD]
+agent-team resume hooks --install --apply [--target {claude,codex,antigravity}] [--scope {project,user}] [--invocation {auto,cli,interpreter}] [--command-prefix CMD]
+agent-team resume hooks --remove --apply [--target {claude,codex,antigravity}] [--scope {project,user}]
+agent-team resume hooks --status
+agent-team resume hooks --reconcile [--apply]
 ```
+
+`--target` defaults to `claude` and `--scope` defaults to `project`; the Codex
+and Antigravity sections below cover the client-specific file formats and
+contracts. `--scope user` is supported only for Antigravity.
 
 Installation is project-only and defaults to `.claude/settings.local.json`; use
 `--hooks-file` to choose another project-relative file. Preview is the default.
 On apply, the previous file is backed up under `.agent-team/backups/`, the exact
-groups written are recorded in `.agent-team/hooks-state.json`, and only those
-groups are removed later. Existing hooks, such as an AskHuman `SessionStart`
-hook, are preserved. If a managed group was edited by hand, the command refuses
-to overwrite or remove it; reconcile it manually.
+groups written are recorded in `.agent-team/hooks-state.json` (or
+`hooks-state-claude.json` on new installs), and only those groups are removed
+later. Existing hooks, such as an AskHuman `SessionStart` hook, are preserved. If
+a managed group was edited by hand, the command refuses to overwrite or remove
+it; reconcile it manually.
 
 | Event | Action |
 | --- | --- |
@@ -134,16 +142,167 @@ Exit codes are deliberate:
   multiple candidates; it injects a warning and tells the operator to check
   `resume status --json`.
 
-Hook commands run through the interpreter and package path that generated them,
-so a stale executable earlier on `PATH` is not used. After installation, Claude
-Code must reload settings (for example via `/hooks` or a restart) before the new
-entries take effect.
+### Invocation resolution and NixOS / Nix safety
 
-## Clients without hooks
+By default (`--invocation auto`), hook generation prefers a stable `agent-team`
+executable on `PATH` (such as `/etc/profiles/per-user/$USER/bin/agent-team` or
+`~/.nix-profile/bin/agent-team` in NixOS / Home Manager environments) rather
+than hardcoding ephemeral interpreter or package paths inside `/nix/store/`.
+This prevents hooks from breaking when system generations update or after `nix
+collect-garbage`.
 
-Codex and Antigravity have no verified equivalent trigger. Recovery there is
-explicit: run `agent-team resume` after compaction and follow the printed next
-action. Do not describe hook-based recovery as available on those clients.
+- `--invocation auto`: Uses `agent-team` if available on `PATH`; falls back to
+  `PYTHONPATH=... <sys.executable> -m agent_team` when running directly from a
+  source checkout, warning if an ephemeral `/nix/store/` path would be persisted.
+- `--invocation cli`: Forces `agent-team resume hook ...` in generated commands.
+- `--invocation interpreter`: Forces the running Python interpreter and
+  repository path (useful during local development and testing).
+- `--command-prefix CMD`: Customizes the prefix completely (e.g. `direnv exec .
+  agent-team` or `nix run .#agent-team --`).
+
+After installation, Claude Code must reload settings (for example via `/hooks`
+or a restart) before the new entries take effect.
+
+### OpenAI Codex CLI hooks
+
+```console
+agent-team resume hooks --target codex --print
+agent-team resume hooks --target codex --install --apply
+agent-team resume hooks --target codex --remove --apply
+```
+
+`--target codex` writes `.codex/hooks.json` and records ownership in
+`.agent-team/hooks-state-codex.json`; Claude Code hooks and their state remain
+independent, so both targets can be installed in the same project. Codex hooks
+receive the same `PreCompact`/`SessionStart` contract, and `agent-team resume
+hook` accepts Codex payload field spellings (`hookEventName`, `threadId`,
+`thread_id`) alongside the Claude Code ones. Codex requires the project to be
+trusted (`[projects."<path>"] trust_level = "trusted"`) and each generated hook
+to be trusted before it runs; `hooks/list` on the app server reports the
+`currentHash` to record under `[hooks.state."<path>:<event>:<group>:<handler>"]`
+as `trusted_hash`.
+
+Validated end to end on 2026-11-01 with Codex CLI v0.164.0: a disposable project
+ran `agent-team resume hooks --target codex --install --apply`, then `codex exec`
+with a low auto-compact limit. `PreCompact` wrote `recovery/snapshot.json` and
+bound the session, and `SessionStart` injected the recovery summary as a
+developer message after compaction. Evidence:
+`.agent-team/runs/codex-hooks-support/reports/codex-e2e-evidence.md`.
+
+### Google Antigravity CLI hooks
+
+```console
+agent-team resume hooks --target antigravity --print
+agent-team resume hooks --target antigravity --install --apply
+agent-team resume hooks --target antigravity --remove --apply
+```
+
+`--target antigravity` writes `.agents/hooks.json` and records ownership in
+`.agent-team/hooks-state-antigravity.json`. Antigravity's file format differs
+from the other clients in three ways:
+
+- Hooks are grouped under a namespace key; `agent-team` owns the `agent-team`
+  namespace only, and refuses to overwrite a namespace with different content.
+- `SessionStart` is a flat array of handlers with no `matcher` field.
+- The hook writes a step injection to stdout rather than the Claude/Codex
+  `hookSpecificOutput` object:
+  `{"injectSteps": [{"systemMessage": {"systemMessage": "..."}}]}`.
+
+Antigravity has no `PreCompact` event, so no snapshot or session binding happens
+in the hook. Recovery context is injected on `SessionStart` only; bind the run
+with `agent-team resume bind --slug SLUG` (or rely on a single active run).
+Antigravity also launches project hook commands with the working directory set
+to the `hooks.json` directory (`<project>/.agents`), so `resume hook` resolves
+the project from the payload's `workspacePaths` and requires the hook process to
+have been started from inside that workspace.
+
+#### User scope
+
+```console
+agent-team resume hooks --target antigravity --scope user --print
+agent-team resume hooks --target antigravity --scope user --install --apply
+agent-team resume hooks --target antigravity --scope user --remove --apply
+```
+
+`--scope user` writes Antigravity's global `~/.gemini/config/hooks.json` and
+records ownership in `~/.agent-team/hooks-state-antigravity-user.json`; backups
+go to `~/.agent-team/backups/`. `--hooks-file` is interpreted relative to the
+user home directory in this scope. The generated handler calls the separate
+`agent-team resume hook antigravity-global-session-start` action because
+Antigravity runs user-scope hooks from `~/.gemini/config` rather than from the
+workspace. That action resolves the project from `workspacePaths` and stays
+silent when the workspace has no `.agent-team` directory or no runs, so it does
+not inject warnings into unrelated projects.
+
+User-scope hooks apply to every Antigravity workspace and load without a
+per-workspace trust prompt. Use `--invocation auto` (the default) or `--invocation
+cli` for global installs so the command resolves `agent-team` from `PATH`; an
+interpreter prefix pointing at a source checkout would break in other projects.
+
+The project must be trusted in Antigravity before its *project* hooks load. On
+the very first launch of an untrusted project, the initial turn can run before
+the trust prompt is answered and before `.agents/hooks.json` is loaded, so that
+turn gets no injection; later sessions do.
+
+Validated end to end on 2026-11-01 with Antigravity CLI `agy` in both `--print`
+and interactive TUI modes:
+
+- `--print`: the `SessionStart` handler ran with a real payload
+  (`conversationId`, `workspacePaths`, `transcriptPath`), emitted `injectSteps`,
+  and the model reported the injected `Run: <slug> | ...` line without reading
+  any file.
+- Interactive TUI (`--prompt-interactive` through a PTY, trusted project): the
+  hook emitted `injectSteps`, and `transcript_full.jsonl` recorded a
+  `SYSTEM_MESSAGE` step containing the recovery summary before the model's
+  response.
+- User scope (`~/.gemini/config/hooks.json`, temporary probe): the handler ran
+  from cwd `~/.gemini/config` in a fresh untrusted workspace, confirming both
+  the global discovery path and the need for the dedicated global action. The
+  probe was removed afterwards.
+
+Evidence: `.agent-team/runs/antigravity-hooks/reports/antigravity-e2e-evidence.md`
+and `.agent-team/runs/antigravity-tui-validation/reports/antigravity-tui-evidence.md`.
+
+### Hook ownership state
+
+Every install records exactly what it wrote, so `--remove` removes only its own
+groups or namespace. Those records can outlive their hooks after manual edits, a
+deleted project, or a legacy filename. Inspect and reconcile them without
+editing any client hook file:
+
+```console
+agent-team resume hooks --status
+agent-team resume hooks --reconcile            # preview
+agent-team resume hooks --reconcile --apply    # migrate and clean
+```
+
+`--status` lists every known record as `ok`, `migrate`, `remove`, `manual`, or
+`error`. `--reconcile` previews the actions and, with `--apply`:
+
+- migrates the legacy `.agent-team/hooks-state.json` to
+  `hooks-state-claude.json`, adding `target` and `scope`;
+- removes records whose hooks file or managed block is gone, and legacy records
+  superseded by `hooks-state-claude.json`.
+
+Reconcile never edits `.claude/settings.local.json`, `.codex/hooks.json`,
+`.agents/hooks.json`, or `~/.gemini/config/hooks.json`. A record marked `manual`
+means the managed hooks were edited by hand; reconcile the file manually, then
+reinstall or remove.
+
+## Multi-client lifecycle hooks status
+
+| Client | Hook support | Key events & triggers | Recovery mechanism in `agent-team` |
+| --- | --- | --- | --- |
+| **Claude Code** | **Supported** | `PreCompact` (`manual\|auto`), `SessionStart` (`compact`) | Automated snapshot via `PreCompact`; automatic context injection via `SessionStart` `additionalContext`. |
+| **OpenAI Codex CLI** | **Supported, validated** (`.codex/hooks.json`) | `PreCompact`, `PostCompact`, `SessionStart`, `SessionEnd`, `PreToolUse` | `agent-team resume hooks --target codex` generates native hooks; hook payloads from Codex are accepted by `resume hook`. Validated with v0.164.0. |
+| **Google Antigravity CLI (`agy`)** | **Supported, validated** (`.agents/hooks.json`, `~/.gemini/config/hooks.json`) | `SessionStart`, `PreInvocation`, `PostInvocation`, `PreToolUse`, `PostToolUse`, `Stop` | `agent-team resume hooks --target antigravity [--scope user]` generates a namespace-scoped `SessionStart` handler that emits `injectSteps`. No `PreCompact` equivalent, so no automatic snapshot. Validated with `agy --print` and the interactive TUI on 2026-11-01. |
+| **Cursor / Windsurf / Aider** | **Not available** | None | No external command-hook protocol exposed. Recovery is explicit: run `agent-team resume` after compaction. |
+
+Do not describe hook-based recovery as active on clients other than Claude Code,
+Codex, and Antigravity until their respective hook generators are integrated and
+validated end to end. Antigravity provides context injection on `SessionStart`
+only: there is no `PreCompact` trigger, so the snapshot/binding step stays
+explicit there.
 
 ## Troubleshooting
 

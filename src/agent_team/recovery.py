@@ -148,7 +148,8 @@ def fingerprint_workspace(root: Path) -> WorkspaceIdentity:
 
     # agent-team's own state must not invalidate evidence: recording a check
     # rewrites run.toml, and pointer/backup files appear during recovery.
-    excluded = (".agent-team", ".claude/settings.local.json")
+    excluded = (".agent-team", ".claude/settings.local.json", ".codex/hooks.json",
+                ".agents/hooks.json")
     pathspec = ["--", ".", *(f":(exclude){path}" for path in excluded)]
     identity = WorkspaceIdentity()
     revision = git("rev-parse", "HEAD")

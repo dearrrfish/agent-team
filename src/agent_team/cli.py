@@ -118,17 +118,32 @@ Examples:
         command.add_argument("--session-id", default=argparse.SUPPRESS)
 
     hook = resume_commands.add_parser("hook", help="internal compact hook entry")
-    hook.add_argument("hook_action", choices=("precompact", "session-start"))
+    hook.add_argument("hook_action", choices=("precompact", "session-start",
+                                              "antigravity-session-start",
+                                              "antigravity-global-session-start"))
     hook.add_argument("--fail-closed", action="store_true")
-    hooks = resume_commands.add_parser("hooks", help="preview or manage optional project hooks")
+    hooks = resume_commands.add_parser(
+        "hooks", help="preview, manage, or reconcile optional client hooks")
     operation = hooks.add_mutually_exclusive_group(required=True)
     operation.add_argument("--print", dest="print_hooks", action="store_true")
     operation.add_argument("--install", action="store_true")
     operation.add_argument("--remove", action="store_true")
+    operation.add_argument("--status", dest="hook_status", action="store_true",
+                           help="list hook ownership records and their state")
+    operation.add_argument("--reconcile", dest="hook_reconcile", action="store_true",
+                           help="preview or apply migration and cleanup of hook state files")
     hooks.add_argument("--apply", action="store_true")
     hooks.add_argument("--fail-closed", action="store_true")
-    hooks.add_argument("--hooks-file", default=".claude/settings.local.json")
-    hooks.add_argument("--scope", choices=("project",), default="project")
+    hooks.add_argument("--target", choices=("claude", "codex", "antigravity"), default="claude",
+                       help="client hook target (claude, codex, or antigravity)")
+    hooks.add_argument("--hooks-file", default=None,
+                       help="project-relative hook settings file (defaults per target)")
+    hooks.add_argument("--scope", choices=("project", "user"), default="project",
+                       help="hook scope (project; user is only supported for antigravity)")
+    hooks.add_argument("--invocation", choices=("auto", "cli", "interpreter"), default="auto",
+                       help="hook command invocation strategy (auto, cli, interpreter)")
+    hooks.add_argument("--command-prefix", default=None,
+                       help="custom command prefix for hook execution")
     binding = resume_commands.add_parser("bind", help="explicitly bind an active run to a session")
     binding.add_argument("--slug", required=True)
     binding.add_argument("--session-id", default=argparse.SUPPRESS)
@@ -191,8 +206,13 @@ AGENT_TEAM_GITIGNORE_ENTRIES: tuple[str, ...] = (
     ".agent-team/install-state.json",
     ".agent-team/sessions/",
     ".agent-team/hooks-state.json",
+    ".agent-team/hooks-state-claude.json",
+    ".agent-team/hooks-state-codex.json",
+    ".agent-team/hooks-state-antigravity.json",
     ".agent-team/state.lock",
     ".claude/settings.local.json",
+    ".codex/hooks.json",
+    ".agents/hooks.json",
     "/.agent-team/templates/prompts/plan.md",
     "/.agent-team/templates/prompts/coordinate.md",
     "/.agent-team/templates/prompts/review.md",
@@ -636,13 +656,23 @@ def _doctor(root: Path, output_format: str) -> int:
 def _resume(root: Path, args: argparse.Namespace) -> int:
     require_project_context(root)
     if args.resume_command == "hooks":
-        from agent_team.hooks import hook_groups, manage_hooks
+        from agent_team.hooks import hook_groups, hook_state_report, manage_hooks
 
-        if args.print_hooks:
-            print(json.dumps({"hooks": hook_groups(args.fail_closed)}, indent=2))
+        if args.hook_status:
+            print(hook_state_report(root))
+        elif args.hook_reconcile:
+            print(hook_state_report(root, apply=args.apply))
+        elif args.print_hooks:
+            groups = hook_groups(args.fail_closed, invocation=args.invocation,
+                                 command_prefix=args.command_prefix, target=args.target,
+                                 scope=args.scope)
+            payload = groups if args.target == "antigravity" else {"hooks": groups}
+            print(json.dumps(payload, indent=2))
         else:
             print(manage_hooks(root, remove=args.remove, apply=args.apply,
-                               fail_closed=args.fail_closed, hooks_file=args.hooks_file))
+                               fail_closed=args.fail_closed, hooks_file=args.hooks_file,
+                               invocation=args.invocation, command_prefix=args.command_prefix,
+                               target=args.target, scope=args.scope))
         return 0
     config = load_team_config(root)
     if args.resume_command == "bind":
