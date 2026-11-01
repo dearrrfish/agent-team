@@ -311,7 +311,7 @@ def validate_run(
         return [Diagnostic(label, str(exc), code="toml")]
     _unknown(
         data,
-        {"schema_version", "slug", "title", "created_at", "updated_at", "status", "tier", "max_workers", "write_isolation", "reports_required", "model_preset", "host", "git", "review", "gates", "artifacts", "tasks"},
+        {"schema_version", "slug", "title", "created_at", "updated_at", "status", "tier", "max_workers", "write_isolation", "reports_required", "model_preset", "host", "git", "review", "gates", "artifacts", "tasks", "verification"},
         label, diagnostics,
     )
     if data.get("schema_version") != 1:
@@ -539,7 +539,7 @@ def validate_run(
         diagnostics.append(Diagnostic(
             f"{label}.tasks", "solo runs cannot contain worker tasks", code="tier"
         ))
-    task_allowed = {"id", "group", "role", "instance", "status", "deps", "report"}
+    task_allowed = {"id", "group", "role", "instance", "status", "deps", "report", "lease"}
     task_ids: set[str] = set()
     instances: set[str] = set()
     dependency_map: dict[str, tuple[str, ...]] = {}
@@ -549,6 +549,30 @@ def validate_run(
     for index, task in enumerate(tasks):
         prefix = f"{label}.tasks.{index}"
         _unknown(task, task_allowed, prefix, diagnostics)
+        lease = task.get("lease")
+        if lease is not None:
+            if not isinstance(lease, dict):
+                diagnostics.append(Diagnostic(f"{prefix}.lease", "must be a table", code="type"))
+            else:
+                _unknown(lease, {"owner", "host", "claimed_at", "last_observed_at", "token", "owned_paths"},
+                         f"{prefix}.lease", diagnostics)
+                for key in ("owner", "host", "token"):
+                    if not isinstance(lease.get(key), str) or not lease[key].strip():
+                        diagnostics.append(Diagnostic(f"{prefix}.lease.{key}", "must be a non-empty string", code="type"))
+                for key in ("claimed_at", "last_observed_at"):
+                    if not _valid_timestamp(lease.get(key)):
+                        diagnostics.append(Diagnostic(f"{prefix}.lease.{key}", "must be RFC3339 UTC", code="format"))
+                if all(_valid_timestamp(lease.get(k)) for k in ("claimed_at", "last_observed_at")):
+                    if datetime.fromisoformat(lease["last_observed_at"]) < datetime.fromisoformat(lease["claimed_at"]):
+                        diagnostics.append(Diagnostic(f"{prefix}.lease", "observation precedes claim", code="invariant"))
+                paths = lease.get("owned_paths")
+                if not isinstance(paths, list) or not paths or any(
+                    not isinstance(p, str) or not p or Path(p).is_absolute() or ".." in Path(p).parts
+                    for p in paths
+                ):
+                    diagnostics.append(Diagnostic(f"{prefix}.lease.owned_paths", "must contain project-relative paths without traversal", code="path"))
+                if task.get("status") != "running":
+                    diagnostics.append(Diagnostic(f"{prefix}.lease", "lease requires a running task", code="invariant"))
         task_id = task.get("id")
         if not isinstance(task_id, str) or not _TASK_ID.fullmatch(task_id):
             diagnostics.append(Diagnostic(f"{prefix}.id", "must match T-NNN", code="format"))
@@ -674,6 +698,35 @@ def validate_run(
             f"{running_writers} running writers violates write_isolation = serialized",
             code="write-isolation",
         ))
+
+    verification = data.get("verification", [])
+    if not isinstance(verification, list) or any(not isinstance(record, dict) for record in verification):
+        diagnostics.append(Diagnostic(f"{label}.verification", "must be an array of tables", code="type"))
+        verification = []
+    verification_keys = {"command", "cwd", "exit_status", "revision", "tracked_diff_sha256",
+                         "untracked_sha256", "producer", "at"}
+    for index, record in enumerate(verification):
+        prefix = f"{label}.verification.{index}"
+        _unknown(record, verification_keys, prefix, diagnostics)
+        for key in ("command", "cwd", "revision", "producer"):
+            if not isinstance(record.get(key), str) or not record[key].strip():
+                diagnostics.append(Diagnostic(f"{prefix}.{key}", "must be a non-empty string", code="type"))
+        cwd = record.get("cwd")
+        if isinstance(cwd, str) and (Path(cwd).is_absolute() or ".." in Path(cwd).parts):
+            diagnostics.append(Diagnostic(f"{prefix}.cwd", "must be project-relative", code="path"))
+        for key in ("tracked_diff_sha256", "untracked_sha256"):
+            value = record.get(key)
+            if not isinstance(value, str) or not (value in {"", "unknown", "dirty-unbounded"}
+                                                  or re.fullmatch(r"[0-9a-f]{64}", value)):
+                diagnostics.append(Diagnostic(f"{prefix}.{key}", "must be a SHA256 or explicit unknown identity", code="format"))
+        if type(record.get("exit_status")) is not int:
+            diagnostics.append(Diagnostic(f"{prefix}.exit_status", "must be an integer", code="type"))
+        if not _valid_timestamp(record.get("at")):
+            diagnostics.append(Diagnostic(f"{prefix}.at", "must be RFC3339 UTC", code="format"))
+    if gates.get("worker_closure") is True and any(
+        task.get("status") != "complete" or task.get("lease") is not None for task in tasks
+    ):
+        diagnostics.append(Diagnostic(f"{label}.gates.worker_closure", "requires completed tasks and released leases", code="gate"))
 
     phase_gates = {
         "planned": ("requirements", "design", "plan"),

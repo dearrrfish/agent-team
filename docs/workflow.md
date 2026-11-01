@@ -286,6 +286,24 @@ risks, and operational concerns. Wait for both and reconcile their findings in
 the main thread.
 ```
 
+## Recovering after compaction
+
+Run state lives on disk, so a compacted or restarted session can recover from the
+run directory instead of from chat history:
+
+```console
+agent-team resume --slug replace-parser
+agent-team resume context --slug replace-parser
+```
+
+Read the manifest and the recorded artifacts before continuing, do not replay
+unconfirmed side effects, and treat partial output as unfinished. `resume`
+reports evidence as `bound`, `stale`, `failed`, or `unbound`; only `bound`
+counts as current. A `running` task without a valid lease is `unknown`, and
+writes overlapping its ownership must wait for confirmation. See
+[context-compaction recovery](recovery.md) for evidence rules, optional Claude
+hooks, and the real-client validation protocol.
+
 ## Deep discovery
 
 When `deep_discovery_default` is enabled, run initialization adds `design.md`

@@ -28,6 +28,8 @@ from agent_team.diagnostics import Diagnostic, ValidationFailure, render_diagnos
 from agent_team.fs import atomic_write
 from agent_team.installer import install_files
 from agent_team.models import PRESETS, ROLE_IDS, TARGETS, TIERS
+from agent_team.recovery import discover_runs, recovery_status, render_context, select_run
+from agent_team.run_state import bind, lease_change, reconcile, verify
 from agent_team.runs import init_run, load_run_model_preset, validate_all_runs
 from agent_team.templates import load_prompt_templates
 
@@ -74,6 +76,57 @@ Examples:
     run_init.add_argument("--title")
     run_init.add_argument("--tier", choices=(*TIERS, "adaptive"))
     run_init.add_argument("--model-preset", choices=PRESETS)
+
+    lease = run_commands.add_parser("lease", help="claim or release observed worker ownership")
+    lease_commands = lease.add_subparsers(dest="lease_command", required=True)
+    for name in ("claim", "release"):
+        action = lease_commands.add_parser(name)
+        action.add_argument("--slug", required=True)
+        action.add_argument("--task", required=True)
+        if name == "claim":
+            action.add_argument("--owner", required=True)
+            action.add_argument("--owned-path", action="append", required=True)
+        else:
+            action.add_argument("--token", required=True)
+    check = run_commands.add_parser("verify", help="execute a check and record workspace-bound evidence")
+    check.add_argument("--slug", required=True)
+    check.add_argument("--producer", required=True)
+    check.add_argument("--cwd", default=".")
+    check.add_argument("check_command", nargs=argparse.REMAINDER)
+    reconcile_command = run_commands.add_parser("reconcile", help="preview or apply effective run policy")
+    reconcile_command.add_argument("--slug", required=True)
+    reconcile_command.add_argument("--apply", action="store_true")
+
+    resume = subcommands.add_parser(
+        "resume", help="inspect durable runs without changing files",
+        description="Read-only recovery. Examples: agent-team resume; "
+                    "agent-team resume status --json; agent-team resume context --slug my-run",
+    )
+    resume.add_argument("--slug")
+    resume.add_argument("--json", action="store_true")
+    resume.add_argument("--session-id")
+    resume_commands = resume.add_subparsers(dest="resume_command")
+    for name in ("status", "context"):
+        command = resume_commands.add_parser(name, help=f"show recovery {name} (read-only)")
+        command.add_argument("--slug", default=argparse.SUPPRESS)
+        command.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+        command.add_argument("--session-id", default=argparse.SUPPRESS)
+
+    hook = resume_commands.add_parser("hook", help="internal compact hook entry")
+    hook.add_argument("hook_action", choices=("precompact", "session-start"))
+    hook.add_argument("--fail-closed", action="store_true")
+    hooks = resume_commands.add_parser("hooks", help="preview or manage optional project hooks")
+    operation = hooks.add_mutually_exclusive_group(required=True)
+    operation.add_argument("--print", dest="print_hooks", action="store_true")
+    operation.add_argument("--install", action="store_true")
+    operation.add_argument("--remove", action="store_true")
+    hooks.add_argument("--apply", action="store_true")
+    hooks.add_argument("--fail-closed", action="store_true")
+    hooks.add_argument("--hooks-file", default=".claude/settings.local.json")
+    hooks.add_argument("--scope", choices=("project",), default="project")
+    binding = resume_commands.add_parser("bind", help="explicitly bind an active run to a session")
+    binding.add_argument("--slug", required=True)
+    binding.add_argument("--session-id", default=argparse.SUPPRESS)
 
     render = subcommands.add_parser("render", help="render native agent files into an output directory")
     render.add_argument("--target", choices=TARGETS, required=True)
@@ -131,6 +184,10 @@ AGENT_TEAM_GITIGNORE_ENTRIES: tuple[str, ...] = (
     ".agent-team/runs/",
     ".agent-team/backups/",
     ".agent-team/install-state.json",
+    ".agent-team/sessions/",
+    ".agent-team/hooks-state.json",
+    ".agent-team/state.lock",
+    ".claude/settings.local.json",
     "/.agent-team/templates/prompts/plan.md",
     "/.agent-team/templates/prompts/coordinate.md",
     "/.agent-team/templates/prompts/review.md",
@@ -571,9 +628,60 @@ def _doctor(root: Path, output_format: str) -> int:
     return 1 if any(item.severity == "error" for item in diagnostics) else 0
 
 
+def _resume(root: Path, args: argparse.Namespace) -> int:
+    require_project_context(root)
+    if args.resume_command == "hooks":
+        from agent_team.hooks import hook_groups, manage_hooks
+
+        if args.print_hooks:
+            print(json.dumps({"hooks": hook_groups(args.fail_closed)}, indent=2))
+        else:
+            print(manage_hooks(root, remove=args.remove, apply=args.apply,
+                               fail_closed=args.fail_closed, hooks_file=args.hooks_file))
+        return 0
+    config = load_team_config(root)
+    if args.resume_command == "bind":
+        print(bind(root, config, args.slug, args.session_id))
+        return 0
+    candidates = discover_runs(root, config)
+    selected, notices = select_run(candidates, root, slug=args.slug, session_id=args.session_id)
+    active = [candidate for candidate in candidates if candidate.active]
+    payload: dict = {"candidates": [candidate.to_dict() for candidate in candidates],
+                     "selected": None, "notices": notices}
+    if selected is not None:
+        payload["selected"] = recovery_status(selected, root, config)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        for notice in notices:
+            print(f"warning: {notice}", file=sys.stderr)
+        if selected is not None:
+            print(render_context(payload["selected"]))
+        else:
+            print("Multiple active runs; select one with --slug." if active else "No active runs.")
+            for candidate in candidates:
+                print(f"{candidate.slug}: {candidate.manifest.get('status', 'unknown')} {candidate.path}")
+                for error in candidate.errors:
+                    print(f"  error: {error}")
+    return 3 if selected is None and active else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
-    args = parser.parse_args(argv)
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments[:2] == ["resume", "hook"]:
+        from agent_team.hooks import run_hook
+
+        try:
+            args = parser.parse_args(arguments)
+        except SystemExit:
+            if arguments[2:3] == ["session-start"]:
+                print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart",
+                    "additionalContext": "agent-team hook 参数错误；请检查 hooks 配置并暂停写操作。"}}))
+                return 0
+            return 2 if "--fail-closed" in arguments else 1
+        return run_hook(args.hook_action, args.fail_closed)
+    args = parser.parse_args(arguments)
     root = project_root()
     try:
         if args.command == "init":
@@ -583,7 +691,27 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "validate":
             return _validate(root, args.format)
         if args.command == "run":
-            return _run_init(root, args)
+            if args.run_command == "init":
+                return _run_init(root, args)
+            require_project_context(root)
+            config = load_team_config(root)
+            if args.run_command == "lease":
+                if args.lease_command == "claim":
+                    print(lease_change(root, config, args.slug, args.task,
+                                       owner=args.owner, owned_paths=args.owned_path))
+                else:
+                    print(lease_change(root, config, args.slug, args.task, token=args.token))
+                return 0
+            if args.run_command == "verify":
+                command = args.check_command
+                if command[:1] == ["--"]:
+                    command = command[1:]
+                return verify(root, config, args.slug, command, args.producer, args.cwd)
+            if args.run_command == "reconcile":
+                print(reconcile(root, config, args.slug, args.apply) or "No policy changes.")
+                return 0
+        if args.command == "resume":
+            return _resume(root, args)
         if args.command == "render":
             return _render(root, args)
         if args.command == "install":

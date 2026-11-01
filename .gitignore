@@ -62,3 +62,7 @@ Thumbs.db
 .*/agents/implementer*
 .*/agents/ops*
 .*/agents/reviewer*
+.agent-team/sessions/
+.agent-team/hooks-state.json
+.agent-team/state.lock
+.claude/settings.local.json

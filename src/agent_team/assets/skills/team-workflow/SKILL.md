@@ -40,3 +40,15 @@ explicitly requested.
 7. Partial results or exhausted budgets do not close tasks successfully. Record
    remaining work and a recovery action, and verify current integrated changes
    before advancing completion gates.
+
+## Compaction recovery
+
+After compaction or in a new session, run `agent-team resume` (or
+`agent-team resume context --slug <slug>`) before continuing. Read the manifest,
+requirements, plan, decisions, and completed reports; do not replay unconfirmed
+side effects, and treat partial output as unfinished. Only evidence reported as
+`bound` counts as current; rerun `stale`, `failed`, or `unbound` checks with
+`agent-team run verify`. A `running` task without a valid lease is `unknown`:
+confirm ownership before writing to its paths, since a lease does not prove the
+worker is alive. Claude hooks are optional; recovery on other clients is
+explicit. See `docs/recovery.md`.

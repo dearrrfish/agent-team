@@ -400,6 +400,8 @@ agent-team validate [--format text|json]
 agent-team run init --slug SLUG [--title TITLE]
                     [--tier adaptive|solo|assisted|team]
                     [--model-preset economy|balanced|quality]
+agent-team resume [status] [--slug SLUG] [--json] [--session-id ID]
+agent-team resume context [--slug SLUG] [--session-id ID]
 agent-team models show [--target codex|claude|antigravity]
                        [--model-preset economy|balanced|quality | --run SLUG]
                        [--format text|json|table]
@@ -412,6 +414,40 @@ agent-team install --target TARGET[,TARGET...]
                    [--apply] [--force]
 agent-team doctor [--format text|json]
 ```
+
+`resume`、`resume status` 和 `resume context` 提供上下文压缩后的只读恢复入口。
+命令从有效配置的 run 目录发现候选，读取已有会话指针；无有效指针且有多个活动 run
+时返回退出码 3，使用 `--slug` 明确选择。`status --json` 输出完整候选及诊断，
+`context` 输出不超过 9000 字符的摘要。配置漂移会被报告；未知 worker 需要先对账再
+恢复写入。使用 `resume bind --slug SLUG [--session-id ID]` 显式绑定活动 run；省略 session ID
+且没有 `AGENT_TEAM_SESSION_ID` 时绑定项目默认指针。
+旧 run 的验证证据显示为 `unbound`，继续前应重跑适用检查。
+
+可选 Claude compact hooks：
+
+```text
+agent-team resume hooks --print
+agent-team resume hooks --install [--fail-closed] [--apply]
+agent-team resume hooks --remove [--apply]
+```
+
+默认仅预览写入 `.claude/settings.local.json` 的差异；`--apply` 才写入并备份原文件。
+只管理记录在 `.agent-team/hooks-state.json` 的精确条目，保留其它已有 hooks。
+`PreCompact` 保存快照并绑定会话，默认失败不阻止压缩；`--fail-closed` 时失败以退出码 2
+阻止。`SessionStart(compact)` 注入有界恢复摘要，异常时仍成功启动并提示人工核对。
+不会写入 user settings，也不代表已在真实会话中验证压缩恢复；该验证属于后续阶段。
+
+`run lease claim --slug SLUG --task T-001 --owner NAME --owned-path src/` 为已处于
+`running` 状态的任务记录所有权并返回 token；使用 `run lease release --slug SLUG
+--task T-001 --token TOKEN` 释放，不会自动更改任务状态。lease 仅表示观察到的所有权，
+不能证明 worker 存活。存在未知所有权或重叠路径时拒绝认领。
+
+`run verify --slug SLUG --producer NAME -- COMMAND ARGS` 执行检查并保存退出码与
+工作区身份，可用 `--cwd` 指定项目内相对目录。失败检查显示为 `failed`，工作区改变
+后旧证据显示为 `stale`；执行期间变化或身份未知显示为 `unbound`。
+`run reconcile --slug SLUG` 预览有效策略差异，`--apply` 在完整预检后应用。
+新增 lease 和 `[[verification]]` 为可选字段；使用后旧版本可能拒绝该 run，回滚前应
+先归档证据并移除新增字段。全局 validate 不比较历史 run 与当前工作区身份。
 
 Use `render` when you want to inspect or package the generated files separately.
 It refuses to overwrite different output. Use `install` to target native
@@ -471,7 +507,9 @@ gates, and an approved review. Review/fix cycles are capped by project policy.
 
 See [Workflow operations](docs/workflow.md) for state transitions, task
 dependencies, report identity, review counters, deep discovery, and complete
-coordination prompts.
+coordination prompts. See [context-compaction recovery](docs/recovery.md) for
+the read-only recovery entry points, evidence and lease semantics, optional
+Claude hooks, and the real-client validation protocol.
 
 ## Safe installation
 
