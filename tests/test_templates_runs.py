@@ -61,6 +61,45 @@ class TemplateAndRunTests(unittest.TestCase):
             self.assertFalse(any(item.severity == "error" for item in diagnostics))
             self.assertTrue(any(item.code == "required-marker" for item in diagnostics))
 
+    def test_run_location_instructions_preserve_explicit_overrides(self) -> None:
+        instructions = {
+            "workflow": asset_text("skills", "team-workflow", "SKILL.md"),
+            "coordinate": asset_text("skills", "team-coordinate", "SKILL.md"),
+            "coordinator": asset_text(
+                "definitions", "roles", "coordinator", "instructions.md"
+            ),
+        }
+        for name, content in instructions.items():
+            content = " ".join(content.split())
+            with self.subTest(instructions=name):
+                self.assertIn("<project>/.agent-team/runs/<slug>/", content)
+                self.assertIn("workflow.run_root", content)
+                self.assertIn("user explicitly specifies another location", content)
+                self.assertIn("docs/runs", content)
+                self.assertIn("unless relocation is explicitly requested", content)
+
+    def test_run_location_defaults_and_explicit_override(self) -> None:
+        for run_root in (".agent-team/runs", "custom-runs"):
+            with self.subTest(run_root=run_root), self._project() as directory:
+                root = Path(directory)
+                config_path = root / ".agent-team" / "team.toml"
+                config_path.write_text(
+                    DEFAULT_TEAM_TOML.replace(
+                        'run_root = ".agent-team/runs"',
+                        f'run_root = "{run_root}"',
+                    ),
+                    encoding="utf-8",
+                )
+                config = load_team_config(root)
+                run_dir = init_run(
+                    root, config, "location-check", None, "assisted", "balanced"
+                )
+                self.assertEqual(run_dir, root / run_root / "location-check")
+                self.assertTrue((run_dir / "run.toml").is_file())
+                self.assertFalse((root / "docs" / "runs").exists())
+                if run_root != ".agent-team/runs":
+                    self.assertFalse((root / ".agent-team" / "runs").exists())
+
     def test_duplicate_run_and_invalid_slug_are_refused(self) -> None:
         with self._project() as directory:
             root = Path(directory)

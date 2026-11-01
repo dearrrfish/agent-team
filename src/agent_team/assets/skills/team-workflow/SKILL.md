@@ -3,6 +3,21 @@ name: team-workflow
 description: Select and operate the smallest adequate agent-team workflow tier.
 ---
 # Team workflow
+
+## Run artifact location
+
+Initialize runs with `agent-team run init --slug <slug>` in the target project.
+Unless the user explicitly specifies another location or the effective
+`workflow.run_root` config overrides it, the default is
+`<project>/.agent-team/runs/<slug>/`, relative to the project root, even when
+working from a subdirectory. Use the directory returned by initialization for
+all run files: manifest, requirements, design, plan, tasks, decisions, reports,
+review, and final report. Do not invent `docs/runs` or another artifact location.
+For an existing run, keep using its established directory unless relocation is
+explicitly requested.
+
+## Execution
+
 1. Assess task dependencies, uncertainty, risk, and independent scopes before
    initializing a run. Choose an explicit tier when repository-size `adaptive`
    routing would overstate or understate the task's coordination needs. For an
@@ -25,3 +40,15 @@ description: Select and operate the smallest adequate agent-team workflow tier.
 7. Partial results or exhausted budgets do not close tasks successfully. Record
    remaining work and a recovery action, and verify current integrated changes
    before advancing completion gates.
+
+## Compaction recovery
+
+After compaction or in a new session, run `agent-team resume` (or
+`agent-team resume context --slug <slug>`) before continuing. Read the manifest,
+requirements, plan, decisions, and completed reports; do not replay unconfirmed
+side effects, and treat partial output as unfinished. Only evidence reported as
+`bound` counts as current; rerun `stale`, `failed`, or `unbound` checks with
+`agent-team run verify`. A `running` task without a valid lease is `unknown`:
+confirm ownership before writing to its paths, since a lease does not prove the
+worker is alive. Claude hooks are optional; recovery on other clients is
+explicit. See `docs/recovery.md`.

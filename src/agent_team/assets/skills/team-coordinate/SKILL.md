@@ -5,6 +5,13 @@ description: Coordinate bounded native subagents and integrate evidence-backed r
 
 # Team coordination
 
+Use the initialized run directory for all artifacts and report destinations.
+The default is `<project>/.agent-team/runs/<slug>/` relative to the target project
+root, unless the user explicitly specifies another location or the effective
+`workflow.run_root` config overrides it. Pass that exact directory to workers;
+do not invent `docs/runs` or a separate evidence directory. Keep an existing run
+in its established directory unless relocation is explicitly requested.
+
 Keep user decisions in the coordinator. Dispatch only bounded independent work,
 track dependencies and write ownership, require structured reports, and verify
 results before integration. Stop dispatch when coordination costs exceed the

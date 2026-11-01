@@ -49,6 +49,19 @@ the effective configuration in `.agent-team/team.toml` and user defaults.
   values; complete profile files replace rather than merge. Inspect routing
   with `agent-team models show --format table` before selecting a run preset.
 
+## Compaction Recovery
+
+- After compaction or a fresh session, run `agent-team resume` (or
+  `resume context --slug <slug>`) before continuing. Run files, not chat
+  history, are the source of truth.
+- Only evidence reported as `bound` counts as current. Rerun `stale`, `failed`,
+  or `unbound` checks with `agent-team run verify`.
+- A `running` task without a valid lease is `unknown`; do not write to its
+  `owned_paths` until ownership is confirmed. Leases do not prove liveness.
+- Claude hooks are optional and installed only by explicit
+  `agent-team resume hooks --install --apply`. Codex and Antigravity recovery is
+  explicit. See [docs/recovery.md](docs/recovery.md).
+
 ## Roles and Delegation
 
 - The main thread acts as `coordinator`: aligns with the user, maintains run

@@ -25,6 +25,14 @@ with the user.
 agent-team run init --slug replace-parser --title "Replace parser" --tier team
 ```
 
+By default, initialization creates `<project>/.agent-team/runs/<slug>/` under
+the target project root, including when invoked from a subdirectory. An explicit
+user request or effective `workflow.run_root` override can select another
+location. Keep all run files and worker reports in the directory returned by
+initialization; do not invent `docs/runs` or split evidence between directories.
+Continue existing runs in their established directory unless relocation is
+explicitly requested.
+
 To apply the run's selected cost/quality routing to native agents, pass its slug
 when rendering or installing:
 
@@ -277,6 +285,24 @@ proposed design in .agent-team/runs/<slug>/ for missing decisions, interface
 risks, and operational concerns. Wait for both and reconcile their findings in
 the main thread.
 ```
+
+## Recovering after compaction
+
+Run state lives on disk, so a compacted or restarted session can recover from the
+run directory instead of from chat history:
+
+```console
+agent-team resume --slug replace-parser
+agent-team resume context --slug replace-parser
+```
+
+Read the manifest and the recorded artifacts before continuing, do not replay
+unconfirmed side effects, and treat partial output as unfinished. `resume`
+reports evidence as `bound`, `stale`, `failed`, or `unbound`; only `bound`
+counts as current. A `running` task without a valid lease is `unknown`, and
+writes overlapping its ownership must wait for confirmation. See
+[context-compaction recovery](recovery.md) for evidence rules, optional Claude
+hooks, and the real-client validation protocol.
 
 ## Deep discovery
 
