@@ -55,7 +55,26 @@ PYTHONPATH=src python3 -m unittest tests.test_pi_support
 ```
 
 Those tests check fixtures and declared settings, not actual plugin loading.
-Actual plugin parsing, role discovery, model routing, tool boundaries, abort,
+
+A separate no-model check on Linux loaded `pi-subagents@0.84.0` in Pi 1.4.0
+from an isolated agent directory. The fixed npm archive was verified before
+installation (SHA-256 `f9c038aac95d860c7adb77f02919b5016f410f8670f41a8cb911b56598742a02`),
+and npm lifecycle scripts were disabled. A local observer called the installed
+plugin's actual `discoverAgents` function inside Pi: all six generated roles
+were found in project and user scopes, and the combined scope selected project
+definitions for matching names. The plugin retained `model:effort` as its model
+string with no separate thinking value; child execution was not exercised.
+
+With no explicit tool filter, the observed registry included `subagent` and
+`subagents_enable`; the unknown-model session activated `subagent` directly.
+This does not verify loader-mode token savings. With an explicit
+`--tools read,grep,find,ls` selection, extension delegation tools were filtered
+out. A coordinator must include the appropriate plugin tool in its runtime
+allowlist. Both checks exited cleanly without a model prompt. These observations
+apply only to the stated versions and isolated fixtures; they do not establish
+model routing, child tool enforcement, or worktree isolation.
+
+Actual model routing, child tool boundaries, abort,
 and child worktree isolation still require the separately approved live plan,
 a fixed reviewed plugin version, and explicit model/provider/budget authorization.
 This tool does not promote Pi support status or implement those later phases.
