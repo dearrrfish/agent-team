@@ -198,12 +198,23 @@ to be trusted before it runs; `hooks/list` on the app server reports the
 `currentHash` to record under `[hooks.state."<path>:<event>:<group>:<handler>"]`
 as `trusted_hash`.
 
-Validated end to end on 2026-11-01 with Codex CLI v0.164.0: a disposable project
-ran `agent-team resume hooks --target codex --install --apply`, then `codex exec`
-with a low auto-compact limit. `PreCompact` wrote `recovery/snapshot.json` and
-bound the session, and `SessionStart` injected the recovery summary as a
-developer message after compaction. Evidence:
-`.agent-team/runs/codex-hooks-support/reports/codex-e2e-evidence.md`.
+Hooks only recover runs explicitly bound to the Codex thread. Before a turn can
+compact, bind the thread id:
+
+```console
+agent-team resume bind --slug <slug> --session-id <codex-thread-id>
+```
+
+With `codex exec --json`, the id is the `thread_id` in the `thread.started`
+event. An unbound thread is ignored: compaction still succeeds, but no snapshot
+is written and `SessionStart` injects nothing.
+
+Validated end to end on 2026-11-02 with Codex CLI v0.164.0 using an isolated
+`CODEX_HOME`. A bound thread wrote `recovery/snapshot.json` and received a
+521-character recovery message as a developer message after compaction; an
+unbound thread compacted twice with no snapshot, no session pointer, and no
+injected context. Evidence:
+`.agent-team/runs/hooks-session-binding/reports/codex-compact-validation.md`.
 
 ### Google Antigravity CLI hooks
 
