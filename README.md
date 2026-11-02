@@ -433,10 +433,10 @@ agent-team resume hooks --remove [--apply]
 ```
 
 默认仅预览写入 `.claude/settings.local.json` 的差异；`--apply` 才写入并备份原文件。
-只管理记录在 `.agent-team/hooks-state.json` 的精确条目，保留其它已有 hooks。
-`PreCompact` 保存快照并绑定会话，默认失败不阻止压缩；`--fail-closed` 时失败以退出码 2
+只管理记录在 `.agent-team/hooks-state-claude.json` 的精确条目，保留其它已有 hooks。
+`PreCompact` 保存快照，默认失败不阻止压缩；`--fail-closed` 时失败以退出码 2
 阻止。`SessionStart(compact)` 注入有界恢复摘要，异常时仍成功启动并提示人工核对。
-不会写入 user settings，也不代表已在真实会话中验证压缩恢复；该验证属于后续阶段。
+Hooks 仅对已通过 `resume bind --session-id` 显式绑定的会话生效，未绑定会话被完全忽略。
 
 `run lease claim --slug SLUG --task T-001 --owner NAME --owned-path src/` 为已处于
 `running` 状态的任务记录所有权并返回 token；使用 `run lease release --slug SLUG
