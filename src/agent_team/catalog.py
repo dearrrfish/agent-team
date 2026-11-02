@@ -340,10 +340,65 @@ def _claude_catalog(timeout: float) -> CatalogResult:
     return CatalogResult("claude", source, "ok", tuple(models))
 
 
+def _pi_catalog(timeout: float) -> CatalogResult:
+    source = "pi-cli"
+    executable = shutil.which("pi")
+    if executable is None:
+        return _status("pi", source, "unavailable", "pi was not found")
+    process: subprocess.Popen[str] | None = None
+    deadline = time.monotonic() + timeout
+    try:
+        process = subprocess.Popen(
+            [executable, "--list-models"], stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, text=True,
+        )
+        if process.stdout is None:
+            raise OSError("pi output stream is unavailable")
+        output = _read_stream(process.stdout, deadline)
+        if output is None:
+            raise TimeoutError("pi --list-models timed out")
+        if len(output) > _MAX_RESPONSE_BYTES:
+            raise RuntimeError("pi model output exceeds limit")
+        returncode = process.wait(timeout=_remaining(deadline))
+        if returncode != 0:
+            raise RuntimeError(f"pi --list-models exited {returncode}")
+        if output.strip().startswith("No models available."):
+            return _status("pi", source, "unavailable", "pi returned no usable models; configure a provider in Pi")
+        lines = [line.split() for line in output.splitlines() if line.strip()]
+        if not lines or lines[0] != ["provider", "model", "context", "max-out", "thinking", "images"]:
+            raise RuntimeError("pi returned an unsupported model table")
+        models: list[dict[str, Any]] = []
+        for row in lines[1:]:
+            if len(row) != 6 or row[4] not in {"yes", "no"} or row[5] not in {"yes", "no"}:
+                raise RuntimeError("pi returned a malformed model row")
+            model_id = f"{row[0]}/{row[1]}"
+            models.append({"model_id": model_id, "display_name": model_id,
+                           "effort_options": None, "effort_source": None})
+            if len(models) > _MAX_CATALOG_MODELS:
+                raise RuntimeError("pi catalog exceeds model limit")
+        if not models:
+            return _status("pi", source, "unavailable", "pi returned no usable models")
+        return CatalogResult("pi", source, "ok", tuple(models))
+    except (OSError, TimeoutError, RuntimeError) as exc:
+        return _status("pi", source, "error", str(exc))
+    finally:
+        if process is not None:
+            process.terminate()
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=1)
+            if process.stdout is not None:
+                process.stdout.close()
+
+
 def fetch_catalog(target: str, timeout: float) -> CatalogResult:
     """Fetch one live catalog without falling back to configured model values."""
     if timeout <= 0 or not math.isfinite(timeout):
         raise ValueError("timeout must be greater than zero")
+    if target == "pi":
+        return _pi_catalog(timeout)
     if target == "codex":
         return _codex_catalog(timeout)
     if target == "antigravity":

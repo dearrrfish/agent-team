@@ -157,7 +157,7 @@ Adapters include activation guidance in the native description and append the
 portable turn, report, capability, and delegation contract to native
 instructions. Claude also receives native `maxTurns`; targets without a hard
 turn-limit field retain the limit as an explicit agent instruction.
-Claude and Antigravity omit shell tools from roles with `write_policy = "deny"`:
+Claude, Antigravity, and Pi omit shell tools from roles with `write_policy = "deny"`:
 their command tools can write workspace files, and their per-agent execution
 modes do not guarantee a non-mutating shell under every parent configuration.
 The coordinator or a write-isolated worker must run commands for those roles.
@@ -330,7 +330,7 @@ settings. `--preset` accepts `economy`, `balanced`, or `quality`. Without it,
 the command visits all three; a selected preset leaves the other two untouched.
 
 Default targets are enabled, configured profiles with a native executable on
-PATH: `codex`, `claude`, or `agy`. `--target` accepts comma-separated names and
+PATH: `codex`, `claude`, `agy`, or opt-in `pi`. `--target` accepts comma-separated names and
 rejects invalid, disabled, unconfigured, or uninstalled targets. No installed
 enabled target is an error. Every selected target must supply a usable live
 catalog before selections begin. Catalog authentication and availability follow
@@ -374,3 +374,111 @@ Use `agent-team validate --format text` for people or `--format json` for
 automation. Diagnostics include severity, stable code, dotted path, and message.
 Unresolved `REQUIRED` markers are warnings during an active run and errors once
 the run claims `complete`.
+
+## Pi opt-in target
+
+Pi is not in the default `enabled_targets` list. The builtin `pi` profile is
+available in `target_profiles`; enable it explicitly in the project or user
+`team.toml`. Existing targets keep their model mappings and defaults. Pi uses
+OpenAI provider-qualified defaults (`openai/gpt-5.4-mini` for fast roles and
+`openai/gpt-5.4` for balanced/deep roles). Adjust these through the usual profile
+or model-preset editor for the models your Pi provider actually exposes.
+
+```toml
+enabled_targets = ["codex", "claude", "antigravity", "pi"]
+
+[target_profiles]
+pi = "builtin:pi"
+```
+
+```bash
+# Manual plugin installation; agent-team never runs these commands.
+pi install npm:pi-subagents
+# Alternative: pi install npm:pi-agents-flow
+# Optional standard web tools:
+pi install npm:pi-web-access
+agent-team install --scope project --target pi
+agent-team install --scope project --target pi --apply
+```
+
+For user installation, initialize and enable Pi in `~/.agent-team/team.toml`,
+then use `agent-team install --scope user --target pi --apply`. Agent Markdown
+is written to `.pi/agents/` in project scope and `~/.pi/agent/agents/` in user
+scope. Skills share `.agents/skills/` with Codex. Frontmatter contains `name`,
+`description`, comma-separated `tools`, and `model: "provider/model:effort"`.
+The builtin profile maps semantic low/medium/high to Pi low/medium/high; custom
+Pi profiles may also declare off, minimal, xhigh, or max. All three presets start
+with the same provider models and can be customized independently.
+
+### Static plugin preflight
+
+Both installation preview and apply scan declarations before writing any target,
+including other targets in a comma-separated install. User scope reads only
+`<agent-dir>/settings.json`; project scope also reads `.pi/settings.json` in the
+active project. The agent directory defaults to `~/.pi/agent` and discovery
+honors `PI_CODING_AGENT_DIR`. User installation rejects an override pointing
+elsewhere because the builtin destination is static; use offline `render` and
+copy the generated agents manually to a custom agent directory instead. Project
+installation keeps its project destination and may inspect the custom user agent
+directory. SDK-only agentDir overrides are not visible to this command.
+
+The scanner recognizes exact npm identities `pi-subagents`, `pi-agents-flow`,
+`pi-web-access`, and `@tylerho/pi-worktree`, optionally followed by `@version`
+or a tag. Similar names, git packages, local paths, and custom extensions are
+unconfirmed. No package code is loaded or executed. Package strings and objects
+with a `source` are supported. A project entry of the same npm name replaces the
+user declaration, including resource filters. A project `autoload: false` entry
+only narrows an existing user declaration and never introduces a package.
+
+An omitted package `extensions` property permits its declared extensions;
+`extensions: []` disables them. Other selectors, including globs, exclusions,
+and `+path`/`-path`, are diagnosed and treated as unconfirmed. `skills: []` does
+not disable extensions. Non-builtin exclusions in the top-level `extensions`
+list conservatively invalidate plugin capability evidence; local extension
+files are reported but not accepted as proof of custom tools. Builtin MCP
+entries do not prove web access. Malformed JSON or resource types fail with
+`pi-settings`. Missing subagent evidence fails with `pi-missing-subagents` and
+manual installation commands. Prefer a standard unfiltered declaration, or use
+`render` for manual integration of custom plugins.
+
+This preflight confirms configuration clues only. It does not inspect installed
+package contents, resolve dependencies, verify plugin versions, grant project
+trust, or prove runtime availability. Verify actual agent discovery and tool
+registration in your Pi session before delegation. `render --target pi` remains
+offline and deterministic: it does not scan settings and omits all unconfirmed
+extension tools. Install passes the scanned status to the renderer.
+
+### Tools and isolation limits
+
+Read-only roles always omit `bash`, `edit`, and `write`, including custom roles
+that request those semantic capabilities. Writers receive only their declared
+capabilities. Only the recognized unfiltered `pi-web-access` declaration enables
+`web_search` and `fetch_url` for roles with `web.read`; MCP configuration alone
+never enables this mapping. Coordinators receive `subagent` only for a recognized `pi-subagents`
+declaration supplied by install. Its loader activation and tool registration
+still require runtime verification. `pi-agents-flow` satisfies the package
+preflight, but its delegation tool names are unconfirmed: no guessed delegation
+tool is emitted. Verify its workflow tools and manually configure the
+coordinator allowlist before using that alternative.
+
+A tool allowlist is not an OS sandbox. Pi's ordinary `--tools` allowlist does
+not remove MCP tools: use `--no-mcp` or `--exclude-tools 'mcp__*'` when starting
+Pi and verify how your subagent plugin configures children. Generated agent
+frontmatter does not establish that these runtime flags propagate to children.
+Codemode is not an OS sandbox. For recognized standard `pi-subagents` or
+`pi-agents-flow` declarations, install emits conditional guidance to request
+`worktree: true`, based on the reviewed plugin contract. Verify the installed
+version, plugin loading, and actual child behavior before relying on this for
+parallel writers; otherwise use file-disjoint ownership. Offline rendering
+remains conservative. A standalone `pi-worktree` declaration or a separate
+parent session worktree does not establish child isolation.
+
+`doctor` checks `pi --version` when enabled and reports the static plugin
+limitations. `models fetch --target pi` parses the native `pi --list-models`
+table into provider-qualified model IDs. The table does not declare effort
+options, so those remain unknown and the editor uses the configured profile's
+effort levels. Empty catalogs are unavailable; malformed output and timeouts
+are errors. Catalog discovery is an explicit native-client operation; unlike
+render and static preflight it starts Pi, whose configured runtime environment
+remains the user's responsibility. Unit fixtures do not establish native
+plugin loading or model-backed delegation compatibility.

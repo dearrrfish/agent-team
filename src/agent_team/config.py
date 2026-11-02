@@ -40,6 +40,7 @@ skill_sources = ["builtin:skills"]
 codex = "builtin:codex"
 claude = "builtin:claude"
 antigravity = "builtin:antigravity"
+pi = "builtin:pi"
 
 [workflow]
 run_root = ".agent-team/runs"
@@ -895,7 +896,8 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
         candidate = Path(destination)
         if not destination or candidate.is_absolute() or ".." in candidate.parts:
             diagnostics.append(Diagnostic(f"{source}.{destination_key}", "must be a contained relative path", code="path"))
-    valid_efforts = {"low", "medium", "high", "xhigh", "max", "ultra"}
+    valid_efforts = ({"off", "minimal", "low", "medium", "high", "xhigh", "max"} if adapter == "pi"
+                     else {"low", "medium", "high", "xhigh", "max", "ultra"})
     if len(effort_levels) != len(set(effort_levels)):
         diagnostics.append(Diagnostic(
             f"{source}.features.effort_levels", "effort levels must be unique", code="duplicate"

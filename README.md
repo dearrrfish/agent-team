@@ -3,7 +3,7 @@
 [![CI](https://github.com/dearrrfish/agent-team/actions/workflows/ci.yml/badge.svg)](https://github.com/dearrrfish/agent-team/actions/workflows/ci.yml)
 
 `agent-team` generates portable, role-based agent teams for Codex, with
-experimental adapters for Claude Code and Antigravity CLI. It gives each client
+experimental adapters for Claude Code, Antigravity CLI, and opt-in Pi. It gives each client
 the same workflow contract while rendering the native agent and skill files that
 client expects.
 
@@ -14,8 +14,8 @@ coordination overhead out of small changes.
 
 > [!NOTE]
 > `agent-team` is a generator, validator, and installer—not a cross-client
-> orchestrator. Codex, Claude Code, and Antigravity each run their own native
-> subagents after installation.
+> orchestrator. Codex, Claude Code, and Antigravity run their native
+> subagents; Pi requires a separately installed subagent extension.
 
 Linux users can run or install via Nix flakes. macOS users can install via
 Homebrew (`brew install dearrrfish/agent-team/agent-team`) or use the
@@ -36,6 +36,34 @@ Darwin Nix package.
   validation.
 - Deterministic rendering plus preview-first installation with ownership hashes,
   drift detection, atomic writes, and backups.
+
+## Pi opt-in
+
+Pi is disabled by default. Add it to `enabled_targets` in the selected scope's
+`team.toml`; its builtin profile is already available:
+
+```toml
+enabled_targets = ["codex", "claude", "antigravity", "pi"]
+
+[target_profiles]
+pi = "builtin:pi"
+```
+
+Install a subagent extension yourself, then preview agent generation:
+
+```bash
+pi install npm:pi-subagents
+# Alternative: pi install npm:pi-agents-flow
+agent-team install --scope project --target pi
+agent-team install --scope project --target pi --apply
+```
+
+`agent-team` never installs plugins or modifies Pi settings. Both preview and
+apply require a recognized static subagent declaration before any target writes.
+This does not prove that a plugin is installed or usable at runtime. Project
+trust, plugin versions, model availability, and native loading still need
+verification. See [Pi configuration and limitations](docs/configuration.md#pi-opt-in-target)
+for resource filtering, custom directories, tools, and isolation limits.
 
 ## Agent-team topology and ideology
 
@@ -130,8 +158,7 @@ Linux/Nix users also need Nix with flakes enabled for the packaged execution
 and development paths. macOS users can install via Homebrew or use Homebrew
 for Python and Git with the documented source-install workflow.
 
-Rendering and validation do not require Codex, Claude Code, or Antigravity to be
-installed. `agent-team doctor` reports missing clients as warnings.
+Rendering and validation do not require native clients to be installed. `agent-team doctor` reports missing clients as warnings.
 
 ## Support status
 
@@ -140,6 +167,7 @@ installed. `agent-team doctor` reports missing clients as warnings.
 | Codex | Verified | Verified | Verified | Supported |
 | Claude Code | Verified | Verified | Blocked on subscription/login validation | Experimental |
 | Antigravity CLI | Verified | No strict discovery interface found | Not verified | Experimental |
+| Pi (opt-in) | Fixture-tested static generation and preflight | Plugin-dependent; not verified | Not verified | Experimental |
 
 The Codex adapter has selected generated custom roles and applied their model,
 effort, and instructions in native runs. Claude Code has discovered all six
@@ -149,7 +177,7 @@ not currently expose a strict machine-readable agent listing; an invalid-agent
 probe fell back to the default agent instead of failing.
 
 These labels describe native compatibility evidence, not template completeness.
-All three adapters are covered by deterministic render, install, validation,
+The three original adapters are covered by deterministic render, install, validation,
 and idempotence tests. Observed client versions are recorded in the project
 progress notes and are not declared compatibility bounds.
 
@@ -402,12 +430,12 @@ agent-team run init --slug SLUG [--title TITLE]
                     [--model-preset economy|balanced|quality]
 agent-team resume [status] [--slug SLUG] [--json] [--session-id ID]
 agent-team resume context [--slug SLUG] [--session-id ID]
-agent-team models show [--target codex|claude|antigravity]
+agent-team models show [--target codex|claude|antigravity|pi]
                        [--model-preset economy|balanced|quality | --run SLUG]
                        [--format text|json|table]
-agent-team models fetch --target codex|claude|antigravity
+agent-team models fetch --target codex|claude|antigravity|pi
                         [--format text|json|table] [--timeout SECONDS]
-agent-team render --target codex|claude|antigravity
+agent-team render --target codex|claude|antigravity|pi
                   [--run SLUG] --output PATH
 agent-team install --target TARGET[,TARGET...]
                    [--scope project|user] [--run SLUG]
@@ -484,6 +512,7 @@ for inheritance and coordinator behavior.
 | Codex | `.codex/agents/` | `.agents/skills/` | `~/.codex/agents/` | `~/.agents/skills/` |
 | Claude Code | `.claude/agents/` | `.claude/skills/` | `~/.claude/agents/` | `~/.claude/skills/` |
 | Antigravity | `.agents/agents/` | `.agents/skills/` | `~/.gemini/config/agents/` | `~/.gemini/antigravity-cli/skills/` |
+| Pi | `.pi/agents/` | `.agents/skills/` | `~/.pi/agent/agents/` | `~/.agents/skills/` |
 
 Each adapter owns native file syntax, tool names, permissions, model fields, and
 effort fields. The portable role definitions remain client-independent.

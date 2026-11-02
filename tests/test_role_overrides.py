@@ -130,6 +130,7 @@ class RoleOverrideTests(unittest.TestCase):
     def test_all_targets_and_presets_overlay_rendering(self):
         self.write_project('[roles.implementer]\nmodel_class = "fast"\neffort = "low"\n')
         config, roles = self.roles()
+        config = replace(config, enabled_targets=TARGETS)
         for target in TARGETS:
             profile = resolve_target_profile(config, target, self.project)
             for preset_name in PRESETS:
@@ -150,6 +151,7 @@ class RoleOverrideTests(unittest.TestCase):
 
     def test_no_overlay_rendered_output_compatibility(self):
         config, roles = self.roles()
+        config = replace(config, enabled_targets=TARGETS)
         for target in TARGETS:
             profile = resolve_target_profile(config, target, self.project)
             for preset_name in PRESETS:
@@ -302,11 +304,12 @@ class RoleOverrideTests(unittest.TestCase):
                 self.assertEqual(other_roles['coordinator'].routing_override_origins, {})
 
     def test_target_rendering_all_targets_and_presets(self):
-        classes = dict(zip(TARGETS, ('fast', 'balanced', 'deep'), strict=True))
+        classes = dict(zip(TARGETS, ('fast', 'balanced', 'deep', 'fast'), strict=True))
         self.write_project(''.join(
             f'[roles.implementer.targets.{target}]\nmodel_class = "{model_class}"\neffort = "low"\n'
             for target, model_class in classes.items()))
         config = load_team_config(self.project)
+        config = replace(config, enabled_targets=TARGETS)
         for target, model_class in classes.items():
             profile = resolve_target_profile(config, target, self.project)
             for preset in PRESETS:

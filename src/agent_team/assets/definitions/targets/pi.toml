@@ -1,0 +1,50 @@
+schema_version = 1
+id = "pi"
+adapter = "pi"
+agent_destination = ".pi/agents"
+skill_destination = ".agents/skills"
+user_agent_destination = ".pi/agent/agents"
+user_skill_destination = ".agents/skills"
+models_without_effort = []
+
+[features]
+supports_effort = true
+effort_levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
+supports_worktree_isolation = true
+team_runtime = "subagents"
+
+[presets.economy]
+coordinator_model = "openai/gpt-5.4"
+coordinator_effort = "medium"
+[presets.economy.models]
+fast = "openai/gpt-5.4-mini"
+balanced = "openai/gpt-5.4"
+deep = "openai/gpt-5.4"
+[presets.economy.effort]
+low = "low"
+medium = "medium"
+high = "high"
+
+[presets.balanced]
+coordinator_model = "openai/gpt-5.4"
+coordinator_effort = "medium"
+[presets.balanced.models]
+fast = "openai/gpt-5.4-mini"
+balanced = "openai/gpt-5.4"
+deep = "openai/gpt-5.4"
+[presets.balanced.effort]
+low = "low"
+medium = "medium"
+high = "high"
+
+[presets.quality]
+coordinator_model = "openai/gpt-5.4"
+coordinator_effort = "medium"
+[presets.quality.models]
+fast = "openai/gpt-5.4-mini"
+balanced = "openai/gpt-5.4"
+deep = "openai/gpt-5.4"
+[presets.quality.effort]
+low = "low"
+medium = "medium"
+high = "high"

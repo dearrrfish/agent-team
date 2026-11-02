@@ -42,6 +42,7 @@ _NATIVE_CLIENTS = {
     "codex": "codex",
     "claude": "claude",
     "antigravity": "agy",
+    "pi": "pi",
 }
 
 
@@ -421,10 +422,17 @@ def _install(root: Path, args: argparse.Namespace) -> int:
     model_preset = load_run_model_preset(root, config, args.run_slug) if args.run_slug else config.default_model_preset
     project_context = root != Path.home().resolve() and (root / ".agent-team" / "team.toml").is_file()
     backup_root = root / ".agent-team" / "backups" if scope == "project" or project_context else None
+    pi_status = None
+    if "pi" in targets:
+        from agent_team.pi_plugins import require_pi_plugins, scan_pi_plugins
+
+        pi_status = scan_pi_plugins(root, scope)
+        require_pi_plugins(pi_status, scope)
+        print(render_diagnostics(pi_status.diagnostics, "text"))
     rendered: dict[str, dict[PurePosixPath, str]] = {}
     shared: dict[PurePosixPath, str] = {}
     for target in targets:
-        files = render_target(target, config, config_root, model_preset, scope)
+        files = render_target(target, config, config_root, model_preset, scope, pi_status=pi_status)
         for path, content in files.items():
             if path in shared and shared[path] != content:
                 raise ValidationFailure([Diagnostic(str(path), "targets render different content to a shared destination", code="collision")])
@@ -607,6 +615,15 @@ def _doctor(root: Path, output_format: str) -> int:
         diagnostics.extend(project_diagnostics)
         if not any(item.severity == "error" for item in project_diagnostics):
             diagnostics.append(Diagnostic("project", f"valid configuration at {root}", severity="info", code="ok"))
+        if "pi" in config.enabled_targets:
+            from agent_team.pi_plugins import require_pi_plugins, scan_pi_plugins
+
+            status = scan_pi_plugins(root)
+            diagnostics.extend(status.diagnostics)
+            try:
+                require_pi_plugins(status, "project")
+            except ValidationFailure as exc:
+                diagnostics.extend(item for item in exc.diagnostics if item.severity == "error")
         for target in config.enabled_targets:
             command = _NATIVE_CLIENTS[target]
             executable = shutil.which(command)

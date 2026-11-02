@@ -32,7 +32,7 @@ from agent_team.models import (
 )
 from agent_team.toml_edit import upsert_strings
 
-_CLIENTS = {"codex": "codex", "claude": "claude", "antigravity": "agy"}
+_CLIENTS = {"codex": "codex", "claude": "claude", "antigravity": "agy", "pi": "pi"}
 _CLASSES = ("fast", "balanced", "deep")
 _EFFORTS = ("low", "medium", "high")
 

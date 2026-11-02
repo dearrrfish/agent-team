@@ -1,6 +1,8 @@
 import io
 import json
 import os
+import tempfile
+from pathlib import Path
 import unittest
 from typing import Self
 from unittest.mock import patch
@@ -56,6 +58,53 @@ class _FakeResponse:
 
 
 class CatalogTests(unittest.TestCase):
+    def test_pi_catalog_parses_native_table_without_inventing_efforts(self) -> None:
+        process = _FakeCommand("provider  model  context  max-out  thinking  images\n"
+                               "openai  gpt-5.4  272k  128k  yes  yes\n")
+        with patch("agent_team.catalog.shutil.which", return_value="/bin/pi"), patch(
+            "agent_team.catalog.subprocess.Popen", return_value=process
+        ) as popen:
+            result = fetch_catalog("pi", 1)
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.models[0]["model_id"], "openai/gpt-5.4")
+        self.assertIsNone(result.models[0]["effort_options"])
+        self.assertEqual(popen.call_args.args[0], ["/bin/pi", "--list-models"])
+        self.assertTrue(process.terminated)
+
+    def test_pi_catalog_runs_fake_executable_with_native_arguments(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / "pi"
+            executable.write_text(
+                "#!/bin/sh\n"
+                "[ \"$1\" = --list-models ] || exit 7\n"
+                "printf 'provider model context max-out thinking images\\nopenai fixture 128k 32k yes no\\n'\n"
+            )
+            executable.chmod(0o755)
+            with patch.dict(os.environ, {"HOME": directory, "PI_CODING_AGENT_DIR": directory}), patch(
+                "agent_team.catalog.shutil.which", return_value=str(executable)
+            ):
+                result = fetch_catalog("pi", 2)
+            self.assertEqual(result.status, "ok")
+            self.assertEqual(result.models[0]["model_id"], "openai/fixture")
+
+    def test_pi_catalog_handles_unavailable_errors_and_timeout(self) -> None:
+        for output, status in (("No models available. Use /login to configure providers.\n", "unavailable"),
+                               ("provider model context max-out thinking images\n", "unavailable"),
+                               ("unexpected text", "error"),
+                               ("provider model context max-out thinking images\nopenai bad", "error")):
+            with self.subTest(output=output), patch("agent_team.catalog.shutil.which", return_value="/bin/pi"), patch(
+                "agent_team.catalog.subprocess.Popen", return_value=_FakeCommand(output)
+            ):
+                self.assertEqual(fetch_catalog("pi", 1).status, status)
+        with patch("agent_team.catalog.shutil.which", return_value=None):
+            self.assertEqual(fetch_catalog("pi", 1).status, "unavailable")
+        with patch("agent_team.catalog.shutil.which", return_value="/bin/pi"), patch(
+            "agent_team.catalog.subprocess.Popen", return_value=_FakeCommand("")
+        ), patch("agent_team.catalog._read_stream", return_value=None):
+            result = fetch_catalog("pi", 1)
+        self.assertEqual(result.status, "error")
+        self.assertIn("timed out", result.message)
+
     def test_codex_catalog_initializes_and_follows_pagination(self) -> None:
         process = _FakeProcess([
             {"id": 1, "result": {}},

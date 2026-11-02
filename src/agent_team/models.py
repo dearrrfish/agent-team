@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 TIERS = ("solo", "assisted", "team")
-TARGETS = ("codex", "claude", "antigravity")
+TARGETS = ("codex", "claude", "antigravity", "pi")
 PRESETS = ("economy", "balanced", "quality")
 ROLE_IDS = ("coordinator", "explorer", "design-agent", "implementer", "ops", "reviewer")
 

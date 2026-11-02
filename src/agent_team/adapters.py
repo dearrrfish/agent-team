@@ -9,6 +9,7 @@ from agent_team.config import load_roles, resolve_target_profile
 from agent_team.diagnostics import Diagnostic, ValidationFailure
 from agent_team.fs import non_directory_parent
 from agent_team.models import RoleDefinition, TargetProfile, TeamConfig
+from agent_team.pi_plugins import PiPluginStatus
 from agent_team.templates import asset_text, render_template
 
 
@@ -35,11 +36,22 @@ def _mapped_role(profile: TargetProfile, preset_name: str, role: RoleDefinition)
     return model, effort
 
 
-def _tools(role: RoleDefinition, target: str) -> str:
+def _tools(role: RoleDefinition, target: str, pi_status: PiPluginStatus | None = None) -> str:
     readable = "filesystem.read" in role.capabilities
     writable = "filesystem.write" in role.capabilities
     shell = "shell" in role.capabilities
     safe_shell = shell and role.write_policy != "deny"
+    if target == "pi":
+        tools = ["read", "grep", "find", "ls"] if readable else []
+        if writable and role.write_policy != "deny":
+            tools.extend(["edit", "write"])
+        if safe_shell:
+            tools.append("bash")
+        if pi_status and pi_status.has_web and "web.read" in role.capabilities:
+            tools.extend(["web_search", "fetch_url"])
+        if pi_status and pi_status.subagent_package == "pi-subagents" and role.delegation:
+            tools.append("subagent")
+        return ", ".join(tools)
     if target == "claude":
         tools: list[str] = []
         if readable:
@@ -67,7 +79,8 @@ def _tools(role: RoleDefinition, target: str) -> str:
     return json.dumps(list(dict.fromkeys(tools)))
 
 
-def _render_agent(target: str, role: RoleDefinition, profile: TargetProfile, preset_name: str) -> str:
+def _render_agent(target: str, role: RoleDefinition, profile: TargetProfile, preset_name: str,
+                  pi_status: PiPluginStatus | None = None) -> str:
     # VERIFY: Exercise model-backed native agent discovery when a noninteractive
     # validator can select an exact custom agent without silently falling back.
     model, effort = _mapped_role(profile, preset_name, role)
@@ -107,13 +120,26 @@ def _render_agent(target: str, role: RoleDefinition, profile: TargetProfile, pre
         )
     else:
         instructions += "- Do not delegate to another agent.\n"
-    if target in {"claude", "antigravity"} and role.write_policy == "deny" and "shell" in role.capabilities:
+    if target in {"claude", "antigravity", "pi"} and role.write_policy == "deny" and "shell" in role.capabilities:
         instructions += (
             "- Native shell access is omitted because this target cannot guarantee "
             "a non-mutating shell for this read-only role; ask the coordinator to run "
             "required commands.\n"
         )
-    if target == "antigravity" and profile.supports_worktree_isolation:
+    if target == "pi":
+        if profile.supports_worktree_isolation and pi_status and pi_status.has_worktree:
+            instructions += (
+                "- The declared standard Pi subagent plugin supports `worktree: true` "
+                "according to its reviewed contract. Request it for overlapping parallel "
+                "writers only after verifying the installed plugin version, loading, and "
+                "child isolation behavior; otherwise use file-disjoint ownership.\n"
+            )
+        else:
+            instructions += (
+                "- Pi child-agent worktree isolation is unconfirmed in this rendering; "
+                "use file-disjoint ownership for parallel writers.\n"
+            )
+    elif target == "antigravity" and profile.supports_worktree_isolation:
         instructions += (
             "- Antigravity supports worktree isolation; select its `branch` workspace "
             "option when parallel writer scopes are not file-disjoint.\n"
@@ -132,6 +158,29 @@ def _render_agent(target: str, role: RoleDefinition, profile: TargetProfile, pre
             f"- The `{target}` target does not support worktree isolation; use "
             "file-disjoint ownership for parallel writers.\n"
         )
+    if target == "pi":
+        instructions += (
+            "- Pi tools are a requested allowlist, not an OS sandbox. MCP tools may "
+            "remain available independently; configure `--no-mcp` or "
+            "`--exclude-tools 'mcp__*'` when starting Pi and verify child plugin "
+            "behavior before relying on read-only isolation. Codemode is not an OS sandbox.\n"
+            "- Static declarations do not prove plugin installation or runtime tools. "
+            "Verify the selected plugin, model, and project trust before delegation.\n"
+        )
+        if pi_status and pi_status.subagent_package == "pi-agents-flow" and role.delegation:
+            instructions += (
+                "- pi-agents-flow delegation tool names are unconfirmed by this adapter; "
+                "verify its registered workflow tools and configure the coordinator "
+                "allowlist manually before delegating. No guessed delegation tool is emitted.\n"
+            )
+        template = asset_text("templates", "agents", "pi.md.tpl")
+        return render_template(template, {
+            "role_id": role.role_id,
+            "description": json.dumps(description, ensure_ascii=False),
+            "model": json.dumps(model + (f":{effort}" if effort else "")),
+            "tools": _tools(role, target, pi_status),
+            "instructions": instructions,
+        })
     if target == "codex":
         template = asset_text("templates", "agents", "codex.toml.tpl")
         return render_template(template, {
@@ -195,6 +244,7 @@ def render_target(
     root: Path,
     model_preset: str | None = None,
     scope: str = "project",
+    pi_status: PiPluginStatus | None = None,
 ) -> dict[PurePosixPath, str]:
     if target not in config.enabled_targets:
         raise ValidationFailure([Diagnostic("target", f"{target} is not enabled", code="disabled")])
@@ -220,7 +270,7 @@ def render_target(
         else:
             suffix = ".toml" if target == "codex" else ".md"
             relative = PurePosixPath(agent_destination, f"{role.role_id}{suffix}")
-        output[relative] = _render_agent(target, role, profile, preset_name)
+        output[relative] = _render_agent(target, role, profile, preset_name, pi_status)
     for skill_id, content in load_skills(config, root):
         relative = PurePosixPath(skill_destination, skill_id, "SKILL.md")
         output[relative] = content

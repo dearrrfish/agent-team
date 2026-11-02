@@ -30,6 +30,7 @@ codex = "builtin:codex"
 claude = "builtin:claude"
 # Target profile reference: builtin target or a relative TOML file.
 antigravity = "builtin:antigravity"
+pi = "builtin:pi"
 
 [workflow]
 # Project-relative directory containing run artifacts.

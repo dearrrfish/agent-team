@@ -39,7 +39,8 @@ class RoleHarnessContractsTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        self.config = parse_team_config(tomllib.loads(DEFAULT_TEAM_TOML), self.root)
+        self.config = replace(parse_team_config(tomllib.loads(DEFAULT_TEAM_TOML), self.root),
+                              enabled_targets=TARGETS)
 
     def reviewed_run(self, verdict: str, slug: str) -> tuple[Path, TeamConfig]:
         config = replace(self.config, tiers={
@@ -122,6 +123,9 @@ report = "reports/T-001-explorer.md"
                         self.assertEqual("plan", header["permissionMode"])
                         self.assertEqual(role.max_turns, int(header["maxTurns"]))
                         self.assertTrue({"Write", "Edit", "Bash", "Agent"}.isdisjoint(
+                            header["tools"].split(", ")))
+                    elif target == "pi":
+                        self.assertTrue({"write", "edit", "bash", "subagent"}.isdisjoint(
                             header["tools"].split(", ")))
                     else:
                         self.assertTrue({"write_to_file", "replace_file_content", "run_command",
