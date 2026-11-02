@@ -89,6 +89,43 @@ class RecoveryTests(unittest.TestCase):
         self.assertIsNone(selected)
         self.assertTrue(notices)
 
+    def test_cli_fallback_is_not_used_for_session_only_selection(self):
+        self.create_run()
+        bound = self.runner(
+            self.root, "resume", "bind", "--slug", "first",
+            environment_overrides={"AGENT_TEAM_SESSION_ID": ""},
+        )
+        self.assertEqual(bound.returncode, 0, bound.stderr)
+        self.create_run("second")
+        candidates = discover_runs(self.root, self.config)
+        selected, notices = select_run(candidates, self.root, session_id="unbound")
+        self.assertEqual(selected.slug, "first")
+        self.assertFalse(notices)
+        selected, notices = select_run(
+            candidates, self.root, session_id="unbound", session_only=True,
+        )
+        self.assertIsNone(selected)
+        self.assertFalse(notices)
+
+        # With no project pointer, the CLI still falls back to a single active
+        # run; hooks do not.
+        (self.root / ".agent-team/sessions/current.json").unlink()
+        (self.root / ".agent-team/runs/second/run.toml").write_text(
+            (self.root / ".agent-team/runs/second/run.toml").read_text(
+                encoding="utf-8"
+            ).replace('status = "discovery"', 'status = "complete"'),
+            encoding="utf-8",
+        )
+        candidates = discover_runs(self.root, self.config)
+        selected, notices = select_run(candidates, self.root, session_id="unbound")
+        self.assertEqual(selected.slug, "first")
+        self.assertFalse(notices)
+        selected, notices = select_run(
+            candidates, self.root, session_id="unbound", session_only=True,
+        )
+        self.assertIsNone(selected)
+        self.assertFalse(notices)
+
     def test_symlink_run_cannot_escape(self):
         with tempfile.TemporaryDirectory() as other:
             run_root = self.root / ".agent-team" / "runs"

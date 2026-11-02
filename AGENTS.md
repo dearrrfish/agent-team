@@ -59,8 +59,10 @@ the effective configuration in `.agent-team/team.toml` and user defaults.
 - A `running` task without a valid lease is `unknown`; do not write to its
   `owned_paths` until ownership is confirmed. Leases do not prove liveness.
 - Claude hooks are optional and installed only by explicit
-  `agent-team resume hooks --install --apply`. Codex and Antigravity recovery is
-  explicit. See [docs/recovery.md](docs/recovery.md).
+  `agent-team resume hooks --install --apply`. They act only on a session
+  explicitly bound with `agent-team resume bind --slug <slug> --session-id ID`;
+  unbound sessions are ignored. Codex and Antigravity recovery is explicit. See
+  [docs/recovery.md](docs/recovery.md).
 
 ## Roles and Delegation
 

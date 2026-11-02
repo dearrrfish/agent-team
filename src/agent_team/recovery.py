@@ -96,7 +96,7 @@ def discover_runs(root: Path, config: TeamConfig) -> list[RunCandidate]:
 
 def select_run(
     candidates: list[RunCandidate], root: Path, *, slug: str | None = None,
-    session_id: str | None = None,
+    session_id: str | None = None, session_only: bool = False,
 ) -> tuple[RunCandidate | None, list[str]]:
     if slug is not None:
         if not _SLUG.fullmatch(slug):
@@ -110,7 +110,7 @@ def select_run(
     notices: list[str] = []
     session_id = session_id or os.environ.get("AGENT_TEAM_SESSION_ID")
     names = ([hashlib.sha256(session_id.encode()).hexdigest()[:16] + ".json"]
-             if session_id else []) + ["current.json"]
+             if session_id else []) + ([] if session_only else ["current.json"])
     for name in names:
         pointer = root / ".agent-team" / "sessions" / name
         if not _inside(pointer.resolve(), root):
@@ -133,6 +133,10 @@ def select_run(
             return selected, notices
         except (OSError, ValueError, TypeError) as exc:
             notices.append(f"ignored invalid pointer {name}: {exc}")
+    if session_only:
+        # Hooks must not adopt a session through the project fallback. A missing
+        # per-session pointer is a normal "not managed by agent-team" state.
+        return None, notices
     return (active[0] if len(active) == 1 else None), notices
 
 

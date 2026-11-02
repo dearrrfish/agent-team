@@ -465,9 +465,12 @@ def run_hook(action: str, fail_closed: bool = False) -> int:
         candidates = discover_runs(root, config)
         if global_antigravity and not candidates:
             return 0
-        candidate, notices = select_run(candidates, root, session_id=session)
+        candidate, notices = select_run(candidates, root, session_id=session, session_only=True)
         if candidate is None:
-            fail("no unambiguous active run; use agent-team resume status and bind --slug")
+            if notices:
+                fail("invalid session binding: " + "; ".join(notices))
+            # Unbound sessions are not managed by agent-team; stay silent.
+            return 0
         status = recovery_status(candidate, root, config)
         if action == "precompact":
             snapshot = candidate.path.parent / "recovery" / "snapshot.json"

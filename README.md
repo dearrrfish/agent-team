@@ -420,7 +420,8 @@ agent-team doctor [--format text|json]
 时返回退出码 3，使用 `--slug` 明确选择。`status --json` 输出完整候选及诊断，
 `context` 输出不超过 9000 字符的摘要。配置漂移会被报告；未知 worker 需要先对账再
 恢复写入。使用 `resume bind --slug SLUG [--session-id ID]` 显式绑定活动 run；省略 session ID
-且没有 `AGENT_TEAM_SESSION_ID` 时绑定项目默认指针。
+且没有 `AGENT_TEAM_SESSION_ID` 时绑定项目默认指针。`current.json` 只供 CLI 回退使用；
+`PreCompact`/`SessionStart` hook 只认 `--session-id` 写入的会话指针，未绑定会话会被忽略。
 旧 run 的验证证据显示为 `unbound`，继续前应重跑适用检查。
 
 可选 Claude compact hooks：

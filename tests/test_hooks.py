@@ -1,3 +1,4 @@
+import hashlib
 import io
 import json
 import os
@@ -14,6 +15,7 @@ from agent_team.hooks import (
     invocation_prefix,
     manage_hooks,
 )
+from agent_team.recovery import discover_runs, select_run
 from tests import test_recovery
 
 
@@ -44,6 +46,9 @@ class HookTests(unittest.TestCase):
 
     def test_generated_commands_receive_real_stdin(self):
         self.create_run()
+        bound = self.runner(self.root, "resume", "bind", "--slug", "first",
+                            "--session-id", "private-session")
+        self.assertEqual(bound.returncode, 0, bound.stderr)
         groups = hook_groups(invocation="interpreter")
         payload = {"session_id": "private-session", "cwd": str(self.root), "hook_event_name": "PreCompact"}
         environment = os.environ.copy()
@@ -63,7 +68,98 @@ class HookTests(unittest.TestCase):
         self.assertNotIn("private-session", next(sessions.glob("*.json")).read_text())
         self.assertTrue((self.root / ".agent-team/runs/first/recovery/snapshot.json").exists())
 
-    def test_error_exit_codes_and_session_fallback(self):
+    def run_hook_payload(self, action, payload):
+        groups = hook_groups(invocation="interpreter")
+        event = "PreCompact" if action == "precompact" else "SessionStart"
+        command = groups[event][0]["hooks"][0]["command"]
+        environment = os.environ.copy()
+        environment["HOME"] = str(self.root / "isolated-home")
+        return subprocess.run(
+            command,
+            shell=True,
+            check=False,
+            cwd=self.root,
+            env=environment,
+            input=json.dumps(payload),
+            text=True,
+            capture_output=True,
+        )
+
+    def test_hooks_ignore_unbound_sessions(self):
+        self.create_run()
+        snapshot = self.root / ".agent-team/runs/first/recovery/snapshot.json"
+        sessions = self.root / ".agent-team/sessions"
+        payload = {"session_id": "unbound", "cwd": str(self.root)}
+        for action, event in (("precompact", "PreCompact"), ("session-start", "SessionStart")):
+            result = self.run_hook_payload(action, {**payload, "hook_event_name": event})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "")
+        self.assertFalse(snapshot.exists())
+        self.assertFalse(sessions.exists() and list(sessions.iterdir()))
+
+        # A project-level pointer is a CLI fallback, not a hook binding.
+        bound = self.runner(
+            self.root, "resume", "bind", "--slug", "first",
+            environment_overrides={"AGENT_TEAM_SESSION_ID": ""},
+        )
+        self.assertEqual(bound.returncode, 0, bound.stderr)
+        self.assertTrue((sessions / "current.json").exists())
+        for action, event in (("precompact", "PreCompact"), ("session-start", "SessionStart")):
+            result = self.run_hook_payload(action, {**payload, "hook_event_name": event})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "")
+        self.assertFalse(snapshot.exists())
+
+    def test_session_binding_overwrites_previous_run(self):
+        self.create_run()
+        self.create_run("second")
+        for slug in ("first", "second"):
+            bound = self.runner(self.root, "resume", "bind", "--slug", slug,
+                                "--session-id", "same")
+            self.assertEqual(bound.returncode, 0, bound.stderr)
+        selected, notices = select_run(
+            discover_runs(self.root, self.config), self.root,
+            session_id="same", session_only=True,
+        )
+        self.assertEqual(selected.slug, "second")
+        self.assertFalse(notices)
+
+        result = self.run_hook_payload(
+            "session-start",
+            {"session_id": "same", "cwd": str(self.root),
+             "hook_event_name": "SessionStart"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Run: second", context)
+        self.assertNotIn("Run: first", context)
+
+    def test_invalid_session_binding_is_reported(self):
+        self.create_run()
+        sessions = self.root / ".agent-team" / "sessions"
+        sessions.mkdir()
+        digest = hashlib.sha256(b"broken").hexdigest()[:16]
+        (sessions / f"{digest}.json").write_text(json.dumps({
+            "session_id_hash": digest,
+            "project_root": str(self.root),
+            "run_slug": "missing",
+            "run_path": ".agent-team/runs/missing",
+        }))
+        payload = {"session_id": "broken", "cwd": str(self.root)}
+        result = self.run_hook_payload(
+            "precompact", {**payload, "hook_event_name": "PreCompact"},
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("invalid session binding", result.stderr)
+        result = self.run_hook_payload(
+            "session-start", {**payload, "hook_event_name": "SessionStart"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("恢复失败", context)
+        self.assertIn("invalid session binding", context)
+
+    def test_error_exit_codes(self):
         for action, extra, code in (("precompact", [], 1),
                                     ("precompact", ["--fail-closed"], 2),
                                     ("session-start", [], 0),
@@ -315,6 +411,9 @@ class HookTests(unittest.TestCase):
 
     def test_codex_payload_field_compatibility(self):
         self.create_run()
+        bound = self.runner(self.root, "resume", "bind", "--slug", "first",
+                            "--session-id", "codex-thread")
+        self.assertEqual(bound.returncode, 0, bound.stderr)
         for payload in ({"hookEventName": "SessionStart", "threadId": "codex-thread", "cwd": str(self.root)},
                         {"hook_event_name": "SessionStart", "session_id": "codex-thread", "cwd": str(self.root)}):
             result = subprocess.run(
@@ -401,6 +500,9 @@ class HookTests(unittest.TestCase):
 
     def test_antigravity_global_payload_injects_steps_and_stays_silent(self):
         self.create_run()
+        bound = self.runner(self.root, "resume", "bind", "--slug", "first",
+                            "--session-id", "agy-global")
+        self.assertEqual(bound.returncode, 0, bound.stderr)
         config_dir = self.root / "home" / ".gemini" / "config"
         config_dir.mkdir(parents=True)
         environment = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parent.parent / "src"),
@@ -427,6 +529,9 @@ class HookTests(unittest.TestCase):
 
     def test_antigravity_payload_injects_steps(self):
         self.create_run()
+        bound = self.runner(self.root, "resume", "bind", "--slug", "first",
+                            "--session-id", "agy-conversation")
+        self.assertEqual(bound.returncode, 0, bound.stderr)
         hooks_dir = self.root / ".agents"
         hooks_dir.mkdir()
         payload = {"conversationId": "agy-conversation", "workspacePaths": [str(self.root)],

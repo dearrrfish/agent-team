@@ -17,10 +17,26 @@ agent-team resume context --slug SLUG   # bounded recovery summary (<= 9000 char
 agent-team resume bind --slug SLUG [--session-id ID]
 ```
 
-Selection order is: explicit `--slug`, then the session pointer, then the
-project-level `current.json`, then a single active run. If several active runs
-exist and no valid pointer names one, `resume` prints candidates and exits `3`
-instead of guessing. Exit code `2` means bad input or an unreadable run.
+Selection order for `resume` is: explicit `--slug`, then the session pointer,
+then the project-level `current.json`, then a single active run. If several
+active runs exist and no valid pointer names one, `resume` prints candidates and
+exits `3` instead of guessing. Exit code `2` means bad input or an unreadable
+run.
+
+Hooks are stricter: `PreCompact` and `SessionStart` use only the per-session
+pointer. They never read `current.json` and never fall back to a single active
+run. A session with no per-session pointer is treated as "not managed by
+agent-team" and receives no snapshot or injected context. A pointer that exists
+but is invalid (wrong project, run, path, or a terminal/missing run) is reported:
+`PreCompact` exits `1` (`2` with `--fail-closed`) and `SessionStart` injects a
+warning. Bind a session explicitly before relying on hooks:
+
+```console
+agent-team resume bind --slug SLUG --session-id ID
+```
+
+`bind` without `--session-id` (and without `AGENT_TEAM_SESSION_ID`) writes the
+project-level `current.json` used by the CLI, not a hook binding.
 
 The summary reports run identity, baseline and current revision, workspace
 fingerprints, evidence state, open gates, config drift, workers, and one concrete
@@ -37,7 +53,7 @@ Pointers live under `.agent-team/sessions/`: `<sha256(session_id)[:16]>.json` an
 `current.json`. They store the run slug, project-relative run path, project root,
 timestamp, and baseline revision. The raw session id is not stored. A pointer is
 ignored when its project root, session hash, run path, or run identity does not
-match.
+match. `current.json` is a CLI fallback only; hooks require the per-session file.
 
 ## Evidence
 
@@ -131,15 +147,15 @@ it; reconcile it manually.
 
 | Event | Action |
 | --- | --- |
-| `PreCompact` (`manual\|auto`) | Writes `recovery/snapshot.json` and binds the session to the selected run |
-| `SessionStart` (`compact`) | Reads run files and emits `additionalContext` with the bounded summary |
+| `PreCompact` (`manual\|auto`) | For a session already bound to a run, writes `recovery/snapshot.json` and refreshes the binding. Unbound sessions are ignored. |
+| `SessionStart` (`compact`) | For a bound session, reads run files and emits `additionalContext` with the bounded summary. Unbound sessions emit nothing. |
 
 Exit codes are deliberate:
 
 - `precompact` fails with `1` by default, which does not block compaction. With
   `--fail-closed` it fails with `2`, which blocks compaction.
-- `session-start` always exits `0`, including for bad input, no candidate, or
-  multiple candidates; it injects a warning and tells the operator to check
+- `session-start` always exits `0`. Unbound sessions emit nothing; bad input,
+  invalid pointers, or unreadable runs inject a warning that points at
   `resume status --json`.
 
 ### Invocation resolution and NixOS / Nix safety
@@ -209,12 +225,13 @@ from the other clients in three ways:
   `{"injectSteps": [{"systemMessage": {"systemMessage": "..."}}]}`.
 
 Antigravity has no `PreCompact` event, so no snapshot or session binding happens
-in the hook. Recovery context is injected on `SessionStart` only; bind the run
-with `agent-team resume bind --slug SLUG` (or rely on a single active run).
-Antigravity also launches project hook commands with the working directory set
-to the `hooks.json` directory (`<project>/.agents`), so `resume hook` resolves
-the project from the payload's `workspacePaths` and requires the hook process to
-have been started from inside that workspace.
+in the hook. Recovery context is injected on `SessionStart` only, and only for a
+session explicitly bound with `agent-team resume bind --slug SLUG --session-id
+ID`. Unbound sessions are ignored. Antigravity also launches project hook
+commands with the working directory set to the `hooks.json` directory
+(`<project>/.agents`), so `resume hook` resolves the project from the payload's
+`workspacePaths` and requires the hook process to have been started from inside
+that workspace.
 
 #### User scope
 
@@ -296,7 +313,7 @@ reinstall or remove.
 
 | Client | Hook support | Key events & triggers | Recovery mechanism in `agent-team` |
 | --- | --- | --- | --- |
-| **Claude Code** | **Supported** | `PreCompact` (`manual\|auto`), `SessionStart` (`compact`) | Automated snapshot via `PreCompact`; automatic context injection via `SessionStart` `additionalContext`. |
+| **Claude Code** | **Supported** | `PreCompact` (`manual\|auto`), `SessionStart` (`compact`) | For a session bound to a run, automated snapshot via `PreCompact` and context injection via `SessionStart` `additionalContext`; unbound sessions are ignored. |
 | **OpenAI Codex CLI** | **Supported, validated** (`.codex/hooks.json`) | `PreCompact`, `PostCompact`, `SessionStart`, `SessionEnd`, `PreToolUse` | `agent-team resume hooks --target codex` generates native hooks; hook payloads from Codex are accepted by `resume hook`. Validated with v0.164.0. |
 | **Google Antigravity CLI (`agy`)** | **Supported, validated** (`.agents/hooks.json`, `~/.gemini/config/hooks.json`) | `SessionStart`, `PreInvocation`, `PostInvocation`, `PreToolUse`, `PostToolUse`, `Stop` | `agent-team resume hooks --target antigravity [--scope user]` generates a namespace-scoped `SessionStart` handler that emits `injectSteps`. No `PreCompact` equivalent, so no automatic snapshot. Validated with `agy --print` and the interactive TUI on 2026-11-01. |
 | **Cursor / Windsurf / Aider** | **Not available** | None | No external command-hook protocol exposed. Recovery is explicit: run `agent-team resume` after compaction. |
@@ -311,6 +328,12 @@ explicit there.
 
 - **`resume` exits `3`**: several active runs. Run `resume status --json`, then
   `resume bind --slug SLUG` or pass `--slug`.
+- **Hooks do nothing**: the session has no per-session binding. `current.json`
+  and a single active run are not hook fallbacks. Bind with `resume bind --slug
+  SLUG --session-id ID` (in Claude Code, `--session-id
+  "$CLAUDE_CODE_SESSION_ID"`).
+- **Hooks warn `invalid session binding`**: the per-session pointer exists but
+  its project, run, path, or run identity no longer matches. Rebind the session.
 - **Pointer ignored**: the warning names the pointer. Check that the project
   root, session id, run path, and run slug still match.
 - **Evidence `unbound`**: the workspace changed during the check or the identity
@@ -333,14 +356,16 @@ each step; a step that was not observed is `not run`, not passed.
    and `.agent-team/hooks-state.json`.
 3. Start a fresh Claude Code session in that project; confirm the hooks are
    loaded (`/hooks`).
-4. Bind: `agent-team resume bind --slug compact-check`.
+4. Bind: `agent-team resume bind --slug compact-check --session-id
+   "$CLAUDE_CODE_SESSION_ID"`. The hook only uses this per-session pointer.
 5. Trigger a manual compact (`/compact`) and record whether `PreCompact` wrote
    `recovery/snapshot.json` and refreshed the pointer.
 6. After compaction, record whether `SessionStart` injected the summary: check
    that the model can state the run slug, open gates, evidence state, and next
    action without rereading the manifest.
 7. Repeat with an automatic compaction in a long session, if practical.
-8. Failure cases: remove the pointer and confirm the warning path; create two
+8. Failure cases: remove the per-session pointer and confirm the hook stays
+   silent; write an invalid pointer and confirm the warning path; create two
    active runs and confirm no silent selection.
 9. Uninstall: `agent-team resume hooks --remove --apply`; confirm existing hooks
    and unrelated settings are unchanged.

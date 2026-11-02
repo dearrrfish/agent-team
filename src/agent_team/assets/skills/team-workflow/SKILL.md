@@ -51,4 +51,6 @@ side effects, and treat partial output as unfinished. Only evidence reported as
 `agent-team run verify`. A `running` task without a valid lease is `unknown`:
 confirm ownership before writing to its paths, since a lease does not prove the
 worker is alive. Claude hooks are optional; recovery on other clients is
-explicit. See `docs/recovery.md`.
+explicit. Hooks only act on a session explicitly bound with `agent-team resume
+bind --slug <slug> --session-id <id>`; unbound sessions are ignored. See
+`docs/recovery.md`.
