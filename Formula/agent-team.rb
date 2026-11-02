@@ -3,8 +3,8 @@ class AgentTeam < Formula
 
   desc "Portable native agent-team workflow generator"
   homepage "https://github.com/dearrrfish/agent-team"
-  url "https://github.com/dearrrfish/agent-team/archive/refs/tags/v0.4.1.tar.gz"
-  sha256 "5c39122d28ab354e8ffb653df73ae7f70b07f5365bd469fcd23de0f120463f59"
+  url "https://github.com/dearrrfish/agent-team/archive/refs/tags/v0.5.0.tar.gz"
+  sha256 "b64b2d40cd4fbe4a2cc320e35416f8980d32db966f673d6748d3fd73cdb2bd12"
   license "MIT"
   head "https://github.com/dearrrfish/agent-team.git", branch: "main"
 
