@@ -272,13 +272,19 @@ the very first launch of an untrusted project, the initial turn can run before
 the trust prompt is answered and before `.agents/hooks.json` is loaded, so that
 turn gets no injection; later sessions do.
 
-Validated end to end on 2026-11-01 with Antigravity CLI `agy` in both `--print`
-and interactive TUI modes:
+Validated end to end on 2026-11-01 and 2026-11-02 with Antigravity CLI `agy`
+1.4.8:
 
 - `--print`: the `SessionStart` handler ran with a real payload
   (`conversationId`, `workspacePaths`, `transcriptPath`), emitted `injectSteps`,
   and the model reported the injected `Run: <slug> | ...` line without reading
   any file.
+- Session binding validation (2026-11-02): an unbound session launched with
+  `agy --new-project` ran `SessionStart`, saw no per-session pointer, and exited
+  0 with empty stdout (no injection); once bound via
+  `agent-team resume bind --slug SLUG --session-id ID`, the exact matching
+  payload triggered `injectSteps` containing the recovery summary. Evidence:
+  `.agent-team/runs/hooks-session-binding/reports/antigravity-binding-validation.md`.
 - Interactive TUI (`--prompt-interactive` through a PTY, trusted project): the
   hook emitted `injectSteps`, and `transcript_full.jsonl` recorded a
   `SYSTEM_MESSAGE` step containing the recovery summary before the model's
