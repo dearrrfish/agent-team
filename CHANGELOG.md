@@ -6,6 +6,38 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-02
+
+### Added
+
+- Opt-in `pi` target support with zero-vendoring plugin preflight and pure Agent
+  Markdown rendering across all standard roles and workflow skills.
+- Graduated plugin installation gates for `pi`: hard blocking when subagent runners
+  (`pi-subagents` or `pi-agents-flow`) are missing, and explicit warnings with safe
+  strategy fallbacks when sandboxing or worktree isolation is unavailable.
+- Development-only isolated RPC validation harness (`tools/pi_validation.py`)
+  exercising the standard Pi `--mode rpc` protocol in disposable execution fixtures.
+- Cross-client hook support for Codex and Antigravity with active session binding
+  and state reconcile (`agent-team resume hooks`).
+- Structured JSON output for hook status queries (`resume hooks --status --json`).
+- Compact recovery entry points and evidence state checking (`agent-team resume`).
+- Hierarchical configuration inheritance without explicit project initialization
+  (`init` no longer strictly required for parent folder inheritance).
+- Anti-involution circuit breakers and human-first reporting rules embedded in
+  stock agent templates.
+
+### Changed
+
+- Default installation targets remain `codex,claude,antigravity`; `pi` is fully
+  supported as an opt-in installation target.
+- Documentation clarified for hook state paths, session binding requirements,
+  and multi-target recovery flows.
+
+### Fixed
+
+- Hook injection filtered strictly to runs bound to the active session ID,
+  preventing cross-session prompt pollution.
+
 ## [0.4.1] - 2026-10-13
 
 ### Changed
@@ -139,7 +171,8 @@ All notable changes to this project are documented here. The format follows
 - Claude Code and Antigravity read-only roles omit shell access because those
   clients cannot guarantee a non-mutating command boundary in every parent mode.
 
-[Unreleased]: https://github.com/dearrrfish/agent-team/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/dearrrfish/agent-team/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/dearrrfish/agent-team/releases/tag/v0.5.0
 [0.4.1]: https://github.com/dearrrfish/agent-team/releases/tag/v0.4.1
 [0.4.0]: https://github.com/dearrrfish/agent-team/releases/tag/v0.4.0
 [0.3.0]: https://github.com/dearrrfish/agent-team/releases/tag/v0.3.0
