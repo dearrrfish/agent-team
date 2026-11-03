@@ -14,7 +14,12 @@ from unittest.mock import patch
 
 from agent_team.adapters import render_target
 from agent_team.cli import _doctor, _install
-from agent_team.config import DEFAULT_TEAM_TOML, load_team_config, parse_team_config, resolve_target_profile
+from agent_team.config import (
+    DEFAULT_TEAM_TOML,
+    load_team_config,
+    parse_team_config,
+    resolve_target_profile,
+)
 from agent_team.config_editor import select_targets
 from agent_team.diagnostics import ValidationFailure
 from agent_team.models import TARGETS

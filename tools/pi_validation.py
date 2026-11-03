@@ -5,7 +5,6 @@ import argparse
 import json
 import math
 import os
-from pathlib import Path
 import selectors
 import shutil
 import subprocess
@@ -13,6 +12,7 @@ import tempfile
 import threading
 import time
 import uuid
+from pathlib import Path
 
 
 class RpcError(RuntimeError):

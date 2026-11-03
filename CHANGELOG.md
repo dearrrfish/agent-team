@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-02
+
+### Fixed
+
+- Resolved Ruff import sorting and syntax checks in `checkPhase` to allow clean Nix
+  builds and profile upgrades.
+- Added explicit `[tool.ruff]` configuration to `pyproject.toml`.
+
 ## [0.5.0] - 2026-11-02
 
 ### Added
@@ -171,7 +179,8 @@ All notable changes to this project are documented here. The format follows
 - Claude Code and Antigravity read-only roles omit shell access because those
   clients cannot guarantee a non-mutating command boundary in every parent mode.
 
-[Unreleased]: https://github.com/dearrrfish/agent-team/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/dearrrfish/agent-team/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/dearrrfish/agent-team/releases/tag/v0.5.1
 [0.5.0]: https://github.com/dearrrfish/agent-team/releases/tag/v0.5.0
 [0.4.1]: https://github.com/dearrrfish/agent-team/releases/tag/v0.4.1
 [0.4.0]: https://github.com/dearrrfish/agent-team/releases/tag/v0.4.0

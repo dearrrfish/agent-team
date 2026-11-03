@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import sys
 import tempfile
 import textwrap
+import threading
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from tools.pi_validation import RpcClient, RpcError, isolated_environment, main, smoke
@@ -58,7 +59,6 @@ class PiValidationTests(unittest.TestCase):
         # must still reach EOF rather than stopping at the process boundary.
         original_join = client._reader.join
         original_read = os.read
-        import threading
         tail_read = threading.Event()
         release = threading.Event()
         stdout_fd = client.process.stdout.fileno()
@@ -193,9 +193,9 @@ class PiValidationTests(unittest.TestCase):
         self.assert_closed(client)
 
     def test_bounded_output_and_record_count(self):
-        for options, output in ((dict(max_bytes=2048), "os.write(2, b'x' * 200000)"),
-                                (dict(max_bytes=2048), "os.write(1, b'x' * 200000)"),
-                                (dict(max_records=2),
+        for options, output in (({"max_bytes": 2048}, "os.write(2, b'x' * 200000)"),
+                                ({"max_bytes": 2048}, "os.write(1, b'x' * 200000)"),
+                                ({"max_records": 2},
                                  "[emit(dict(type='progress')) for _ in range(20)]")):
             with self.subTest(options=options, output=output):
                 client = self.client("sys.stdin.buffer.readline()\n" + output, **options)

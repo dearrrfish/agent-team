@@ -2,8 +2,8 @@ import io
 import json
 import os
 import tempfile
-from pathlib import Path
 import unittest
+from pathlib import Path
 from typing import Self
 from unittest.mock import patch
 
