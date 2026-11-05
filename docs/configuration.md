@@ -424,10 +424,14 @@ directory. SDK-only agentDir overrides are not visible to this command.
 
 The scanner recognizes exact npm identities `pi-subagents`, `pi-agents-flow`,
 `pi-web-access`, and `@tylerho/pi-worktree`, optionally followed by `@version`
-or a tag. Similar names, git packages, local paths, and custom extensions are
-unconfirmed. No package code is loaded or executed. Package strings and objects
-with a `source` are supported. A project entry of the same npm name replaces the
-user declaration, including resource filters. A project `autoload: false` entry
+or a tag. It also recognizes direct `/nix/store` package directories when their
+`package.json` declares one of those exact names and a nonempty `pi.extensions`
+list of existing files inside the package. This is metadata evidence, not proof
+of package provenance or behavior. Similar names, git packages, other local
+paths, and custom extensions are unconfirmed. No package code is loaded or
+executed. Package strings and objects with a `source` are supported. A project
+entry of the same npm name or the same local path replaces the user declaration,
+including resource filters. A project `autoload: false` entry
 only narrows an existing user declaration and never introduces a package.
 
 An omitted package `extensions` property permits its declared extensions;
@@ -441,8 +445,9 @@ entries do not prove web access. Malformed JSON or resource types fail with
 manual installation commands. Prefer a standard unfiltered declaration, or use
 `render` for manual integration of custom plugins.
 
-This preflight confirms configuration clues only. It does not inspect installed
-package contents, resolve dependencies, verify plugin versions, grant project
+This preflight confirms configuration clues only. Apart from inspecting Nix
+package manifests and extension file existence, it does not inspect package code,
+resolve dependencies, verify plugin versions, grant project
 trust, or prove runtime availability. Verify actual agent discovery and tool
 registration in your Pi session before delegation. `render --target pi` remains
 offline and deterministic: it does not scan settings and omits all unconfirmed

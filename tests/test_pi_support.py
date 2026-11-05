@@ -109,6 +109,29 @@ class PiSupportTests(unittest.TestCase):
         self.assertFalse(status.has_worktree)
         self.assertTrue(any(d.code == "pi-custom-package" for d in status.diagnostics))
 
+    def test_nix_store_manifest_and_resource_filters(self):
+        store = self.root / "store"
+        package = store / "hash-pi-subagents-1"
+        package.mkdir(parents=True)
+        (package / "index.js").write_text("throw new Error('not executed')", encoding="utf-8")
+        manifest = package / "package.json"
+        manifest.write_text(json.dumps({"name": "pi-subagents", "pi": {"extensions": ["./index.js"]}}), encoding="utf-8")
+        with patch("agent_team.pi_plugins._NIX_STORE", store):
+            self.settings([str(package)])
+            self.assertTrue(scan_pi_plugins(self.project).has_subagent)
+            self.settings([{"source": str(package), "extensions": []}], project=True)
+            self.assertFalse(scan_pi_plugins(self.project).has_subagent)
+            self.settings(["npm:pi-subagents"], project=True)
+            self.assertTrue(scan_pi_plugins(self.project).has_subagent)
+            for value in ({"name": "pi-subagents-malicious", "pi": {"extensions": ["index.js"]}},
+                          {"name": "pi-subagents", "pi": {"extensions": ["missing.js"]}},
+                          {"name": "pi-subagents", "pi": {"extensions": ["../escape.js"]}},
+                          {"name": "pi-subagents"}):
+                manifest.write_text(json.dumps(value), encoding="utf-8")
+                self.assertFalse(scan_pi_plugins(self.project, "user").has_subagent)
+            manifest.write_text("{", encoding="utf-8")
+            self.assertFalse(scan_pi_plugins(self.project, "user").has_subagent)
+
     def test_project_replacement_and_resource_filters(self):
         self.settings(["npm:pi-subagents@1", "npm:pi-web-access"])
         self.settings([{"source": "npm:pi-subagents@2", "extensions": []}], project=True)
