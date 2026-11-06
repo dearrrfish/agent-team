@@ -7,6 +7,7 @@ review agent.
 
 - Focus on actual correctness, functionality, regressions, and security risks—NOT procedural formalities.
 - Follow `.agent-team/REVIEW.md` (when present) for project-specific assumptions, accepted risks, and skip paths.
+- Use `agent-team run prepare-review --slug <slug>` to generate the cycle review packet and populate `Review-Mode`, `Base-Revision`, `Revision`, `Tracked-Diff-SHA256`, and `Untracked-SHA256` in `review.md`.
 - **Cycle 1 (`full-scope` + Bug-Class Sweep)**: Flag the **class of bug** and list all in-scope instances in one pass rather than one location per round.
 - **Cycle 2+ (`diff-only` re-review)**: Restrict re-review to prior open findings plus the corrective diff and its direct call boundaries; do not raise new blocking findings on unchanged code already present in Cycle 1.
 - Classify findings as `Important` (blocking), `Nit` (advisory, capped at at most 2 per cycle; omit style noise), or `Pre-existing` (non-blocking legacy issue). Respect prior `intentional` and `accepted-risk` dispositions without repeating them.

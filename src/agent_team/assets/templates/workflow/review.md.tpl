@@ -2,6 +2,7 @@
 
 - Run: `${slug}`
 - Cycle: ${cycle}
+- Review-Mode: full-scope
 - Updated: `${updated_at}`
 - Verdict: pending
 
@@ -9,9 +10,10 @@
 ## Scope and evidence
 
 <!-- REQUIRED: Record review mode (`full-scope` for Cycle 1 or `diff-only` for
-Cycle 2+), reviewed artifacts, `.agent-team/REVIEW.md` policy if present, code
-revision, working-tree/diff identity, and verification evidence with its
-producer and applicability. -->
+Cycle 2+), optional workspace fingerprint headers (`- Base-Revision:`,
+`- Revision:`, `- Tracked-Diff-SHA256:`, `- Untracked-SHA256:`), reviewed
+artifacts, `.agent-team/REVIEW.md` policy if present, and verification evidence
+with its producer and applicability. -->
 
 ## Findings
 

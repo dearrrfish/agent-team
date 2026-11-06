@@ -231,3 +231,93 @@ class RecoveryTests(unittest.TestCase):
         self.assertIn('re_review_mode = "full-scope"', updated_text)
         self.assertIn("nit_cap = 1", updated_text)
         self.assertIn('policy_file = "docs/REVIEW.md"', updated_text)
+
+    def test_prepare_review_and_review_binding_staleness(self):
+        def git(*args):
+            result = subprocess.run(["git", *args], check=False, cwd=self.root, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+        git("init")
+        git("config", "user.email", "test@example.invalid")
+        git("config", "user.name", "Test")
+        tracked = self.root / "src.txt"
+        tracked.write_text("v1\n", encoding="utf-8")
+        git("add", "src.txt")
+        git("-c", "commit.gpgsign=false", "commit", "-m", "baseline")
+
+        result = self.runner(self.root, "run", "init", "--slug", "team-run", "--tier", "team")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        tracked.write_text("v2\n", encoding="utf-8")
+
+        packet_json_res = self.runner(
+            self.root, "run", "prepare-review", "--slug", "team-run", "--format", "json"
+        )
+        self.assertEqual(packet_json_res.returncode, 0, packet_json_res.stderr)
+        packet = json.loads(packet_json_res.stdout)
+        self.assertEqual(packet["cycle"], 1)
+        self.assertEqual(packet["review_mode"], "full-scope")
+        self.assertTrue(packet["bug_class_sweep"])
+        self.assertIn("M\tsrc.txt", packet["changed_files"])
+
+        out_rel = Path(".agent-team/runs/team-run/reports/packet-c1.md")
+        packet_md_res = self.runner(
+            self.root,
+            "run",
+            "prepare-review",
+            "--slug",
+            "team-run",
+            "--output",
+            str(out_rel),
+        )
+        self.assertEqual(packet_md_res.returncode, 0, packet_md_res.stderr)
+        self.assertTrue((self.root / out_rel).is_file())
+        self.assertIn("## Recommended `review.md` Header Block", packet_md_res.stdout)
+
+        # Bind review.md to the current workspace fingerprint as approved Cycle 1
+        manifest_path = self.root / ".agent-team/runs/team-run/run.toml"
+        manifest_path.write_text(
+            manifest_path.read_text(encoding="utf-8")
+            .replace("used = 0", "used = 1")
+            .replace('verdict = "pending"', 'verdict = "approved"'),
+            encoding="utf-8",
+        )
+        review_path = self.root / ".agent-team/runs/team-run/review.md"
+        ws = packet["workspace"]
+        review_path.write_text(
+            f"# Review: team-run\n\n"
+            f"- Run: `team-run`\n"
+            f"- Cycle: 1\n"
+            f"- Review-Mode: full-scope\n"
+            f"- Base-Revision: {packet['base_revision']}\n"
+            f"- Revision: {ws['revision']}\n"
+            f"- Tracked-Diff-SHA256: {ws['tracked_diff_sha256']}\n"
+            f"- Untracked-SHA256: {ws['untracked_sha256']}\n"
+            f"- Updated: 2026-11-06T00:00:00Z\n"
+            f"- Verdict: approved\n\n"
+            f"## Scope and evidence\n\nReviewed v2.\n\n"
+            f"## Findings\n\n| ID | Severity / Category | Bug class & finding | Disposition & required fix |\n| --- | --- | --- | --- |\n| C1-F001 | low / Nit | minor | open |\n\n"
+            f"## Residual risks and gaps\n\nNone.\n",
+            encoding="utf-8",
+        )
+
+        config = load_team_config(self.root)
+        candidate = [c for c in discover_runs(self.root, config) if c.slug == "team-run"][0]
+        status_bound = recovery_status(candidate, self.root, config)
+        self.assertEqual(status_bound["review_binding"]["state"], "bound")
+
+        # Modify workspace after approval -> review_binding becomes stale
+        tracked.write_text("v3\n", encoding="utf-8")
+        status_stale = recovery_status(candidate, self.root, config)
+        self.assertEqual(status_stale["review_binding"]["state"], "stale")
+        self.assertIn("prepare-review", status_stale["next"])
+
+        # Prepare Cycle 2 packet -> automatically selects diff-only and includes prior findings
+        c2_res = self.runner(
+            self.root, "run", "prepare-review", "--slug", "team-run", "--format", "json"
+        )
+        self.assertEqual(c2_res.returncode, 0, c2_res.stderr)
+        c2_packet = json.loads(c2_res.stdout)
+        self.assertEqual(c2_packet["cycle"], 2)
+        self.assertEqual(c2_packet["review_mode"], "diff-only")
+        self.assertFalse(c2_packet["bug_class_sweep"])
+        self.assertIn("C1-F001", c2_packet["prior_findings"])

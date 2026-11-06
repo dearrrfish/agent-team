@@ -34,7 +34,7 @@ from agent_team.recovery import (
     render_context,
     select_run,
 )
-from agent_team.run_state import bind, lease_change, reconcile, verify
+from agent_team.run_state import bind, lease_change, prepare_review, reconcile, verify
 from agent_team.runs import init_run, load_run_model_preset, validate_all_runs
 from agent_team.templates import asset_text, load_prompt_templates
 
@@ -102,6 +102,15 @@ Examples:
     reconcile_command = run_commands.add_parser("reconcile", help="preview or apply effective run policy")
     reconcile_command.add_argument("--slug", required=True)
     reconcile_command.add_argument("--apply", action="store_true")
+    prepare_review_command = run_commands.add_parser(
+        "prepare-review",
+        help="assemble a workspace-bound review packet for the next or specified review cycle",
+    )
+    prepare_review_command.add_argument("--slug", required=True)
+    prepare_review_command.add_argument("--cycle", type=int)
+    prepare_review_command.add_argument("--base-revision")
+    prepare_review_command.add_argument("--format", choices=("markdown", "json"), default="markdown")
+    prepare_review_command.add_argument("--output", type=Path)
 
     resume = subcommands.add_parser(
         "resume", help="inspect durable runs without changing files",
@@ -783,6 +792,20 @@ def main(argv: list[str] | None = None) -> int:
                 return verify(root, config, args.slug, command, args.producer, args.cwd)
             if args.run_command == "reconcile":
                 print(reconcile(root, config, args.slug, args.apply) or "No policy changes.")
+                return 0
+            if args.run_command == "prepare-review":
+                print(
+                    prepare_review(
+                        root,
+                        config,
+                        args.slug,
+                        cycle=args.cycle,
+                        base_revision=args.base_revision,
+                        output_format=args.format,
+                        output_path=args.output,
+                    ),
+                    end="",
+                )
                 return 0
         if args.command == "resume":
             return _resume(root, args)

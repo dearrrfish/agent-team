@@ -298,6 +298,79 @@ def classify_evidence(manifest: dict[str, Any], workspace: dict[str, str]) -> li
     return classified
 
 
+def _extract_review_header(content: str, field: str) -> str | None:
+    matches = re.findall(rf"(?m)^- {re.escape(field)}: (.+?)[ \t]*$", content)
+    if len(matches) != 1:
+        return None
+    return matches[0].strip().strip("`")
+
+
+def _normalize_digest(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if value in {"", "clean", "none"}:
+        return ""
+    return value
+
+
+def classify_review_binding(
+    candidate: RunCandidate, workspace: dict[str, str],
+) -> dict[str, Any]:
+    manifest = candidate.manifest
+    review = manifest.get("review", {})
+    if not isinstance(review, dict):
+        return {"state": "not-applicable", "verdict": "unknown", "cycle": 0}
+    required = review.get("required") is True
+    used = review.get("used", 0) if isinstance(review.get("used"), int) else 0
+    verdict = str(review.get("verdict", "unknown"))
+    artifacts = manifest.get("artifacts", {})
+    review_rel = artifacts.get("review") if isinstance(artifacts, dict) else None
+    if not required and used == 0 and not review_rel:
+        return {"state": "not-applicable", "verdict": verdict, "cycle": used}
+    run_dir = candidate.path.parent
+    review_path = (run_dir / review_rel).resolve() if isinstance(review_rel, str) and review_rel else None
+    if review_path is None or not _inside(review_path, run_dir.resolve()) or not review_path.is_file():
+        return {"state": "unbound" if required or used > 0 else "not-applicable",
+                "verdict": verdict, "cycle": used}
+    try:
+        content = review_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return {"state": "unbound", "verdict": verdict, "cycle": used}
+    rev = _extract_review_header(content, "Revision")
+    base_rev = _extract_review_header(content, "Base-Revision")
+    mode = _extract_review_header(content, "Review-Mode")
+    tracked = _normalize_digest(_extract_review_header(content, "Tracked-Diff-SHA256"))
+    untracked = _normalize_digest(_extract_review_header(content, "Untracked-SHA256"))
+    result: dict[str, Any] = {
+        "state": "unbound",
+        "verdict": verdict,
+        "cycle": used,
+        "review_mode": mode,
+        "base_revision": base_rev,
+        "revision": rev,
+    }
+    if (
+        rev is None
+        or tracked is None
+        or untracked is None
+        or rev in {"pending", "unknown"}
+        or tracked in {"pending", "unknown", "dirty-unbounded"}
+        or untracked in {"pending", "unknown", "dirty-unbounded"}
+        or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", rev)
+        or not (tracked == "" or re.fullmatch(r"[0-9a-f]{64}", tracked))
+        or not (untracked == "" or re.fullmatch(r"[0-9a-f]{64}", untracked))
+        or any(value in {"unknown", "dirty-unbounded"} for value in workspace.values())
+    ):
+        return result
+    identity = {
+        "revision": rev,
+        "tracked_diff_sha256": tracked,
+        "untracked_sha256": untracked,
+    }
+    result["state"] = "bound" if identity == workspace else "stale"
+    return result
+
+
 def recovery_status(
     candidate: RunCandidate, root: Path, config: TeamConfig,
 ) -> dict[str, Any]:
@@ -309,6 +382,7 @@ def recovery_status(
     drift = config_drift(candidate, config)
     workspace = asdict(fingerprint_workspace(root))
     evidence = classify_evidence(manifest, workspace)
+    review_binding = classify_review_binding(candidate, workspace)
     unresolved = any(w["state"] in {"unknown", "live_unverified", "stale-lease"} for w in workers)
     if unresolved:
         next_step = "核实未闭合 worker 的所有权和执行状态，再恢复写操作。"
@@ -316,6 +390,8 @@ def recovery_status(
         next_step = "核对配置漂移；按计划确认策略后再继续，禁止自动改写 manifest。"
     elif any(record["state"] != "bound" for record in evidence):
         next_step = "重跑 failed、stale 或 unbound 的检查，重新绑定当前工作区证据。"
+    elif review_binding["state"] == "stale" and review_binding.get("verdict") == "approved":
+        next_step = "当前工作区相对已绑定的 review.md 已变更（stale）；请运行 prepare-review 并评估是否需要增量复审。"
     elif gates:
         next_step = f"读取 run 工件并完成首个未满足 gate：{gates[0]}。"
     elif manifest.get("status") in _TERMINAL:
@@ -324,7 +400,8 @@ def recovery_status(
         next_step = "读取 plan、decisions 和已完成报告，核对任务依赖后继续。"
     return {**candidate.to_dict(), "baseline_revision": manifest.get("git", {}).get("baseline_revision", "unknown"),
             "workspace": workspace, "workers": workers,
-            "open_gates": gates, "config_drift": drift, "evidence": evidence, "next": next_step}
+            "open_gates": gates, "config_drift": drift, "evidence": evidence,
+            "review_binding": review_binding, "next": next_step}
 
 
 def render_context(status: dict[str, Any], limit: int = 9000) -> str:

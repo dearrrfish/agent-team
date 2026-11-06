@@ -6,9 +6,14 @@ description: Run an independent read-only review with stable findings and a verd
 
 Use a fresh reviewer context with requirements, plan, decisions, reports, diff,
 verification evidence, prior findings/dispositions, and `.agent-team/REVIEW.md`
-(if present) for tracking. The reviewer must not author or fix the
-implementation. Record the reviewed revision and working-tree or diff identity,
-and identify who produced verification evidence.
+(if present) for tracking. Before dispatching `reviewer` (especially on
+read-only targets without shell access), run
+`agent-team run prepare-review --slug <slug>` to assemble the workspace-bound
+review packet (recommended `review.md` header block with `Review-Mode`,
+`Base-Revision`, `Revision`, `Tracked-Diff-SHA256`, and `Untracked-SHA256`,
+changed files, prior findings, and verification state). The reviewer must not
+author or fix the implementation. Record the reviewed revision and
+working-tree or diff identity, and identify who produced verification evidence.
 
 ## Convergence rules
 

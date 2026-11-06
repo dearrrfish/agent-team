@@ -79,6 +79,14 @@ rerun the applicable checks instead of assuming they still pass. Global
 `agent-team validate` never compares historical evidence with the current
 workspace, so later commits do not invalidate unrelated finished runs.
 
+`resume status --json` also reports `review_binding` (`bound`, `stale`,
+`unbound`, or `not-applicable`) when `review.md` records workspace fingerprint
+headers (`Revision`, `Tracked-Diff-SHA256`, and `Untracked-SHA256`), generated
+with `agent-team run prepare-review --slug SLUG`. If the workspace changes
+after an `approved` review cycle is bound, `review_binding.state` becomes
+`stale` and `resume` prompts the coordinator to evaluate whether an incremental
+re-review is required.
+
 Identity covers `git rev-parse HEAD`, `git diff --binary HEAD` (including staged
 changes), and a hash of untracked, non-ignored files. Large, special, or
 unreadable inputs are reported as `dirty-unbounded` and never count as bound.

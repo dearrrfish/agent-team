@@ -20,7 +20,13 @@ from typing import Any
 from agent_team.diagnostics import Diagnostic, ValidationFailure
 from agent_team.fs import atomic_write
 from agent_team.models import TeamConfig
-from agent_team.recovery import discover_runs, fingerprint_workspace, select_run
+from agent_team.recovery import (
+    classify_evidence,
+    classify_review_binding,
+    discover_runs,
+    fingerprint_workspace,
+    select_run,
+)
 from agent_team.runs import utc_now, validate_run
 from agent_team.toml_edit import _layout, _same_values, _statements
 
@@ -271,3 +277,233 @@ def reconcile(root: Path, config: TeamConfig, slug: str, apply: bool) -> str:
         if apply:
             save(path, content, updated)
         return diff
+
+
+def _git_text(root: Path, *args: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        return result.stdout if result.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def _extract_section(content: str, heading: str) -> str:
+    match = re.search(rf"(?ms)^{re.escape(heading)}[ \t]*\n(.*?)(?=^## |\Z)", content)
+    return match.group(1).strip() if match else ""
+
+
+def prepare_review(
+    root: Path,
+    config: TeamConfig,
+    slug: str,
+    *,
+    cycle: int | None = None,
+    base_revision: str | None = None,
+    output_format: str = "markdown",
+    output_path: Path | None = None,
+) -> str:
+    candidate, _ = select_run(discover_runs(root, config), root, slug=slug)
+    if candidate is None or candidate.errors:
+        fail("prepare-review requires a readable run")
+    manifest = candidate.manifest
+    review_table = manifest.get("review", {}) if isinstance(manifest.get("review"), dict) else {}
+    used = review_table.get("used", 0) if isinstance(review_table.get("used"), int) else 0
+    limit = (
+        review_table.get("limit", config.workflow.review_cycle_limit)
+        if isinstance(review_table.get("limit"), int)
+        else config.workflow.review_cycle_limit
+    )
+    verdict = str(review_table.get("verdict", "unknown"))
+    if cycle is None:
+        target_cycle = max(1, used + 1)
+    else:
+        if cycle < 1:
+            fail("cycle must be >= 1")
+        target_cycle = cycle
+    review_mode = "full-scope" if target_cycle == 1 else config.review.re_review_mode
+
+    run_dir = candidate.path.parent
+    artifacts = manifest.get("artifacts", {}) if isinstance(manifest.get("artifacts"), dict) else {}
+    review_rel = artifacts.get("review", "review.md")
+    review_file = (run_dir / review_rel).resolve() if isinstance(review_rel, str) and review_rel else None
+    prior_review_text = ""
+    if (
+        review_file is not None
+        and review_file.is_relative_to(run_dir.resolve())
+        and review_file.is_file()
+    ):
+        try:
+            prior_review_text = review_file.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            prior_review_text = ""
+
+    prior_revision_match = re.findall(r"(?m)^- Revision: (.+?)[ \t]*$", prior_review_text)
+    prior_review_revision = (
+        prior_revision_match[0].strip().strip("`") if len(prior_revision_match) == 1 else None
+    )
+    if prior_review_revision in {"pending", "unknown", ""}:
+        prior_review_revision = None
+
+    baseline_revision = str(manifest.get("git", {}).get("baseline_revision", "unknown"))
+    last_reviewed = review_table.get("last_reviewed_revision")
+    if not isinstance(last_reviewed, str) or not last_reviewed.strip():
+        last_reviewed = prior_review_revision
+
+    if base_revision and base_revision.strip():
+        effective_base = base_revision.strip()
+    elif target_cycle >= 2 and review_mode == "diff-only" and last_reviewed:
+        effective_base = last_reviewed
+    else:
+        effective_base = baseline_revision
+
+    workspace = asdict(fingerprint_workspace(root))
+    evidence = classify_evidence(manifest, workspace)
+    binding = classify_review_binding(candidate, workspace)
+
+    excluded = (
+        ".agent-team",
+        ".claude/settings.local.json",
+        ".codex/hooks.json",
+        ".agents/hooks.json",
+    )
+    pathspec = ["--", ".", *(f":(exclude){path}" for path in excluded)]
+    diff_target = effective_base if effective_base not in {"unknown", "pending", ""} else "HEAD"
+    name_status_out = _git_text(root, "diff", "--name-status", diff_target, *pathspec)
+    if name_status_out is None and diff_target != "HEAD":
+        diff_target = "HEAD"
+        name_status_out = _git_text(root, "diff", "--name-status", "HEAD", *pathspec)
+    stat_out = _git_text(root, "diff", "--stat", diff_target, *pathspec) or ""
+    changed_files = [
+        line.strip() for line in (name_status_out or "").splitlines() if line.strip()
+    ]
+
+    prior_findings = _extract_section(prior_review_text, "## Findings") if prior_review_text else ""
+    prior_risks = (
+        _extract_section(prior_review_text, "## Residual risks and gaps")
+        if prior_review_text
+        else ""
+    )
+
+    policy_rel = config.review.policy_file
+    policy_path = (root / policy_rel).resolve()
+    policy_exists = policy_path.is_relative_to(root.resolve()) and policy_path.is_file()
+    policy_excerpt = ""
+    if policy_exists:
+        try:
+            policy_excerpt = policy_path.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeError):
+            policy_excerpt = ""
+
+    tracked_digest = workspace["tracked_diff_sha256"] or "clean"
+    untracked_digest = workspace["untracked_sha256"] or "clean"
+
+    payload: dict[str, Any] = {
+        "slug": slug,
+        "cycle": target_cycle,
+        "limit": limit,
+        "used": used,
+        "current_verdict": verdict,
+        "review_mode": review_mode,
+        "bug_class_sweep": config.review.bug_class_sweep if target_cycle == 1 else False,
+        "nit_cap": config.review.nit_cap,
+        "treat_preexisting_as_nonblocking": config.review.treat_preexisting_as_nonblocking,
+        "re_review_on_advisory_fix": config.review.re_review_on_advisory_fix,
+        "policy_file": policy_rel.as_posix(),
+        "policy_exists": policy_exists,
+        "base_revision": effective_base,
+        "baseline_revision": baseline_revision,
+        "workspace": {
+            "revision": workspace["revision"],
+            "tracked_diff_sha256": tracked_digest,
+            "untracked_sha256": untracked_digest,
+        },
+        "review_binding": binding,
+        "changed_files": changed_files,
+        "diff_stat": stat_out.strip(),
+        "evidence": evidence,
+        "prior_findings": prior_findings,
+        "prior_residual_risks": prior_risks,
+    }
+
+    if output_format == "json":
+        rendered = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    else:
+        changed_lines = (
+            "\n".join(f"- `{entry}`" for entry in changed_files)
+            if changed_files
+            else "- (no tracked changes relative to base revision)"
+        )
+        evidence_lines = (
+            "\n".join(
+                f"- `{item['state']}`: `{item['command']}` (at `{item['at']}`)"
+                for item in evidence
+            )
+            if evidence
+            else "- `unbound`: no verification checks recorded yet"
+        )
+        lines = [
+            f"# Review Packet: `{slug}` (Cycle {target_cycle} / {limit})",
+            "",
+            "## Recommended `review.md` Header Block",
+            "",
+            "```markdown",
+            f"- Run: `{slug}`",
+            f"- Cycle: {target_cycle}",
+            f"- Review-Mode: {review_mode}",
+            f"- Base-Revision: {effective_base}",
+            f"- Revision: {workspace['revision']}",
+            f"- Tracked-Diff-SHA256: {tracked_digest}",
+            f"- Untracked-SHA256: {untracked_digest}",
+            f"- Updated: {utc_now()}",
+            "- Verdict: pending",
+            "```",
+            "",
+            "## Effective Convergence Policy",
+            "",
+            f"- Review mode: `{review_mode}`",
+            f"- Cycle 1 Bug-Class Sweep required: `{'true' if payload['bug_class_sweep'] else 'false'}`",
+            f"- Non-blocking `Nit` cap: `{config.review.nit_cap}`",
+            f"- Pre-existing issues non-blocking: `{'true' if config.review.treat_preexisting_as_nonblocking else 'false'}`",
+            f"- Re-review on optional `Nit` advisory fixes: `{'true' if config.review.re_review_on_advisory_fix else 'false'}`",
+            f"- Policy file: `{policy_rel.as_posix()}` ({'present' if policy_exists else 'absent'})",
+            f"- Previous review binding state: `{binding['state']}` (used={used}, verdict={verdict})",
+            "",
+            "## Scope & Diff Summary",
+            "",
+            f"- Baseline revision: `{baseline_revision}`",
+            f"- Base revision for this cycle: `{effective_base}`",
+            f"- Current revision: `{workspace['revision']}`",
+            "",
+            "### Changed Files",
+            "",
+            changed_lines,
+        ]
+        if stat_out.strip():
+            lines.extend(["", "### Diff Stat", "", "```text", stat_out.strip(), "```"])
+        lines.extend(["", "## Verification Evidence", "", evidence_lines])
+        if target_cycle >= 2 and prior_findings:
+            lines.extend([
+                "",
+                "## Prior Cycle Findings (Verify Dispositions Only in `diff-only` Mode)",
+                "",
+                prior_findings,
+            ])
+        if target_cycle >= 2 and prior_risks:
+            lines.extend(["", "## Prior Residual Risks and Gaps", "", prior_risks])
+        if policy_excerpt:
+            lines.extend(["", f"## Repository Review Policy (`{policy_rel.as_posix()}`)", "", policy_excerpt])
+        rendered = "\n".join(lines) + "\n"
+
+    if output_path is not None:
+        resolved_out = (root / output_path).resolve() if not output_path.is_absolute() else output_path.resolve()
+        if not resolved_out.is_relative_to(root.resolve()):
+            fail("prepare-review output path must remain inside the project")
+        atomic_write(resolved_out, rendered)
+    return rendered

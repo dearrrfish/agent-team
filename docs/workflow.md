@@ -154,8 +154,12 @@ repeat resolved or accepted (`intentional`, `accepted-risk`) dispositions.
 The coordinator persists the review verbatim and synchronizes the manifest.
 New runs record `re_review_mode`, `nit_cap`, and `policy_file` under
 `run.toml [review]`; optional `limit_override_reason` (allowing a run-specific
-`limit` in 1–5) and `accepted_risk_refs` (referencing `decisions.md` or
-`REVIEW.md`) are also supported.
+`limit` in 1–5), `accepted_risk_refs` (referencing `decisions.md` or
+`REVIEW.md`), and `last_reviewed_revision` are also supported. Run
+`agent-team run prepare-review --slug SLUG` before dispatching `reviewer` to
+assemble a workspace-bound review packet with `Review-Mode`, `Base-Revision`,
+`Revision`, `Tracked-Diff-SHA256`, and `Untracked-SHA256` headers, changed
+files, prior findings, and verification state.
 Later edits or integration invalidate affected evidence and conclusions;
 reassess
 them, rerun applicable checks, and use another permitted review cycle if needed

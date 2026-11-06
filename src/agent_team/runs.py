@@ -301,6 +301,37 @@ def _review_contract_issues(
             issues.append(f"review must contain exactly one {field} field")
         elif values[0] != expected_value:
             issues.append(f"review {field} must be {expected_value}")
+    modes = re.findall(r"(?m)^- Review-Mode: (.+?)[ \t]*$", content)
+    if len(modes) > 1:
+        issues.append("review must contain at most one Review-Mode field")
+    elif modes:
+        mode_val = modes[0].strip("`")
+        if mode_val not in RE_REVIEW_MODES:
+            issues.append(f"review Review-Mode must be one of {', '.join(RE_REVIEW_MODES)}")
+    for rev_field in ("Base-Revision", "Revision"):
+        rev_values = re.findall(rf"(?m)^- {rev_field}: (.+?)[ \t]*$", content)
+        if len(rev_values) > 1:
+            issues.append(f"review must contain at most one {rev_field} field")
+        elif rev_values:
+            rev_val = rev_values[0].strip("`")
+            if rev_val not in {"pending", "unknown"} and not re.fullmatch(
+                r"[0-9a-f]{7,64}", rev_val
+            ):
+                issues.append(
+                    f"review {rev_field} must be a git revision hex string, pending, or unknown"
+                )
+    for digest_field in ("Tracked-Diff-SHA256", "Untracked-SHA256"):
+        digest_values = re.findall(rf"(?m)^- {digest_field}: (.+?)[ \t]*$", content)
+        if len(digest_values) > 1:
+            issues.append(f"review must contain at most one {digest_field} field")
+        elif digest_values:
+            digest_val = digest_values[0].strip("`")
+            if digest_val not in {"", "none", "clean", "pending", "unknown", "dirty-unbounded"} and not re.fullmatch(
+                r"[0-9a-f]{64}", digest_val
+            ):
+                issues.append(
+                    f"review {digest_field} must be a 64-char sha256 hex string, clean, pending, or unknown"
+                )
     return tuple(issues)
 
 
@@ -397,6 +428,7 @@ def validate_run(
             "policy_file",
             "limit_override_reason",
             "accepted_risk_refs",
+            "last_reviewed_revision",
         },
         f"{label}.review",
         diagnostics,
@@ -410,6 +442,15 @@ def validate_run(
     policy_file = review.get("policy_file")
     limit_override_reason = review.get("limit_override_reason")
     accepted_risk_refs = review.get("accepted_risk_refs")
+    last_reviewed_revision = review.get("last_reviewed_revision")
+    if last_reviewed_revision is not None and (
+        not isinstance(last_reviewed_revision, str) or not last_reviewed_revision.strip()
+    ):
+        diagnostics.append(Diagnostic(
+            f"{label}.review.last_reviewed_revision",
+            "must be a non-empty string when present",
+            code="format",
+        ))
     if not isinstance(required, bool):
         diagnostics.append(Diagnostic(f"{label}.review.required", "must be a boolean", code="type"))
     if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 5:

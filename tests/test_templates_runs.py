@@ -375,6 +375,23 @@ report = "reports/T-002-implementer.md"
                 for item in diagnostics
             ))
 
+            # Validate review.md optional Review-Mode and fingerprint headers
+            manifest.write_text(content, encoding="utf-8")
+            review_file = run_dir / "review.md"
+            original_review = review_file.read_text(encoding="utf-8")
+            review_file.write_text(
+                original_review.replace(
+                    "- Review-Mode: full-scope", "- Review-Mode: invalid-mode"
+                ),
+                encoding="utf-8",
+            )
+            bad_mode_diags = validate_run(manifest, config)
+            self.assertTrue(any(
+                item.path.endswith(".artifacts.review") and item.code == "review-contract"
+                for item in bad_mode_diags
+            ))
+            review_file.write_text(original_review, encoding="utf-8")
+
     def test_running_tasks_cannot_exceed_configured_worker_limit(self) -> None:
         config_text = DEFAULT_TEAM_TOML.replace(
             "[tiers.team]\nmax_workers = 4",
