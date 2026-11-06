@@ -470,6 +470,10 @@ def validate_run(
     has_valid_override_reason = (
         isinstance(limit_override_reason, str) and bool(limit_override_reason.strip())
     )
+    has_review_policy_snapshot = (
+        re_review_mode is not None or nit_cap is not None or policy_file is not None
+    )
+    active_run = status != "complete"
     if re_review_mode is not None:
         if re_review_mode not in RE_REVIEW_MODES:
             diagnostics.append(Diagnostic(
@@ -477,7 +481,7 @@ def validate_run(
                 f"must be one of {', '.join(RE_REVIEW_MODES)}",
                 code="enum",
             ))
-        elif re_review_mode != config.review.re_review_mode:
+        elif active_run and re_review_mode != config.review.re_review_mode:
             diagnostics.append(Diagnostic(
                 f"{label}.review.re_review_mode",
                 "must match project review.re_review_mode",
@@ -488,7 +492,7 @@ def validate_run(
             diagnostics.append(Diagnostic(
                 f"{label}.review.nit_cap", "must be between 0 and 5", code="range"
             ))
-        elif nit_cap != config.review.nit_cap:
+        elif active_run and nit_cap != config.review.nit_cap:
             diagnostics.append(Diagnostic(
                 f"{label}.review.nit_cap",
                 "must match project review.nit_cap",
@@ -499,7 +503,7 @@ def validate_run(
             diagnostics.append(Diagnostic(
                 f"{label}.review.policy_file", "must be a non-empty string", code="format"
             ))
-        elif policy_file != config.review.policy_file.as_posix():
+        elif active_run and policy_file != config.review.policy_file.as_posix():
             diagnostics.append(Diagnostic(
                 f"{label}.review.policy_file",
                 "must match project review.policy_file",
@@ -521,7 +525,9 @@ def validate_run(
             f"{label}.review.required", "must match the selected tier's review policy", code="invariant"
         ))
     if (
-        isinstance(limit, int)
+        active_run
+        and has_review_policy_snapshot
+        and isinstance(limit, int)
         and not isinstance(limit, bool)
         and limit != config.workflow.review_cycle_limit
         and not has_valid_override_reason
