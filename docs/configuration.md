@@ -458,8 +458,20 @@ extension tools. Install passes the scanned status to the renderer.
 Read-only roles always omit `bash`, `edit`, and `write`, including custom roles
 that request those semantic capabilities. Writers receive only their declared
 capabilities. Only the recognized unfiltered `pi-web-access` declaration enables
-`web_search` and `fetch_url` for roles with `web.read`; MCP configuration alone
-never enables this mapping. Coordinators receive `subagent` only for a recognized `pi-subagents`
+`web_search`, `fetch_content`, `get_search_content`, and `source_check` for
+roles with `web.read` (filtered statically by `<agent-dir>/web-search.json`
+when present); MCP configuration alone never enables this mapping. When the
+installed `pi-web-access` package directory is resolved locally (under
+`~/.pi/agent/npm/node_modules/pi-web-access`,
+`.pi/npm/node_modules/pi-web-access`, or a direct `/nix/store/*` package),
+install also emits `subagentOnlyExtensions: <package_dir>` on `web.read` roles
+so foreground child sessions (`async: false`) load the provider while
+background child sessions continue to inherit ambient extensions. If you have
+older generated `.pi/agents/*.md` or `~/.pi/agent/agents/*.md` profiles that
+still list the obsolete `fetch_url` tool name, regenerate them with
+`agent-team install --target pi --scope user --apply --force` (or
+`--scope project`). Coordinators receive `subagent` only for a recognized
+`pi-subagents`
 declaration supplied by install. Its loader activation and tool registration
 still require runtime verification. `pi-agents-flow` satisfies the package
 preflight, but its delegation tool names are unconfirmed: no guessed delegation

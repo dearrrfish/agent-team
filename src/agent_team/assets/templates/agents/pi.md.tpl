@@ -2,7 +2,7 @@
 name: ${role_id}
 description: ${description}
 tools: ${tools}
-model: ${model}
+${subagent_only_extensions_line}model: ${model}
 ---
 
 ${instructions}

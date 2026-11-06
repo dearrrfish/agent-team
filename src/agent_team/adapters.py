@@ -9,7 +9,7 @@ from agent_team.config import load_roles, resolve_target_profile
 from agent_team.diagnostics import Diagnostic, ValidationFailure
 from agent_team.fs import non_directory_parent
 from agent_team.models import RoleDefinition, TargetProfile, TeamConfig
-from agent_team.pi_plugins import PiPluginStatus
+from agent_team.pi_plugins import DEFAULT_PI_WEB_TOOLS, PiPluginStatus
 from agent_team.templates import asset_text, render_template
 
 
@@ -48,7 +48,7 @@ def _tools(role: RoleDefinition, target: str, pi_status: PiPluginStatus | None =
         if safe_shell:
             tools.append("bash")
         if pi_status and pi_status.has_web and "web.read" in role.capabilities:
-            tools.extend(["web_search", "fetch_url"])
+            tools.extend(pi_status.web_tools or DEFAULT_PI_WEB_TOOLS)
         if pi_status and pi_status.subagent_package == "pi-subagents" and role.delegation:
             tools.append("subagent")
         return ", ".join(tools)
@@ -173,12 +173,23 @@ def _render_agent(target: str, role: RoleDefinition, profile: TargetProfile, pre
                 "verify its registered workflow tools and configure the coordinator "
                 "allowlist manually before delegating. No guessed delegation tool is emitted.\n"
             )
+        subagent_only_extensions_line = ""
+        if (
+            pi_status
+            and pi_status.has_web
+            and pi_status.web_extension_source
+            and "web.read" in role.capabilities
+        ):
+            subagent_only_extensions_line = (
+                f"subagentOnlyExtensions: {pi_status.web_extension_source}\n"
+            )
         template = asset_text("templates", "agents", "pi.md.tpl")
         return render_template(template, {
             "role_id": role.role_id,
             "description": json.dumps(description, ensure_ascii=False),
             "model": json.dumps(model + (f":{effort}" if effort else "")),
             "tools": _tools(role, target, pi_status),
+            "subagent_only_extensions_line": subagent_only_extensions_line,
             "instructions": instructions,
         })
     if target == "codex":

@@ -63,7 +63,19 @@ class PiSupportTests(unittest.TestCase):
         self.assertIn('model: "openai/', explorer)
         self.assertIn(':medium"', explorer)
         tools = explorer.split("tools: ")[1].splitlines()[0].split(", ")
-        self.assertFalse({"bash", "write", "edit", "web_search", "fetch_url"}.intersection(tools))
+        self.assertFalse(
+            {
+                "bash",
+                "write",
+                "edit",
+                "web_search",
+                "fetch_url",
+                "fetch_content",
+                "get_search_content",
+                "source_check",
+            }.intersection(tools)
+        )
+        self.assertNotIn("subagentOnlyExtensions:", explorer)
         self.assertIn("MCP tools may remain available", explorer)
         self.assertIn("worktree isolation is unconfirmed", explorer)
         self.assertIn("max", resolve_target_profile(config, "pi", self.project).effort_levels)
@@ -71,17 +83,30 @@ class PiSupportTests(unittest.TestCase):
 
     def test_render_maps_only_confirmed_standard_web_and_subagent_tools(self):
         config = load_team_config(self.project)
-        status = PiPluginStatus("pi-subagents", True)
+        status = PiPluginStatus(
+            "pi-subagents",
+            True,
+            web_tools=("web_search", "fetch_content", "get_search_content", "source_check"),
+            web_extension_source="/home/example/.pi/agent/npm/node_modules/pi-web-access",
+        )
         output = render_target("pi", config, self.project, pi_status=status)
         for path, content in output.items():
             if str(path).startswith(".pi/agents/"):
                 tools = content.split("tools: ")[1].splitlines()[0].split(", ")
+                self.assertNotIn("fetch_url", tools)
                 if path.stem in {"explorer", "design-agent", "reviewer"}:
-                    self.assertFalse({"bash", "edit", "write"}.intersection(tools))
+                    self.assertFalse({"bash", "edit", "write", "subagent"}.intersection(tools))
+                if path.stem in {"coordinator", "explorer", "design-agent", "ops"}:
+                    self.assertIn(
+                        "subagentOnlyExtensions: /home/example/.pi/agent/npm/node_modules/pi-web-access",
+                        content,
+                    )
+                else:
+                    self.assertNotIn("subagentOnlyExtensions:", content)
         coordinator = output[Path(".pi/agents/coordinator.md")]
         self.assertIn("subagent", coordinator.split("tools: ")[1].splitlines()[0])
         explorer = output[Path(".pi/agents/explorer.md")]
-        self.assertIn("web_search, fetch_url", explorer)
+        self.assertIn("web_search, fetch_content, get_search_content, source_check", explorer)
         self.assertIn("supports `worktree: true`", explorer)
         self.assertIn("only after verifying", explorer)
 
@@ -188,6 +213,13 @@ class PiSupportTests(unittest.TestCase):
                 self.assertFalse((self.project / name).exists())
 
     def test_install_uses_scanned_status_without_changing_settings(self):
+        web_pkg = self.home / ".pi/agent/npm/node_modules/pi-web-access"
+        (web_pkg / "dist").mkdir(parents=True)
+        (web_pkg / "dist/index.js").write_text("export default function () {}\n", encoding="utf-8")
+        (web_pkg / "package.json").write_text(
+            json.dumps({"name": "pi-web-access", "pi": {"extensions": ["./dist"]}}),
+            encoding="utf-8",
+        )
         path = self.settings(["npm:pi-subagents", "npm:pi-web-access"])
         before = path.read_bytes()
         args = argparse.Namespace(target="codex,pi", scope="project", run_slug=None,
@@ -196,7 +228,40 @@ class PiSupportTests(unittest.TestCase):
             self.assertEqual(_install(self.project, args), 0)
         self.assertEqual(path.read_bytes(), before)
         self.assertTrue((self.project / ".codex/agents/explorer.toml").is_file())
-        self.assertIn("web_search, fetch_url", (self.project / ".pi/agents/explorer.md").read_text())
+        explorer_md = (self.project / ".pi/agents/explorer.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "web_search, fetch_content, get_search_content, source_check",
+            explorer_md,
+        )
+        self.assertNotIn("fetch_url", explorer_md)
+        self.assertIn(f"subagentOnlyExtensions: {web_pkg.resolve()}", explorer_md)
+
+    def test_web_search_config_filters_disabled_or_custom_tools(self):
+        self.settings(["npm:pi-subagents", "npm:pi-web-access"])
+        web_cfg = self.home / ".pi/agent/web-search.json"
+        web_cfg.write_text(
+            json.dumps({
+                "webSearch": {"enabled": False},
+                "tools": {"getSearchContent": {"enabled": False}},
+                "toolNames": {"fetchContent": "custom_fetch_content"},
+            }),
+            encoding="utf-8",
+        )
+        status = scan_pi_plugins(self.project)
+        self.assertTrue(status.has_web)
+        self.assertEqual(status.web_tools, ("custom_fetch_content",))
+
+        web_cfg.write_text(json.dumps({"toolExposure": "codemode"}), encoding="utf-8")
+        status = scan_pi_plugins(self.project)
+        self.assertFalse(status.has_web)
+        self.assertEqual(status.web_tools, ())
+        self.assertTrue(any(d.code == "pi-web-unsupported" for d in status.diagnostics))
+
+        web_cfg.write_text(json.dumps({"toolActivation": "none"}), encoding="utf-8")
+        status = scan_pi_plugins(self.project)
+        self.assertFalse(status.has_web)
+        self.assertEqual(status.web_tools, ())
+        self.assertTrue(any(d.code == "pi-web-disabled" for d in status.diagnostics))
 
     def test_custom_agent_directory_scan_and_user_install_refusal(self):
         custom = self.root / "custom agent"
