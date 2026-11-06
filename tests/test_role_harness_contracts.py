@@ -90,6 +90,22 @@ class RoleHarnessContractsTests(unittest.TestCase):
         self.assertTrue(any(item.code == "enum" and item.path.endswith("review.verdict")
                             for item in validate_run(manifest, config)))
 
+    def test_reviewer_convergence_contract_is_rendered_across_targets(self) -> None:
+        for target in TARGETS:
+            output = render_target(target, self.config, self.root)
+            _, instructions = agent_content(output, target, "reviewer")
+            for required_phrase in (
+                "Bug-Class Sweep",
+                "diff-only",
+                "Important",
+                "Nit",
+                "Pre-existing",
+                "accepted-risk",
+                ".agent-team/REVIEW.md",
+            ):
+                with self.subTest(target=target, phrase=required_phrase):
+                    self.assertIn(required_phrase, instructions)
+
     def test_readonly_report_template_remains_schema_compatible(self) -> None:
         run = init_run(self.root, self.config, "readonly-report", None, "assisted", "balanced")
         report = render_template(asset_text("templates", "workflow", "agent-report.md.tpl"), {

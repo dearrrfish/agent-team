@@ -35,8 +35,8 @@ pi = "builtin:pi"
 [workflow]
 # Project-relative directory containing run artifacts.
 run_root = ".agent-team/runs"
-# Maximum independent review cycles (1 through 3).
-review_cycle_limit = 2
+# Maximum independent review cycles (1 through 5).
+review_cycle_limit = 3
 # Enable deep discovery by default.
 deep_discovery_default = false
 # Require an explicit worktree decision.

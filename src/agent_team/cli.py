@@ -36,7 +36,7 @@ from agent_team.recovery import (
 )
 from agent_team.run_state import bind, lease_change, reconcile, verify
 from agent_team.runs import init_run, load_run_model_preset, validate_all_runs
-from agent_team.templates import load_prompt_templates
+from agent_team.templates import asset_text, load_prompt_templates
 
 _NATIVE_CLIENTS = {
     "codex": "codex",
@@ -232,6 +232,9 @@ def _upsert_prompt_templates(root: Path) -> list[Path]:
         if not destination.exists() or destination.read_text(encoding="utf-8") != content:
             atomic_write(destination, content)
         upserted.append(destination)
+    review_policy = root / ".agent-team" / "REVIEW.md"
+    if not review_policy.exists():
+        atomic_write(review_policy, asset_text("templates", "workflow", "REVIEW.md.tpl"))
     return upserted
 
 

@@ -385,8 +385,8 @@ def validate_run(
     verdict = review.get("verdict")
     if not isinstance(required, bool):
         diagnostics.append(Diagnostic(f"{label}.review.required", "must be a boolean", code="type"))
-    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 3:
-        diagnostics.append(Diagnostic(f"{label}.review.limit", "must be between 1 and 3", code="range"))
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 5:
+        diagnostics.append(Diagnostic(f"{label}.review.limit", "must be between 1 and 5", code="range"))
     if not isinstance(used, int) or isinstance(used, bool) or used < 0 or isinstance(limit, int) and used > limit:
         diagnostics.append(Diagnostic(f"{label}.review.used", "must be non-negative and no greater than limit", code="range"))
     if verdict not in _VERDICTS:

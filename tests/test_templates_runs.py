@@ -3,7 +3,7 @@ import tomllib
 import unittest
 from pathlib import Path
 
-from agent_team.config import DEFAULT_TEAM_TOML, load_team_config
+from agent_team.config import DEFAULT_TEAM_TOML, load_team_config, parse_team_config
 from agent_team.diagnostics import ValidationFailure
 from agent_team.runs import init_run, validate_run
 from agent_team.templates import (
@@ -298,18 +298,44 @@ report = "reports/T-002-implementer.md"
             run_dir = init_run(root, config, "review-limit", None, "team", "balanced")
             manifest = run_dir / "run.toml"
             manifest.write_text(
-                manifest.read_text(encoding="utf-8").replace("used = 0", "used = 2"),
+                manifest.read_text(encoding="utf-8").replace("used = 0", "used = 3"),
                 encoding="utf-8",
             )
             review = run_dir / "review.md"
             review.write_text(
-                review.read_text(encoding="utf-8").replace("- Cycle: 1", "- Cycle: 3"),
+                review.read_text(encoding="utf-8").replace("- Cycle: 1", "- Cycle: 4"),
                 encoding="utf-8",
             )
             diagnostics = validate_run(manifest, config)
             self.assertTrue(any(
                 item.path.endswith(".review.verdict") and item.code == "review-limit"
                 for item in diagnostics
+            ))
+
+    def test_review_cycle_limit_accepts_up_to_five_and_rejects_six(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            config_file = root / ".agent-team" / "team.toml"
+            config_file.write_text(
+                DEFAULT_TEAM_TOML.replace("review_cycle_limit = 3", "review_cycle_limit = 5"),
+                encoding="utf-8",
+            )
+            config = load_team_config(root)
+            self.assertEqual(config.workflow.review_cycle_limit, 5)
+            run_dir = init_run(root, config, "review-limit-5", None, "team", "balanced")
+            manifest = run_dir / "run.toml"
+            self.assertIn("limit = 5", manifest.read_text(encoding="utf-8"))
+            diagnostics = [item for item in validate_run(manifest, config) if item.severity == "error"]
+            self.assertEqual(diagnostics, [])
+
+            invalid_raw = tomllib.loads(
+                DEFAULT_TEAM_TOML.replace("review_cycle_limit = 3", "review_cycle_limit = 6")
+            )
+            with self.assertRaises(ValidationFailure) as raised:
+                parse_team_config(invalid_raw, root)
+            self.assertTrue(any(
+                item.path == "workflow.review_cycle_limit" and item.code == "range"
+                for item in raised.exception.diagnostics
             ))
 
     def test_running_tasks_cannot_exceed_configured_worker_limit(self) -> None:

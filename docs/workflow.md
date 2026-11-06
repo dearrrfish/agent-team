@@ -144,13 +144,19 @@ Use these canonical verdicts:
 - `blocked`: missing essential inputs or verification prevent a supported
   verdict.
 
-Each finding identifies location, trigger, impact, evidence, severity rationale,
-and a required fix or advisory status. Reference its original ID across cycles.
+Each finding identifies its category (`Important`, `Nit`, or `Pre-existing`),
+bug class, exact `file:line` location, trigger, impact, evidence, severity
+rationale, and disposition/required fix or advisory status (`Nit` capped at 2
+per cycle). Cycle 1 performs a full-scope review with a Bug-Class Sweep across
+changed files; Cycle 2+ uses diff-only re-review scoped to prior open findings
+and the corrective diff. Reference original finding IDs across cycles and do not
+repeat resolved or accepted (`intentional`, `accepted-risk`) dispositions.
 The coordinator persists the review verbatim and synchronizes the manifest.
 Later edits or integration invalidate affected evidence and conclusions;
 reassess
-them, rerun applicable checks, and use another permitted review cycle if needed.
-Approval applies to the version and scope reviewed.
+them, rerun applicable checks, and use another permitted review cycle if needed
+(do not start a new cycle solely for optional `Nit` advisory cleanups after an
+`approved` verdict). Approval applies to the version and scope reviewed.
 
 These evidence and recovery requirements are agent instructions and report
 guidance. Structural validation still checks schema, identity, required
@@ -232,8 +238,11 @@ of substituting a generic child.
 
 `agent-team generate templates` writes these common workflow prompts to
 `.agent-team/templates/prompts/` (`plan.md`, `coordinate.md`, `review.md`, and
-`discovery.md`). Run `agent-team generate gitignore` to ignore the stock
-examples. They are
+`discovery.md`), and seeds `.agent-team/REVIEW.md` when absent so projects can
+record repository-specific review assumptions, accepted risks, and skip paths
+without losing customizations on later template updates. Run
+`agent-team generate gitignore` to ignore the stock prompt examples. The prompt
+examples are
 overwritten when template generation is rerun. Put authored prompts at separate
 paths. These examples use
 Codex skill syntax. Other targets should use their native skill invocation

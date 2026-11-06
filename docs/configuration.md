@@ -128,8 +128,9 @@ Top-level fields identify the team, select `adaptive`, `solo`, `assisted`, or
 `team` as the default tier, choose an `economy`, `balanced`, or `quality` model
 preset, enable native targets, and declare role and skill sources.
 
-`[workflow]` controls the contained run directory, review-cycle limit (1–3),
-deep-discovery default, worktree decision gate, and worker-report persistence.
+`[workflow]` controls the contained run directory, review-cycle limit (1–5,
+default 3), deep-discovery default, worktree decision gate, and worker-report
+persistence.
 Tier tables define worker count, artifact and review requirements, and their
 fixed write-isolation policy. Assisted permits 1–2 workers and team permits
 2–8; both require durable artifacts. Enabling independent review for any tier

@@ -259,6 +259,12 @@ class CliTests(unittest.TestCase):
             plan_prompt = root / ".agent-team" / "templates" / "prompts" / "plan.md"
             plan_prompt.write_text("modified", encoding="utf-8")
 
+            # customize REVIEW.md to verify non-overwriting preservation
+            review_policy = root / ".agent-team" / "REVIEW.md"
+            self.assertTrue(review_policy.is_file())
+            custom_review_policy = review_policy.read_text(encoding="utf-8") + "\n# custom project review rule\n"
+            review_policy.write_text(custom_review_policy, encoding="utf-8")
+
             # run init again
             second = self._run(root, "init", "--scope", "project")
             self.assertEqual(second.returncode, 0, second.stderr)
@@ -270,6 +276,9 @@ class CliTests(unittest.TestCase):
 
             # modified prompt template was updated/upserted
             self.assertNotEqual(plan_prompt.read_text(encoding="utf-8"), "modified")
+
+            # customized REVIEW.md was preserved untouched
+            self.assertEqual(review_policy.read_text(encoding="utf-8"), custom_review_policy)
 
             # gitignore entries are not duplicated
             gitignore_content = (root / ".gitignore").read_text(encoding="utf-8")

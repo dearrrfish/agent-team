@@ -44,7 +44,7 @@ pi = "builtin:pi"
 
 [workflow]
 run_root = ".agent-team/runs"
-review_cycle_limit = 2
+review_cycle_limit = 3
 deep_discovery_default = false
 require_worktree_decision = true
 persist_agent_reports = true
@@ -365,8 +365,8 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
         _required(workflow_data, "review_cycle_limit", "workflow", diagnostics),
         "workflow.review_cycle_limit", diagnostics,
     )
-    if not 1 <= review_limit <= 3:
-        diagnostics.append(Diagnostic("workflow.review_cycle_limit", "must be between 1 and 3", code="range"))
+    if not 1 <= review_limit <= 5:
+        diagnostics.append(Diagnostic("workflow.review_cycle_limit", "must be between 1 and 5", code="range"))
     workflow = WorkflowConfig(
         run_root=run_root,
         review_cycle_limit=review_limit,

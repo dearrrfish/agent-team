@@ -86,6 +86,10 @@ pending.
 Map acceptance criteria to evidence. Record each command's working directory,
 exit status, outcome, evidence location, producer, and verified code revision
 including working-tree changes. Distinguish new failures, existing failures, and
-environment limitations. After integration or fixes, rerun invalidated checks
-and
-reassess affected review conclusions before claiming completion.
+environment limitations. When a worker fixes a review finding, require it to
+sweep all in-scope instances of that **bug class** and verify that any new
+regression test exercises the target code path and fails at the expected assertion
+or error site (rather than failing early in fixture setup). After integration or
+fixes, rerun invalidated checks and reassess affected review conclusions before
+claiming completion; do not open a new review cycle solely for optional `Nit`
+advisory cleanups once `approved` is reached.
