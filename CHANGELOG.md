@@ -10,19 +10,20 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
-- Resolved Ruff import sorting and syntax checks in `checkPhase` to allow clean Nix
-  builds and profile upgrades.
+- Resolved Ruff import sorting and syntax checks in `checkPhase` to allow clean
+  Nix builds and profile upgrades.
 - Added explicit `[tool.ruff]` configuration to `pyproject.toml`.
 
 ## [0.5.0] - 2026-11-02
 
 ### Added
 
-- Opt-in `pi` target support with zero-vendoring plugin preflight and pure Agent
-  Markdown rendering across all standard roles and workflow skills.
-- Graduated plugin installation gates for `pi`: hard blocking when subagent runners
-  (`pi-subagents` or `pi-agents-flow`) are missing, and explicit warnings with safe
-  strategy fallbacks when sandboxing or worktree isolation is unavailable.
+- Opt-in `pi` target support with zero-vendoring plugin preflight and pure
+  Agent Markdown rendering across all standard roles and workflow skills.
+- Graduated plugin installation gates for `pi`: hard blocking when subagent
+  runners (`pi-subagents` or `pi-agents-flow`) are missing, and explicit
+  warnings with safe strategy fallbacks when sandboxing or worktree isolation
+  is unavailable.
 - Development-only isolated RPC validation harness (`tools/pi_validation.py`)
   exercising the standard Pi `--mode rpc` protocol in disposable execution fixtures.
 - Cross-client hook support for Codex and Antigravity with active session binding

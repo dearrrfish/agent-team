@@ -3,8 +3,9 @@
 [![CI](https://github.com/dearrrfish/agent-team/actions/workflows/ci.yml/badge.svg)](https://github.com/dearrrfish/agent-team/actions/workflows/ci.yml)
 
 `agent-team` generates portable, role-based agent teams for Codex, with
-experimental adapters for Claude Code, Antigravity CLI, and opt-in Pi. It gives each client
-the same workflow contract while rendering the native agent and skill files that
+experimental adapters for Claude Code, Antigravity CLI, and opt-in Pi. It gives
+each client the same workflow contract while rendering the native agent and
+skill files that
 client expects.
 
 The project is designed for coding work that benefits from explicit ownership:
@@ -158,7 +159,8 @@ Linux/Nix users also need Nix with flakes enabled for the packaged execution
 and development paths. macOS users can install via Homebrew or use Homebrew
 for Python and Git with the documented source-install workflow.
 
-Rendering and validation do not require native clients to be installed. `agent-team doctor` reports missing clients as warnings.
+Rendering and validation do not require native clients to be installed.
+`agent-team doctor` reports missing clients as warnings.
 
 ## Support status
 

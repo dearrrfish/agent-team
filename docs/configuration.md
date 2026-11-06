@@ -337,7 +337,8 @@ settings. `--preset` accepts `economy`, `balanced`, or `quality`. Without it,
 the command visits all three; a selected preset leaves the other two untouched.
 
 Default targets are enabled, configured profiles with a native executable on
-PATH: `codex`, `claude`, `agy`, or opt-in `pi`. `--target` accepts comma-separated names and
+PATH: `codex`, `claude`, `agy`, or opt-in `pi`. `--target` accepts
+comma-separated names and
 rejects invalid, disabled, unconfigured, or uninstalled targets. No installed
 enabled target is an error. Every selected target must supply a usable live
 catalog before selections begin. Catalog authentication and availability follow
