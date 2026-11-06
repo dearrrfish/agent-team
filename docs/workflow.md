@@ -152,6 +152,10 @@ changed files; Cycle 2+ uses diff-only re-review scoped to prior open findings
 and the corrective diff. Reference original finding IDs across cycles and do not
 repeat resolved or accepted (`intentional`, `accepted-risk`) dispositions.
 The coordinator persists the review verbatim and synchronizes the manifest.
+New runs record `re_review_mode`, `nit_cap`, and `policy_file` under
+`run.toml [review]`; optional `limit_override_reason` (allowing a run-specific
+`limit` in 1–5) and `accepted_risk_refs` (referencing `decisions.md` or
+`REVIEW.md`) are also supported.
 Later edits or integration invalidate affected evidence and conclusions;
 reassess
 them, rerun applicable checks, and use another permitted review cycle if needed

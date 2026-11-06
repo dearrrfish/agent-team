@@ -8,6 +8,7 @@ TIERS = ("solo", "assisted", "team")
 TARGETS = ("codex", "claude", "antigravity", "pi")
 PRESETS = ("economy", "balanced", "quality")
 ROLE_IDS = ("coordinator", "explorer", "design-agent", "implementer", "ops", "reviewer")
+RE_REVIEW_MODES = ("diff-only", "full-scope")
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,16 @@ class WorkflowConfig:
     deep_discovery_default: bool
     require_worktree_decision: bool
     persist_agent_reports: bool
+
+
+@dataclass(frozen=True)
+class ReviewConfig:
+    re_review_mode: str = "diff-only"
+    bug_class_sweep: bool = True
+    nit_cap: int = 2
+    treat_preexisting_as_nonblocking: bool = True
+    re_review_on_advisory_fix: bool = False
+    policy_file: Path = Path(".agent-team/REVIEW.md")
 
 
 @dataclass(frozen=True)
@@ -57,6 +68,7 @@ class TeamConfig:
     workflow: WorkflowConfig
     tiers: Mapping[str, TierConfig]
     install: InstallConfig
+    review: ReviewConfig = field(default_factory=ReviewConfig)
     inherit_user_defaults: bool = True
     field_origins: Mapping[str, str] = field(default_factory=dict)
     target_profile_roots: Mapping[str, Path] = field(default_factory=dict)

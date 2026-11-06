@@ -232,7 +232,12 @@ def _upsert_prompt_templates(root: Path) -> list[Path]:
         if not destination.exists() or destination.read_text(encoding="utf-8") != content:
             atomic_write(destination, content)
         upserted.append(destination)
-    review_policy = root / ".agent-team" / "REVIEW.md"
+    policy_rel = Path(".agent-team/REVIEW.md")
+    try:
+        policy_rel = load_team_config(root).review.policy_file
+    except ValidationFailure:
+        pass
+    review_policy = root / policy_rel
     if not review_policy.exists():
         atomic_write(review_policy, asset_text("templates", "workflow", "REVIEW.md.tpl"))
     return upserted

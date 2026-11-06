@@ -11,7 +11,7 @@ from typing import Any
 
 from agent_team.diagnostics import Diagnostic, ValidationFailure
 from agent_team.fs import atomic_write, non_directory_parent
-from agent_team.models import ROLE_IDS, TIERS, TeamConfig
+from agent_team.models import RE_REVIEW_MODES, ROLE_IDS, TIERS, TeamConfig
 from agent_team.templates import asset_text, render_template, required_markers
 
 _SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -51,6 +51,7 @@ def _run_manifest(
     *, slug: str, title: str, created_at: str, tier: str, model_preset: str,
     host: str, repository: str, baseline: str, branch: str,
     worktree_decision: str, review_required: bool, review_limit: int,
+    re_review_mode: str, nit_cap: int, policy_file: str,
     max_workers: int, write_isolation: str, reports_required: bool,
     artifacts: dict[str, str],
     worktree_gate: bool, worker_gate: bool,
@@ -80,6 +81,9 @@ def _run_manifest(
         f"limit = {review_limit}",
         "used = 0",
         f"verdict = {_toml_string('pending' if review_required else 'not-required')}",
+        f"re_review_mode = {_toml_string(re_review_mode)}",
+        f"nit_cap = {nit_cap}",
+        f"policy_file = {_toml_string(policy_file)}",
         "",
         "[gates]",
         "requirements = false",
@@ -210,6 +214,9 @@ def init_run(
         worktree_decision=worktree_decision,
         review_required=review_required,
         review_limit=config.workflow.review_cycle_limit,
+        re_review_mode=config.review.re_review_mode,
+        nit_cap=config.review.nit_cap,
+        policy_file=config.review.policy_file.as_posix(),
         max_workers=config.tiers[tier].max_workers,
         write_isolation=config.tiers[tier].write_isolation,
         reports_required=reports_required,
@@ -378,11 +385,31 @@ def validate_run(
         diagnostics.append(Diagnostic(f"{label}.git.worktree_decision", "unsupported decision", code="enum"))
 
     review = _table(data, "review", label, diagnostics)
-    _unknown(review, {"required", "limit", "used", "verdict"}, f"{label}.review", diagnostics)
+    _unknown(
+        review,
+        {
+            "required",
+            "limit",
+            "used",
+            "verdict",
+            "re_review_mode",
+            "nit_cap",
+            "policy_file",
+            "limit_override_reason",
+            "accepted_risk_refs",
+        },
+        f"{label}.review",
+        diagnostics,
+    )
     required = review.get("required")
     limit = review.get("limit")
     used = review.get("used")
     verdict = review.get("verdict")
+    re_review_mode = review.get("re_review_mode")
+    nit_cap = review.get("nit_cap")
+    policy_file = review.get("policy_file")
+    limit_override_reason = review.get("limit_override_reason")
+    accepted_risk_refs = review.get("accepted_risk_refs")
     if not isinstance(required, bool):
         diagnostics.append(Diagnostic(f"{label}.review.required", "must be a boolean", code="type"))
     if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 5:
@@ -391,13 +418,73 @@ def validate_run(
         diagnostics.append(Diagnostic(f"{label}.review.used", "must be non-negative and no greater than limit", code="range"))
     if verdict not in _VERDICTS:
         diagnostics.append(Diagnostic(f"{label}.review.verdict", "unsupported verdict", code="enum"))
+    if limit_override_reason is not None and (
+        not isinstance(limit_override_reason, str) or not limit_override_reason.strip()
+    ):
+        diagnostics.append(Diagnostic(
+            f"{label}.review.limit_override_reason",
+            "must be a non-empty string when present",
+            code="format",
+        ))
+    has_valid_override_reason = (
+        isinstance(limit_override_reason, str) and bool(limit_override_reason.strip())
+    )
+    if re_review_mode is not None:
+        if re_review_mode not in RE_REVIEW_MODES:
+            diagnostics.append(Diagnostic(
+                f"{label}.review.re_review_mode",
+                f"must be one of {', '.join(RE_REVIEW_MODES)}",
+                code="enum",
+            ))
+        elif re_review_mode != config.review.re_review_mode:
+            diagnostics.append(Diagnostic(
+                f"{label}.review.re_review_mode",
+                "must match project review.re_review_mode",
+                code="invariant",
+            ))
+    if nit_cap is not None:
+        if not isinstance(nit_cap, int) or isinstance(nit_cap, bool) or not 0 <= nit_cap <= 5:
+            diagnostics.append(Diagnostic(
+                f"{label}.review.nit_cap", "must be between 0 and 5", code="range"
+            ))
+        elif nit_cap != config.review.nit_cap:
+            diagnostics.append(Diagnostic(
+                f"{label}.review.nit_cap",
+                "must match project review.nit_cap",
+                code="invariant",
+            ))
+    if policy_file is not None:
+        if not isinstance(policy_file, str) or not policy_file.strip():
+            diagnostics.append(Diagnostic(
+                f"{label}.review.policy_file", "must be a non-empty string", code="format"
+            ))
+        elif policy_file != config.review.policy_file.as_posix():
+            diagnostics.append(Diagnostic(
+                f"{label}.review.policy_file",
+                "must match project review.policy_file",
+                code="invariant",
+            ))
+    if accepted_risk_refs is not None and (
+        not isinstance(accepted_risk_refs, list)
+        or not all(isinstance(item, str) and item.strip() for item in accepted_risk_refs)
+    ):
+        diagnostics.append(Diagnostic(
+            f"{label}.review.accepted_risk_refs",
+            "must be an array of non-empty strings",
+            code="type",
+        ))
     if tier == "team" and required is not True:
         diagnostics.append(Diagnostic(f"{label}.review.required", "team tier requires independent review", code="invariant"))
     if isinstance(required, bool) and tier in TIERS and required != config.tiers[tier].independent_review:
         diagnostics.append(Diagnostic(
             f"{label}.review.required", "must match the selected tier's review policy", code="invariant"
         ))
-    if isinstance(limit, int) and not isinstance(limit, bool) and limit != config.workflow.review_cycle_limit:
+    if (
+        isinstance(limit, int)
+        and not isinstance(limit, bool)
+        and limit != config.workflow.review_cycle_limit
+        and not has_valid_override_reason
+    ):
         diagnostics.append(Diagnostic(f"{label}.review.limit", "must match project workflow.review_cycle_limit", code="invariant"))
     if required is False and verdict != "not-required":
         diagnostics.append(Diagnostic(f"{label}.review.verdict", "must be not-required when review is disabled", code="invariant"))

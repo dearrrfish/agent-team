@@ -12,10 +12,12 @@ from typing import Any
 from agent_team.diagnostics import Diagnostic, ValidationFailure
 from agent_team.models import (
     PRESETS,
+    RE_REVIEW_MODES,
     ROLE_IDS,
     TARGETS,
     TIERS,
     InstallConfig,
+    ReviewConfig,
     RoleDefinition,
     RoleOverride,
     TargetPreset,
@@ -48,6 +50,14 @@ review_cycle_limit = 3
 deep_discovery_default = false
 require_worktree_decision = true
 persist_agent_reports = true
+
+[review]
+re_review_mode = "diff-only"
+bug_class_sweep = true
+nit_cap = 2
+treat_preexisting_as_nonblocking = true
+re_review_on_advisory_fix = false
+policy_file = ".agent-team/REVIEW.md"
 
 [tiers.solo]
 max_workers = 0
@@ -202,7 +212,8 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
     allowed = {
         "schema_version", "id", "name", "description", "default_tier",
         "default_model_preset", "enabled_targets", "role_sources", "skill_sources",
-        "target_profiles", "model_presets", "workflow", "tiers", "install", "inherit_user_defaults", "roles",
+        "target_profiles", "model_presets", "workflow", "review", "tiers", "install",
+        "inherit_user_defaults", "roles",
     }
     _unknown_keys(data, allowed, "", diagnostics)
     inherit_user_defaults = _boolean(data.get("inherit_user_defaults", True), "inherit_user_defaults", diagnostics)
@@ -384,6 +395,79 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
         ),
     )
 
+    review_data = _mapping(data.get("review", {}), "review", diagnostics)
+    _unknown_keys(
+        review_data,
+        {
+            "re_review_mode",
+            "bug_class_sweep",
+            "nit_cap",
+            "treat_preexisting_as_nonblocking",
+            "re_review_on_advisory_fix",
+            "policy_file",
+        },
+        "review",
+        diagnostics,
+    )
+    re_review_mode = _string(
+        review_data.get("re_review_mode", "diff-only"),
+        "review.re_review_mode",
+        diagnostics,
+    )
+    if re_review_mode not in RE_REVIEW_MODES:
+        diagnostics.append(Diagnostic(
+            "review.re_review_mode",
+            f"must be one of {', '.join(RE_REVIEW_MODES)}",
+            code="enum",
+        ))
+    bug_class_sweep = _boolean(
+        review_data.get("bug_class_sweep", True),
+        "review.bug_class_sweep",
+        diagnostics,
+    )
+    nit_cap = _integer(
+        review_data.get("nit_cap", 2),
+        "review.nit_cap",
+        diagnostics,
+    )
+    if not 0 <= nit_cap <= 5:
+        diagnostics.append(Diagnostic(
+            "review.nit_cap", "must be between 0 and 5", code="range"
+        ))
+    treat_preexisting_as_nonblocking = _boolean(
+        review_data.get("treat_preexisting_as_nonblocking", True),
+        "review.treat_preexisting_as_nonblocking",
+        diagnostics,
+    )
+    re_review_on_advisory_fix = _boolean(
+        review_data.get("re_review_on_advisory_fix", False),
+        "review.re_review_on_advisory_fix",
+        diagnostics,
+    )
+    policy_file_raw = _nonempty_string(
+        review_data.get("policy_file", ".agent-team/REVIEW.md"),
+        "review.policy_file",
+        diagnostics,
+    )
+    policy_file = (
+        _contained_path(root, policy_file_raw, "review.policy_file", diagnostics)
+        if policy_file_raw.strip()
+        else Path(".agent-team/REVIEW.md")
+    )
+    resolved_policy_file = (root / policy_file).resolve()
+    if resolved_policy_file.exists() and resolved_policy_file.is_dir():
+        diagnostics.append(Diagnostic(
+            "review.policy_file", "policy file cannot be a directory", code="path"
+        ))
+    review_config = ReviewConfig(
+        re_review_mode=re_review_mode,
+        bug_class_sweep=bug_class_sweep,
+        nit_cap=nit_cap,
+        treat_preexisting_as_nonblocking=treat_preexisting_as_nonblocking,
+        re_review_on_advisory_fix=re_review_on_advisory_fix,
+        policy_file=policy_file,
+    )
+
     tiers_data = _mapping(_required(data, "tiers", "", diagnostics), "tiers", diagnostics)
     _unknown_keys(tiers_data, TIERS, "tiers", diagnostics)
     tiers: dict[str, TierConfig] = {}
@@ -443,6 +527,7 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
         schema_version, team_id, name, description, default_tier, default_preset,
         enabled_targets, role_sources, skill_sources, target_profiles, model_presets, workflow,
         tiers, InstallConfig(default_scope, overwrite, backups, modify_settings),
+        review=review_config,
         inherit_user_defaults=inherit_user_defaults,
         role_overrides=role_overrides,
         target_role_overrides=target_role_overrides,
@@ -511,11 +596,24 @@ def _layered_config(
                 **workflow,
                 "run_root": builtin["workflow"]["run_root"],
             }
+        review_layer = validation_data.get("review")
+        if isinstance(review_layer, dict):
+            validation_data["review"] = {
+                **review_layer,
+                "policy_file": builtin["review"]["policy_file"],
+            }
         parse_team_config(validation_data, scope_root)
         if isinstance(data.get("workflow"), dict) and "run_root" in data["workflow"]:
             parse_team_config(
                 _merge(
                     builtin, {"workflow": {"run_root": data["workflow"]["run_root"]}}
+                ),
+                root,
+            )
+        if isinstance(data.get("review"), dict) and "policy_file" in data["review"]:
+            parse_team_config(
+                _merge(
+                    builtin, {"review": {"policy_file": data["review"]["policy_file"]}}
                 ),
                 root,
             )

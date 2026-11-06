@@ -207,3 +207,27 @@ class RecoveryTests(unittest.TestCase):
 
     def test_non_git_fingerprint_is_unknown(self):
         self.assertEqual(fingerprint_workspace(self.root).revision, "unknown")
+
+    def test_review_policy_drift_and_reconcile(self):
+        path = self.create_run()
+        config_file = self.root / ".agent-team" / "team.toml"
+        config_file.write_text(
+            config_file.read_text(encoding="utf-8")
+            .replace('re_review_mode = "diff-only"', 're_review_mode = "full-scope"')
+            .replace("nit_cap = 2", "nit_cap = 1")
+            .replace('policy_file = ".agent-team/REVIEW.md"', 'policy_file = "docs/REVIEW.md"'),
+            encoding="utf-8",
+        )
+        config = load_team_config(self.root)
+        candidate = discover_runs(self.root, config)[0]
+        status = recovery_status(candidate, self.root, config)
+        self.assertIn("review.re_review_mode: diff-only -> full-scope", status["config_drift"])
+        self.assertIn("review.nit_cap: 2 -> 1", status["config_drift"])
+        self.assertIn("review.policy_file: .agent-team/REVIEW.md -> docs/REVIEW.md", status["config_drift"])
+
+        reconciled = self.runner(self.root, "run", "reconcile", "--slug", "first", "--apply")
+        self.assertEqual(reconciled.returncode, 0, reconciled.stderr)
+        updated_text = path.read_text(encoding="utf-8")
+        self.assertIn('re_review_mode = "full-scope"', updated_text)
+        self.assertIn("nit_cap = 1", updated_text)
+        self.assertIn('policy_file = "docs/REVIEW.md"', updated_text)

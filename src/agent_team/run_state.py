@@ -232,11 +232,30 @@ def reconcile(root: Path, config: TeamConfig, slug: str, apply: bool) -> str:
         tier = config.tiers.get(data.get("tier"))
         if tier is None:
             fail("unknown tier")
-        changes = {("max_workers",): tier.max_workers, ("write_isolation",): tier.write_isolation,
+        review_table = data.get("review", {})
+        has_override_reason = (
+            isinstance(review_table, dict)
+            and isinstance(review_table.get("limit_override_reason"), str)
+            and bool(review_table["limit_override_reason"].strip())
+        )
+        changes: dict[tuple[str, ...], Any] = {
+            ("max_workers",): tier.max_workers,
+            ("write_isolation",): tier.write_isolation,
             ("reports_required",): data["tier"] == "team" or (
-                data["tier"] == "assisted" and config.workflow.persist_agent_reports),
+                data["tier"] == "assisted" and config.workflow.persist_agent_reports
+            ),
             ("review", "required"): tier.independent_review,
-            ("review", "limit"): config.workflow.review_cycle_limit}
+        }
+        if not has_override_reason:
+            changes[("review", "limit")] = config.workflow.review_cycle_limit
+        if isinstance(review_table, dict):
+            for key, expected in (
+                ("re_review_mode", config.review.re_review_mode),
+                ("nit_cap", config.review.nit_cap),
+                ("policy_file", config.review.policy_file.as_posix()),
+            ):
+                if key in review_table:
+                    changes[("review", key)] = expected
         updated = edit_scalars(content, changes)
         # Validate against the original artifact directory without changing run.toml.
         temporary = path.parent / (".reconcile-" + secrets.token_hex(8) + ".toml")

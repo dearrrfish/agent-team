@@ -131,6 +131,12 @@ preset, enable native targets, and declare role and skill sources.
 `[workflow]` controls the contained run directory, review-cycle limit (1–5,
 default 3), deep-discovery default, worktree decision gate, and worker-report
 persistence.
+
+`[review]` configures review convergence policy: `re_review_mode` (`diff-only`
+or `full-scope`, default `diff-only`), `bug_class_sweep` (default `true`),
+`nit_cap` (0–5, default `2`), `treat_preexisting_as_nonblocking` (default
+`true`), `re_review_on_advisory_fix` (default `false`), and `policy_file`
+(project-relative path, default `.agent-team/REVIEW.md`).
 Tier tables define worker count, artifact and review requirements, and their
 fixed write-isolation policy. Assisted permits 1–2 workers and team permits
 2–8; both require durable artifacts. Enabling independent review for any tier

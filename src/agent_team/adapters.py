@@ -80,7 +80,8 @@ def _tools(role: RoleDefinition, target: str, pi_status: PiPluginStatus | None =
 
 
 def _render_agent(target: str, role: RoleDefinition, profile: TargetProfile, preset_name: str,
-                  pi_status: PiPluginStatus | None = None) -> str:
+                  pi_status: PiPluginStatus | None = None,
+                  config: TeamConfig | None = None) -> str:
     # VERIFY: Exercise model-backed native agent discovery when a noninteractive
     # validator can select an exact custom agent without silently falling back.
     model, effort = _mapped_role(profile, preset_name, role)
@@ -120,6 +121,20 @@ def _render_agent(target: str, role: RoleDefinition, profile: TargetProfile, pre
         )
     else:
         instructions += "- Do not delegate to another agent.\n"
+    if config is not None and role.role_id in {"reviewer", "coordinator"}:
+        review_cfg = config.review
+        instructions += (
+            "\n# Effective review policy\n\n"
+            f"- Review cycle limit: {config.workflow.review_cycle_limit}\n"
+            f"- Cycle 2+ re-review mode: `{review_cfg.re_review_mode}`\n"
+            f"- Cycle 1 bug-class sweep: `{'true' if review_cfg.bug_class_sweep else 'false'}`\n"
+            f"- Non-blocking Nit cap per cycle: {review_cfg.nit_cap}\n"
+            "- Pre-existing issues non-blocking: "
+            f"`{'true' if review_cfg.treat_preexisting_as_nonblocking else 'false'}`\n"
+            "- Re-review after optional Nit advisory fixes: "
+            f"`{'true' if review_cfg.re_review_on_advisory_fix else 'false'}`\n"
+            f"- Repository review policy file: `{review_cfg.policy_file.as_posix()}`\n"
+        )
     if target in {"claude", "antigravity", "pi"} and role.write_policy == "deny" and "shell" in role.capabilities:
         instructions += (
             "- Native shell access is omitted because this target cannot guarantee "
@@ -281,7 +296,7 @@ def render_target(
         else:
             suffix = ".toml" if target == "codex" else ".md"
             relative = PurePosixPath(agent_destination, f"{role.role_id}{suffix}")
-        output[relative] = _render_agent(target, role, profile, preset_name, pi_status)
+        output[relative] = _render_agent(target, role, profile, preset_name, pi_status, config)
     for skill_id, content in load_skills(config, root):
         relative = PurePosixPath(skill_destination, skill_id, "SKILL.md")
         output[relative] = content

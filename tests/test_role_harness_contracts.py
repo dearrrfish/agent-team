@@ -102,9 +102,14 @@ class RoleHarnessContractsTests(unittest.TestCase):
                 "Pre-existing",
                 "accepted-risk",
                 ".agent-team/REVIEW.md",
+                "# Effective review policy",
+                "Cycle 2+ re-review mode: `diff-only`",
+                "Non-blocking Nit cap per cycle: 2",
             ):
                 with self.subTest(target=target, phrase=required_phrase):
                     self.assertIn(required_phrase, instructions)
+            _, coord_instructions = agent_content(output, target, "coordinator")
+            self.assertIn("# Effective review policy", coord_instructions)
 
     def test_readonly_report_template_remains_schema_compatible(self) -> None:
         run = init_run(self.root, self.config, "readonly-report", None, "assisted", "balanced")

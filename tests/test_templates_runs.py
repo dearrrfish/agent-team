@@ -338,6 +338,43 @@ report = "reports/T-002-implementer.md"
                 for item in raised.exception.diagnostics
             ))
 
+    def test_review_policy_config_and_run_manifest_overrides(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            config_file = root / ".agent-team" / "team.toml"
+            config_file.write_text(
+                DEFAULT_TEAM_TOML
+                .replace('re_review_mode = "diff-only"', 're_review_mode = "full-scope"')
+                .replace("nit_cap = 2", "nit_cap = 1")
+                .replace('policy_file = ".agent-team/REVIEW.md"', 'policy_file = "docs/REVIEW.md"'),
+                encoding="utf-8",
+            )
+            config = load_team_config(root)
+            self.assertEqual(config.review.re_review_mode, "full-scope")
+            self.assertEqual(config.review.nit_cap, 1)
+            self.assertEqual(config.review.policy_file.as_posix(), "docs/REVIEW.md")
+
+            run_dir = init_run(root, config, "review-policy-run", None, "team", "balanced")
+            manifest = run_dir / "run.toml"
+            content = manifest.read_text(encoding="utf-8")
+            self.assertIn('re_review_mode = "full-scope"', content)
+            self.assertIn("nit_cap = 1", content)
+            self.assertIn('policy_file = "docs/REVIEW.md"', content)
+
+            # Override limit with limit_override_reason and accepted_risk_refs
+            updated = content.replace("limit = 3", 'limit = 5\nlimit_override_reason = "deep audit"\naccepted_risk_refs = ["DEC-001", "REVIEW.md#risk-1"]')
+            manifest.write_text(updated, encoding="utf-8")
+            errors = [item for item in validate_run(manifest, config) if item.severity == "error"]
+            self.assertEqual(errors, [])
+
+            # Without limit_override_reason, mismatched limit fails invariant check
+            manifest.write_text(content.replace("limit = 3", "limit = 5"), encoding="utf-8")
+            diagnostics = validate_run(manifest, config)
+            self.assertTrue(any(
+                item.path.endswith(".review.limit") and item.code == "invariant"
+                for item in diagnostics
+            ))
+
     def test_running_tasks_cannot_exceed_configured_worker_limit(self) -> None:
         config_text = DEFAULT_TEAM_TOML.replace(
             "[tiers.team]\nmax_workers = 4",

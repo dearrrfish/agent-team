@@ -44,6 +44,20 @@ require_worktree_decision = true
 # Persist structured worker reports.
 persist_agent_reports = true
 
+[review]
+# Re-review scope for Cycle 2+: diff-only or full-scope.
+re_review_mode = "diff-only"
+# Sweep all in-scope instances of a defect class in Cycle 1.
+bug_class_sweep = true
+# Maximum non-blocking Nit advisories per review cycle (0 through 5).
+nit_cap = 2
+# Record pre-existing issues as residual risks without blocking approval.
+treat_preexisting_as_nonblocking = true
+# Require another review cycle after optional Nit advisory cleanups.
+re_review_on_advisory_fix = false
+# Project-relative review policy and accepted-risk file.
+policy_file = ".agent-team/REVIEW.md"
+
 [tiers.solo]
 # Solo requires exactly zero workers.
 max_workers = 0

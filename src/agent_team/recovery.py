@@ -249,9 +249,20 @@ def config_drift(candidate: RunCandidate, config: TeamConfig) -> list[str]:
             drift.append(f"{key}: {manifest.get(key)} -> {expected}")
     review = manifest.get("review", {})
     if isinstance(review, dict):
-        for key, expected in (("required", tier.independent_review),
-                              ("limit", config.workflow.review_cycle_limit)):
-            if review.get(key) != expected:
+        if review.get("required") != tier.independent_review:
+            drift.append(f"review.required: {review.get('required')} -> {tier.independent_review}")
+        has_override_reason = (
+            isinstance(review.get("limit_override_reason"), str)
+            and bool(review["limit_override_reason"].strip())
+        )
+        if not has_override_reason and review.get("limit") != config.workflow.review_cycle_limit:
+            drift.append(f"review.limit: {review.get('limit')} -> {config.workflow.review_cycle_limit}")
+        for key, expected in (
+            ("re_review_mode", config.review.re_review_mode),
+            ("nit_cap", config.review.nit_cap),
+            ("policy_file", config.review.policy_file.as_posix()),
+        ):
+            if key in review and review.get(key) != expected:
                 drift.append(f"review.{key}: {review.get(key)} -> {expected}")
     return drift
 
