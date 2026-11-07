@@ -16,8 +16,6 @@ description = "Portable role-based agent team"
 default_tier = "adaptive"
 # economy, balanced, or quality.
 default_model_preset = "balanced"
-# Native targets available to install and render.
-enabled_targets = ["codex", "claude", "antigravity"]
 # Ordered custom directories; whole role IDs replace builtins.
 role_sources = ["builtin:roles"]
 

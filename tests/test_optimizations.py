@@ -13,11 +13,17 @@ from agent_team.templates import load_example_templates
 class OptimizationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.home_dir = tempfile.TemporaryDirectory()
         self.root = Path(self.temp_dir.name)
+        self.home = Path(self.home_dir.name)
+        self.home_patcher = patch("pathlib.Path.home", return_value=self.home)
+        self.home_patcher.start()
         # Initialize bare git repo for gitignore / commands that need it
         (self.root / ".git").mkdir()
 
     def tearDown(self) -> None:
+        self.home_patcher.stop()
+        self.home_dir.cleanup()
         self.temp_dir.cleanup()
 
     def test_default_team_toml_has_no_skill_sources_and_no_large_comments(self) -> None:
@@ -135,6 +141,58 @@ class OptimizationTests(unittest.TestCase):
         # Verify no backup directory created in .agent-team/backups
         backup_dir = self.root / ".agent-team" / "backups"
         self.assertFalse(backup_dir.exists())
+
+    def test_generate_templates_scope_symlinks_and_copy(self) -> None:
+        project_dir = self.root / "fake-project"
+        project_dir.mkdir()
+        (project_dir / ".git").mkdir()
+
+        # 1. Project generate templates by default generates symlinks pointing to user canonical templates
+        with patch("sys.argv", ["agent-team", "generate", "templates"]):
+            with patch("pathlib.Path.cwd", return_value=project_dir):
+                self.assertEqual(main(), 0)
+
+        user_template = self.home / ".agent-team" / "templates" / "role" / "coordinator" / "role.toml.example"
+        proj_template = project_dir / ".agent-team" / "templates" / "role" / "coordinator" / "role.toml.example"
+        self.assertTrue(user_template.is_file())
+        self.assertTrue(proj_template.is_symlink())
+        self.assertEqual(proj_template.resolve(), user_template.resolve())
+
+        # 2. Project generate templates --copy creates regular files instead of symlinks
+        with patch("sys.argv", ["agent-team", "generate", "templates", "--copy"]):
+            with patch("pathlib.Path.cwd", return_value=project_dir):
+                self.assertEqual(main(), 0)
+
+        self.assertTrue(proj_template.is_file())
+        self.assertFalse(proj_template.is_symlink())
+
+    def test_builtin_review_policy_fallback_and_override(self) -> None:
+        templates = load_example_templates()
+        self.assertIn("review/REVIEW.md.example", templates)
+        self.assertIn("Agent Team Review Policy Template: REVIEW.md", templates["review/REVIEW.md.example"])
+
+        from agent_team.config import load_team_config
+        from agent_team.run_state import prepare_review
+
+        # Ensure project has team.toml and run
+        with patch("sys.argv", ["agent-team", "init"]):
+            with patch("pathlib.Path.cwd", return_value=self.root):
+                main()
+        with patch("sys.argv", ["agent-team", "run", "init", "--slug", "test-review", "--tier", "solo"]):
+            with patch("pathlib.Path.cwd", return_value=self.root):
+                main()
+
+        config = load_team_config(self.root)
+
+        # Case 1: No .agent-team/REVIEW.md file -> falls back to builtin template
+        review_text = prepare_review(self.root, config, "test-review")
+        self.assertIn("## Architecture assumptions and accepted risks", review_text)
+
+        # Case 2: Custom .agent-team/REVIEW.md override exists
+        custom_policy = self.root / ".agent-team" / "REVIEW.md"
+        custom_policy.write_text("# Custom Org Review Policy Header\n", encoding="utf-8")
+        review_text2 = prepare_review(self.root, config, "test-review")
+        self.assertIn("# Custom Org Review Policy Header", review_text2)
 
 
 if __name__ == "__main__":

@@ -28,6 +28,7 @@ from agent_team.recovery import (
     select_run,
 )
 from agent_team.runs import utc_now, validate_run
+from agent_team.templates import asset_text
 from agent_team.toml_edit import _layout, _same_values, _statements
 
 
@@ -399,6 +400,11 @@ def prepare_review(
         try:
             policy_excerpt = policy_path.read_text(encoding="utf-8").strip()
         except (OSError, UnicodeError):
+            policy_excerpt = ""
+    if not policy_excerpt:
+        try:
+            policy_excerpt = asset_text("templates", "workflow", "REVIEW.md.tpl").strip()
+        except Exception:
             policy_excerpt = ""
 
     tracked_digest = workspace["tracked_diff_sha256"] or "clean"

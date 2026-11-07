@@ -90,7 +90,7 @@ def select_targets(config: TeamConfig, requested: str | None) -> tuple[str, ...]
         if target not in TARGETS:
             raise _fail("targets", f"unsupported target {target!r}; choose {', '.join(TARGETS)}")
         if target not in config.enabled_targets or target not in config.target_profiles:
-            raise _fail(target, "target must be enabled and have a configured profile")
+            raise _fail(target, f"{target} must be enabled", "disabled")
         if not shutil.which(_CLIENTS[target]):
             raise _fail(target, f"{_CLIENTS[target]} was not found on PATH; install the native client")
     return targets
@@ -341,7 +341,7 @@ def _edit_model_presets(
                     references[name] = shadow_path.name
                     roots[name] = Path(shadow)
                 candidate_config = replace(candidate_config, target_profiles=references, target_profile_roots=roots)
-                for name in dict.fromkeys((*candidate_config.enabled_targets, *candidate_config.model_presets)):
+                for name in dict.fromkeys((*TARGETS, *candidate_config.model_presets)):
                     effective = resolve_target_profile(candidate_config, name, boundary)
                     for key, desired in selected.get(name, {}).items():
                         if effective.presets[key] != desired:

@@ -54,7 +54,8 @@ class GlobalCliTests(unittest.TestCase):
                 generated = self.run_cli("generate", "templates", cwd=project)
                 self.assertEqual(generated.returncode, 0, generated.stderr)
                 self.assertTrue((project / ".agent-team/templates/prompts/plan.md").is_file())
-        self.assertFalse((self.home / ".agent-team/templates").exists())
+                self.assertTrue((project / ".agent-team/templates/prompts/plan.md").is_symlink())
+        self.assertTrue((self.home / ".agent-team/templates").exists())
 
     def test_project_commands_reject_home_and_user_config_directory(self) -> None:
         self.run_cli("init", "--scope", "user")

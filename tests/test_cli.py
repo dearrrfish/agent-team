@@ -259,10 +259,13 @@ class CliTests(unittest.TestCase):
             plan_prompt = root / ".agent-team" / "templates" / "prompts" / "plan.md"
             plan_prompt.write_text("modified", encoding="utf-8")
 
-            # customize REVIEW.md to verify non-overwriting preservation
+            # review example template is generated
+            review_example = root / ".agent-team" / "templates" / "review" / "REVIEW.md.example"
+            self.assertTrue(review_example.is_file())
+
+            # customize REVIEW.md override to verify non-overwriting preservation
+            custom_review_policy = "# custom project review rule\n"
             review_policy = root / ".agent-team" / "REVIEW.md"
-            self.assertTrue(review_policy.is_file())
-            custom_review_policy = review_policy.read_text(encoding="utf-8") + "\n# custom project review rule\n"
             review_policy.write_text(custom_review_policy, encoding="utf-8")
 
             # run init again

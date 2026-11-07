@@ -11,6 +11,7 @@ from typing import Any
 
 from agent_team.diagnostics import Diagnostic, ValidationFailure
 from agent_team.models import (
+    DEFAULT_ENABLED_TARGETS,
     PRESETS,
     RE_REVIEW_MODES,
     ROLE_IDS,
@@ -34,7 +35,6 @@ name = "Native agent team"
 description = "Portable role-based agent team"
 default_tier = "adaptive"
 default_model_preset = "balanced"
-enabled_targets = ["codex", "claude", "antigravity"]
 role_sources = ["builtin:roles"]
 
 [target_profiles]
@@ -224,9 +224,10 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
     default_preset = _string(
         _required(data, "default_model_preset", "", diagnostics), "default_model_preset", diagnostics
     )
-    enabled_targets = _string_list(
-        _required(data, "enabled_targets", "", diagnostics), "enabled_targets", diagnostics
-    )
+    enabled_targets_tuple = DEFAULT_ENABLED_TARGETS
+    if "enabled_targets" in data:
+        parsed_targets = _string_list(data["enabled_targets"], "enabled_targets", diagnostics)
+        enabled_targets_tuple = tuple(parsed_targets)
     role_sources = _string_list(_required(data, "role_sources", "", diagnostics), "role_sources", diagnostics)
     if "skill_sources" in data:
         _string_list(data["skill_sources"], "skill_sources", diagnostics)
@@ -239,11 +240,6 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
         diagnostics.append(Diagnostic("default_tier", "must be adaptive, solo, assisted, or team", code="enum"))
     if default_preset not in PRESETS:
         diagnostics.append(Diagnostic("default_model_preset", f"must be one of {', '.join(PRESETS)}", code="enum"))
-    for index, target in enumerate(enabled_targets):
-        if target not in TARGETS:
-            diagnostics.append(Diagnostic(f"enabled_targets.{index}", "unsupported target", code="enum"))
-    if len(enabled_targets) != len(set(enabled_targets)):
-        diagnostics.append(Diagnostic("enabled_targets", "target names must be unique", code="duplicate"))
 
     profiles_data = _mapping(_required(data, "target_profiles", "", diagnostics), "target_profiles", diagnostics)
     _unknown_keys(profiles_data, TARGETS, "target_profiles", diagnostics)
@@ -252,9 +248,6 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
         for key, value in profiles_data.items()
         if key in TARGETS
     }
-    for target in enabled_targets:
-        if target not in target_profiles:
-            diagnostics.append(Diagnostic(f"target_profiles.{target}", "enabled target needs a profile", code="required"))
     for target, reference in target_profiles.items():
         if reference.startswith("builtin:") and reference != f"builtin:{target}":
             diagnostics.append(Diagnostic(f"target_profiles.{target}", "unsupported builtin profile", code="enum"))
@@ -524,12 +517,13 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
         raise ValidationFailure(diagnostics)
     return TeamConfig(
         schema_version, team_id, name, description, default_tier, default_preset,
-        enabled_targets, role_sources, target_profiles, model_presets, workflow,
+        role_sources, target_profiles, model_presets, workflow,
         tiers, InstallConfig(default_scope, overwrite, backups, modify_settings),
         review=review_config,
         inherit_user_defaults=inherit_user_defaults,
         role_overrides=role_overrides,
         target_role_overrides=target_role_overrides,
+        enabled_targets=enabled_targets_tuple,
     )
 
 
@@ -636,6 +630,7 @@ def _layered_config(
         field_origins=origins,
         target_profile_roots=profile_roots,
         scoped_role_sources=tuple(sources["role"]),
+        enabled_targets=tuple(merged["enabled_targets"]) if "enabled_targets" in merged else DEFAULT_ENABLED_TARGETS,
     )
 
 

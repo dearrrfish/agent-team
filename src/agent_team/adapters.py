@@ -7,7 +7,7 @@ from pathlib import Path, PurePosixPath
 from agent_team.config import load_roles, resolve_target_profile
 from agent_team.diagnostics import Diagnostic, ValidationFailure
 from agent_team.fs import non_directory_parent
-from agent_team.models import RoleDefinition, TargetProfile, TeamConfig
+from agent_team.models import TARGETS, RoleDefinition, TargetProfile, TeamConfig
 from agent_team.pi_plugins import DEFAULT_PI_WEB_TOOLS, PiPluginStatus
 from agent_team.templates import asset_text, render_template
 
@@ -262,8 +262,8 @@ def render_target(
     scope: str = "project",
     pi_status: PiPluginStatus | None = None,
 ) -> dict[PurePosixPath, str]:
-    if target not in config.enabled_targets:
-        raise ValidationFailure([Diagnostic("target", f"{target} is not enabled", code="disabled")])
+    if target not in TARGETS:
+        raise ValidationFailure([Diagnostic("target", f"{target} is not a supported target", code="enum")])
     if scope not in {"project", "user"}:
         raise ValidationFailure([Diagnostic("scope", "must be project or user", code="enum")])
     preset_name = model_preset or config.default_model_preset

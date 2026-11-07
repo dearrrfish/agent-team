@@ -103,6 +103,30 @@ def generate_annotated_role(role_id: str) -> str:
     return header + raw
 
 
+def generate_annotated_review_policy() -> str:
+    raw = asset_text("templates", "workflow", "REVIEW.md.tpl")
+    header = """<!--
+==============================================================================
+Agent Team Review Policy Template: REVIEW.md
+==============================================================================
+
+This file defines repository-specific review instructions, accepted design
+assumptions, skip paths, and noise controls for reviewer and team-review.
+
+HOW TO USE:
+1. Copy this template to .agent-team/REVIEW.md:
+     cp .agent-team/templates/review/REVIEW.md.example .agent-team/REVIEW.md
+2. Customize the rules, accepted risks, and paths below for your repository.
+3. If .agent-team/REVIEW.md does not exist, agent-team uses the builtin
+   review policy automatically.
+
+------------------------------------------------------------------------------
+-->
+
+"""
+    return header + raw
+
+
 def load_example_templates() -> dict[str, str]:
     from agent_team.models import ROLE_IDS, TARGETS
 
@@ -119,5 +143,8 @@ def load_example_templates() -> dict[str, str]:
         examples[f"roles/{role_id}/instructions.md.example"] = md_content
         examples[f"role/{role_id}/role.toml.example"] = toml_content
         examples[f"role/{role_id}/instructions.md.example"] = md_content
+
+    review_content = generate_annotated_review_policy()
+    examples["review/REVIEW.md.example"] = review_content
 
     return examples

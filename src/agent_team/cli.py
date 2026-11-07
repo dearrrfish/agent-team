@@ -39,7 +39,6 @@ from agent_team.recovery import (
 from agent_team.run_state import bind, lease_change, prepare_review, reconcile, verify
 from agent_team.runs import init_run, load_run_model_preset, validate_all_runs
 from agent_team.templates import (
-    asset_text,
     load_example_templates,
     load_prompt_templates,
 )
@@ -80,6 +79,8 @@ Examples:
     init.add_argument("--no-backup", action="store_true", help="do not create a backup when overwriting")
     generate = subcommands.add_parser("generate", help="generate project gitignore and prompt templates")
     generate.add_argument("selectors", nargs="*", help="gitignore,templates (comma or space separated; default both)")
+    generate.add_argument("--scope", choices=("user", "project"), help="target scope (user or project)")
+    generate.add_argument("--copy", action="store_true", help="copy physical files instead of creating symlinks")
 
     validate = subcommands.add_parser("validate", help="validate project configuration and runs")
     validate.add_argument("--format", choices=("text", "json"), default="text")
@@ -245,33 +246,82 @@ AGENT_TEAM_GITIGNORE_ENTRIES: tuple[str, ...] = (
     "/.agent-team/templates/profiles/",
     "/.agent-team/templates/role/",
     "/.agent-team/templates/profile/",
+    "/.agent-team/templates/review/",
 )
 
 
-def _upsert_templates(root: Path) -> list[Path]:
-    templates_dir = root / ".agent-team" / "templates"
-    prompts_dir = templates_dir / "prompts"
+def _upsert_templates(
+    scope: str = "project",
+    root: Path | None = None,
+    copy: bool = False,
+) -> list[Path]:
+    user_root = user_config_root()
+    user_templates_dir = user_root / "templates"
+    user_prompts_dir = user_templates_dir / "prompts"
+
     prompt_templates = load_prompt_templates()
-    upserted: list[Path] = []
-    for name, content in prompt_templates.items():
-        destination = prompts_dir / name
-        if not destination.exists() or destination.read_text(encoding="utf-8") != content:
-            atomic_write(destination, content)
-        upserted.append(destination)
-    for rel_path, content in load_example_templates().items():
-        destination = templates_dir / rel_path
-        if not destination.exists() or destination.read_text(encoding="utf-8") != content:
-            atomic_write(destination, content)
-        upserted.append(destination)
-    policy_rel = Path(".agent-team/REVIEW.md")
+    example_templates = load_example_templates()
+
+    # 1. Always ensure canonical physical templates exist in user scope
+    user_upserted: list[Path] = []
+    can_use_user = True
     try:
-        policy_rel = load_team_config(root).review.policy_file
-    except ValidationFailure:
-        pass
-    review_policy = root / policy_rel
-    if not review_policy.exists():
-        atomic_write(review_policy, asset_text("templates", "workflow", "REVIEW.md.tpl"))
-    return upserted
+        user_templates_dir.mkdir(parents=True, exist_ok=True)
+    except (OSError, PermissionError):
+        can_use_user = False
+        if scope == "user":
+            raise
+
+    if can_use_user:
+        for name, content in prompt_templates.items():
+            destination = user_prompts_dir / name
+            if not destination.exists() or destination.read_text(encoding="utf-8") != content:
+                atomic_write(destination, content)
+            user_upserted.append(destination)
+        for rel_path, content in example_templates.items():
+            destination = user_templates_dir / rel_path
+            if not destination.exists() or destination.read_text(encoding="utf-8") != content:
+                atomic_write(destination, content)
+            user_upserted.append(destination)
+
+    if scope == "user":
+        return user_upserted
+
+    # 2. Project scope: link to user scope templates (default) or copy files
+    if root is None:
+        raise ValidationFailure([Diagnostic("project", "project root required for project scope", code="context")])
+
+    proj_templates_dir = root / ".agent-team" / "templates"
+    proj_upserted: list[Path] = []
+
+    all_templates: dict[str, str] = {f"prompts/{name}": content for name, content in prompt_templates.items()}
+    all_templates.update(example_templates)
+
+    effective_copy = copy or not can_use_user
+    for rel_path, content in all_templates.items():
+        proj_dest = proj_templates_dir / rel_path
+        user_dest = user_templates_dir / rel_path
+        if effective_copy:
+            if proj_dest.is_symlink():
+                proj_dest.unlink()
+            if not proj_dest.exists() or proj_dest.read_text(encoding="utf-8") != content:
+                atomic_write(proj_dest, content)
+        else:
+            proj_dest.parent.mkdir(parents=True, exist_ok=True)
+            if proj_dest.is_symlink():
+                try:
+                    if proj_dest.resolve() == user_dest.resolve() and proj_dest.exists():
+                        proj_upserted.append(proj_dest)
+                        continue
+                except OSError:
+                    pass
+                proj_dest.unlink()
+            elif proj_dest.exists():
+                proj_dest.unlink()
+            proj_dest.symlink_to(user_dest)
+        proj_upserted.append(proj_dest)
+
+    return proj_upserted
 
 
 def _literal_gitignore_entry(path: PurePosixPath) -> str:
@@ -357,18 +407,35 @@ def _init(
     return 0
 
 
-def _generate(root: Path, selectors: list[str]) -> int:
-    require_project_context(root)
+def _generate(
+    root: Path | None,
+    selectors: list[str],
+    scope: str | None = None,
+    copy: bool = False,
+) -> int:
     selected = [part.strip() for value in selectors for part in value.split(",") if part.strip()] or ["gitignore", "templates"]
     normalized = ["templates" if part in {"template", "templates"} else part for part in selected]
     unknown = [part for part in normalized if part not in {"gitignore", "templates"}]
     if unknown:
         raise ValidationFailure([Diagnostic("generate", f"unknown selector: {part}", code="enum") for part in unknown])
+
+    effective_scope = scope or "project"
+    if effective_scope == "user":
+        explicit_selectors = [part.strip() for value in selectors for part in value.split(",") if part.strip()]
+        if "gitignore" in explicit_selectors:
+            raise ValidationFailure([Diagnostic("generate", "gitignore is only supported in project scope", code="context")])
+        if "templates" in normalized:
+            templates = _upsert_templates(scope="user")
+            print(f"upserted {len(templates)} templates in user scope ({user_config_root() / 'templates'})")
+        return 0
+
+    require_project_context(root)
+    assert root is not None
     entries = AGENT_TEAM_GITIGNORE_ENTRIES
     if "gitignore" in normalized:
         config = load_team_config(root)
         paths: dict[PurePosixPath, str] = {}
-        for target in config.enabled_targets:
+        for target in TARGETS:
             paths.update(render_target(target, config, root, config.default_model_preset, "project"))
         entries += tuple(
             _literal_gitignore_entry(path) for path in sorted(paths)
@@ -407,8 +474,9 @@ def _generate(root: Path, selectors: list[str]) -> int:
             )
             entries += ("!" + _literal_gitignore_entry(relative),)
     if "templates" in normalized:
-        templates = _upsert_templates(root)
-        print(f"upserted {len(templates)} templates")
+        templates = _upsert_templates(scope="project", root=root, copy=copy)
+        mode_desc = "copied" if copy else "symlinked to user scope"
+        print(f"upserted {len(templates)} templates ({mode_desc})")
     if "gitignore" in normalized:
         added = _upsert_gitignore(root, entries)
         print(f"upserted {len(added)} entries in {root / '.gitignore'}")
@@ -426,7 +494,7 @@ def _collect_validation(root: Path) -> list[Diagnostic]:
         load_skills(config, root)
     except ValidationFailure as exc:
         diagnostics.extend(exc.diagnostics)
-    targets_to_resolve = tuple(dict.fromkeys((*config.enabled_targets, *config.model_presets)))
+    targets_to_resolve = tuple(dict.fromkeys((*TARGETS, *config.model_presets)))
     for target in targets_to_resolve:
         try:
             resolve_target_profile(config, target, root)
@@ -606,9 +674,9 @@ def _source_for_role(config: object, target: str, preset: str, role: object) -> 
 
 def _effective_routing(root: Path, args: argparse.Namespace) -> dict[str, object]:
     config = load_team_config(root)
-    targets = (args.target,) if args.target else config.enabled_targets
-    if args.target and args.target not in config.enabled_targets:
-        raise ValidationFailure([Diagnostic("target", f"{args.target} is not enabled", code="disabled")])
+    targets = (args.target,) if args.target else TARGETS
+    if args.target and args.target not in TARGETS:
+        raise ValidationFailure([Diagnostic("target", f"{args.target} is not a supported target", code="enum")])
     preset_name = _model_preset(root, config, args)
     output: list[dict[str, object]] = []
     for target in targets:
@@ -670,8 +738,8 @@ def _models_show(root: Path, args: argparse.Namespace) -> int:
 
 def _models_fetch(root: Path, args: argparse.Namespace) -> int:
     config = load_team_config(root)
-    if args.target not in config.enabled_targets:
-        raise ValidationFailure([Diagnostic("target", f"{args.target} is not enabled", code="disabled")])
+    if args.target not in TARGETS:
+        raise ValidationFailure([Diagnostic("target", f"{args.target} is not a supported target", code="enum")])
     profile = resolve_target_profile(config, args.target, root)
     try:
         catalog = fetch_catalog(args.target, args.timeout)
@@ -721,7 +789,7 @@ def _doctor(root: Path, output_format: str) -> int:
         diagnostics.extend(project_diagnostics)
         if not any(item.severity == "error" for item in project_diagnostics):
             diagnostics.append(Diagnostic("project", f"valid configuration at {root}", severity="info", code="ok"))
-        if "pi" in config.enabled_targets:
+        if "pi" in config.enabled_targets or (root / ".pi").exists():
             from agent_team.pi_plugins import require_pi_plugins, scan_pi_plugins
 
             status = scan_pi_plugins(root)
@@ -730,7 +798,7 @@ def _doctor(root: Path, output_format: str) -> int:
                 require_pi_plugins(status, "project")
             except ValidationFailure as exc:
                 diagnostics.extend(item for item in exc.diagnostics if item.severity == "error")
-        for target in config.enabled_targets:
+        for target in TARGETS:
             command = _NATIVE_CLIENTS[target]
             executable = shutil.which(command)
             if executable is None:
@@ -859,7 +927,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "init":
             return _init(root, args.scope, force=args.force, yes=args.yes, no_backup=args.no_backup)
         if args.command == "generate":
-            return _generate(root, args.selectors)
+            return _generate(root, args.selectors, scope=args.scope, copy=args.copy)
         if args.command == "validate":
             return _validate(root, args.format)
         if args.command == "run":

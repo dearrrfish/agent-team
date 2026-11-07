@@ -6,6 +6,7 @@ from pathlib import Path
 
 TIERS = ("solo", "assisted", "team")
 TARGETS = ("codex", "claude", "antigravity", "pi")
+DEFAULT_ENABLED_TARGETS = ("codex", "claude", "antigravity")
 PRESETS = ("economy", "balanced", "quality")
 ROLE_IDS = ("coordinator", "explorer", "design-agent", "implementer", "ops", "reviewer")
 RE_REVIEW_MODES = ("diff-only", "full-scope")
@@ -60,7 +61,6 @@ class TeamConfig:
     description: str
     default_tier: str
     default_model_preset: str
-    enabled_targets: tuple[str, ...]
     role_sources: tuple[str, ...]
     target_profiles: Mapping[str, str]
     model_presets: Mapping[str, Mapping[str, TargetPresetOverride]]
@@ -74,6 +74,7 @@ class TeamConfig:
     scoped_role_sources: tuple[tuple[Path, str], ...] = ()
     role_overrides: Mapping[str, RoleOverride] = field(default_factory=dict)
     target_role_overrides: Mapping[str, Mapping[str, RoleOverride]] = field(default_factory=dict)
+    enabled_targets: tuple[str, ...] = DEFAULT_ENABLED_TARGETS
 
 
 @dataclass(frozen=True)
