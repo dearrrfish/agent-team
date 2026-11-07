@@ -255,7 +255,7 @@ def smoke(pi, timeout):
               "skipped": {name: "not authorized in this stage" for name in
                           ("plugin_install", "plugin_discovery", "model_prompt",
                            "delegation", "child_worktree")}}
-    with tempfile.TemporaryDirectory(prefix="pi-validation-", dir=os.environ["TMPDIR"]) as directory:
+    with tempfile.TemporaryDirectory(prefix="pi-validation-", dir=os.environ.get("TMPDIR")) as directory:
         root = Path(directory)
         env = isolated_environment(root)
         cwd = root / "project"

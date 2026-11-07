@@ -45,3 +45,79 @@ def render_template(template: str, variables: Mapping[str, str]) -> str:
 
 def required_markers(text: str) -> tuple[str, ...]:
     return tuple(match.group(0) for match in _REQUIRED.finditer(text))
+
+
+def generate_annotated_profile(target: str) -> str:
+    raw = asset_text("definitions", "targets", f"{target}.toml")
+    header = f"""# ==============================================================================
+# Agent Team Target Profile Template: {target}
+# ==============================================================================
+#
+# This file defines the full configuration for the '{target}' target adapter,
+# including destination directories, feature flags, and model presets.
+#
+# HOW TO USE:
+# 1. Copy this template to your project or user configuration directory:
+#      cp .agent-team/templates/profiles/{target}.toml.example targets/{target}.toml
+# 2. Modify the presets or options below to fit your workflow.
+# 3. Reference this custom profile in your team.toml:
+#      [target_profiles]
+#      {target} = "targets/{target}.toml"
+#
+# ------------------------------------------------------------------------------
+
+"""
+    return header + raw
+
+
+def generate_annotated_role(role_id: str) -> str:
+    raw = asset_text("definitions", "roles", role_id, "role.toml")
+    header = f"""# ==============================================================================
+# Agent Team Role Definition Template: {role_id}
+# ==============================================================================
+#
+# This file defines the behavior, capabilities, model class, and effort for the
+# '{role_id}' role.
+#
+# HOW TO USE:
+# 1. Copy this folder (role.toml.example and instructions.md.example) to your custom
+#    role sources directory:
+#      mkdir -p custom_roles/{role_id}
+#      cp .agent-team/templates/roles/{role_id}/role.toml.example custom_roles/{role_id}/role.toml
+#      cp .agent-team/templates/roles/{role_id}/instructions.md.example custom_roles/{role_id}/instructions.md
+# 2. Add your custom role source directory to team.toml:
+#      role_sources = ["custom_roles", "builtin:roles"]
+#
+# ------------------------------------------------------------------------------
+# Available model_class options: "fast", "balanced", "deep"
+# Available effort options: "low", "medium", "high"
+#
+# Target-specific routing overrides can also be added here, for example:
+# [targets.codex]
+# model_class = "deep"
+# effort = "high"
+#
+# ------------------------------------------------------------------------------
+
+"""
+    return header + raw
+
+
+def load_example_templates() -> dict[str, str]:
+    from agent_team.models import ROLE_IDS, TARGETS
+
+    examples: dict[str, str] = {}
+    for target in TARGETS:
+        content = generate_annotated_profile(target)
+        examples[f"profiles/{target}.toml.example"] = content
+        examples[f"profile/{target}.toml.example"] = content
+
+    for role_id in ROLE_IDS:
+        toml_content = generate_annotated_role(role_id)
+        md_content = asset_text("definitions", "roles", role_id, "instructions.md")
+        examples[f"roles/{role_id}/role.toml.example"] = toml_content
+        examples[f"roles/{role_id}/instructions.md.example"] = md_content
+        examples[f"role/{role_id}/role.toml.example"] = toml_content
+        examples[f"role/{role_id}/instructions.md.example"] = md_content
+
+    return examples

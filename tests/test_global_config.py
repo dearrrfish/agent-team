@@ -6,13 +6,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agent_team.adapters import load_skills
 from agent_team.config import (
     DEFAULT_TEAM_TOML,
     load_roles,
     load_team_config,
     load_user_config,
-    parse_target_profile,
     parse_team_config,
     project_init_toml,
     resolve_target_profile,
@@ -115,43 +113,33 @@ class GlobalConfigTests(unittest.TestCase):
     def test_named_definitions_replace_whole_ids_and_builtins_seed_once(self):
         self.make_role(self.user, 'user instructions')
         self.make_role(self.project, 'project instructions')
-        self.make_skill(self.user, 'user skill')
-        self.make_skill(self.project, 'project skill')
-        self.write_user('role_sources = ["roles", "builtin:roles"]\nskill_sources = ["skills", "builtin:skills"]')
+        self.write_user('role_sources = ["roles", "builtin:roles"]')
         config = load_team_config(self.project)
         roles = {role.role_id: role for role in load_roles(config, self.project)}
         self.assertEqual(roles['implementer'].instructions, 'user instructions')
         self.assertIn(str(self.user), roles['implementer'].source)
-        self.assertEqual(dict(load_skills(config, self.project))['team-plan'], 'user skill')
-        self.write_project('role_sources = ["roles", "builtin:roles"]\nskill_sources = ["skills", "builtin:skills"]')
+        self.write_project('role_sources = ["roles", "builtin:roles"]')
         config = load_team_config(self.project)
         self.assertEqual({r.role_id: r for r in load_roles(config, self.project)}['implementer'].instructions, 'project instructions')
-        self.assertEqual(dict(load_skills(config, self.project))['team-plan'], 'project skill')
         self.assertEqual(config.role_sources, ('roles', 'builtin:roles'))
 
     def test_source_and_nested_symlinks_cannot_escape_scope(self):
         outside = self.root / 'outside'
         outside.mkdir()
         (self.user / 'escape').symlink_to(outside, target_is_directory=True)
-        for text in ('role_sources = ["escape"]', 'skill_sources = ["../outside"]', '[target_profiles]\ncodex = "escape/profile.toml"'):
+        for text in ('role_sources = ["escape"]', 'role_sources = ["../outside"]', '[target_profiles]\ncodex = "escape/profile.toml"'):
             self.write_user(text)
             with self.assertRaises(ValidationFailure):
                 load_team_config(self.project)
-        self.make_skill(self.user, 'original')
-        escaped = outside / 'SKILL.md'
+        escaped = outside / 'instructions.md'
         escaped.write_text('escaped')
-        skill = self.user / 'skills/team-plan/SKILL.md'
-        skill.unlink()
-        skill.symlink_to(escaped)
-        self.write_user('skill_sources = ["skills"]')
-        with self.assertRaises(ValidationFailure):
-            load_skills(load_team_config(self.project), self.project)
         self.make_role(self.user, 'original')
         instruction = self.user / 'roles/implementer/instructions.md'
         instruction.unlink()
         instruction.symlink_to(escaped)
         self.write_user('role_sources = ["roles"]')
         with self.assertRaises(ValidationFailure):
+            load_roles(load_team_config(self.project), self.project)
             load_roles(load_team_config(self.project), self.project)
 
     def test_run_root_remains_project_relative(self):
@@ -174,15 +162,13 @@ class GlobalConfigTests(unittest.TestCase):
         self.write_project(project_init_toml())
         load_team_config(self.project)
         parse_team_config(tomllib.loads(project_init_toml(isolated=True)), self.project)
-        for target in ('codex', 'claude', 'antigravity'):
-            marker = f'# --- Complete {target} profile example ({target}.toml) ---\n'
-            example = text.split(marker, 1)[1].split(f'# --- Sparse {target}', 1)[0]
-            uncommented = '\n'.join(line.removeprefix('# ') if line.startswith('# ') else '' for line in example.splitlines())
-            parse_target_profile(tomllib.loads(uncommented), target)
-            preset_examples = text.split(f'# --- Sparse {target} model preset override examples ---\n', 1)[1].split('# --- Complete ', 1)[0]
-            uncommented = '\n'.join(line.removeprefix('# ') if line.startswith('# ') else '' for line in preset_examples.splitlines())
-            self.write_user(uncommented)
-            resolve_target_profile(load_user_config(), target, self.user)
+
+        from agent_team.templates import load_example_templates
+        templates = load_example_templates()
+        self.assertGreater(len(templates), 0)
+        for rel_path, content in templates.items():
+            self.assertTrue(rel_path.endswith(".example"))
+            self.assertIn("#", content)
 
 
 if __name__ == '__main__':

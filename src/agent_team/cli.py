@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import fnmatch
 import json
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 from agent_team import __version__
@@ -36,7 +38,11 @@ from agent_team.recovery import (
 )
 from agent_team.run_state import bind, lease_change, prepare_review, reconcile, verify
 from agent_team.runs import init_run, load_run_model_preset, validate_all_runs
-from agent_team.templates import asset_text, load_prompt_templates
+from agent_team.templates import (
+    asset_text,
+    load_example_templates,
+    load_prompt_templates,
+)
 
 _NATIVE_CLIENTS = {
     "codex": "codex",
@@ -69,6 +75,9 @@ Examples:
   agent-team init --scope project""",
     )
     init.add_argument("--scope", choices=("user", "project"))
+    init.add_argument("--force", "-f", action="store_true", help="overwrite existing configuration")
+    init.add_argument("--yes", "-y", action="store_true", help="bypass confirmation prompt")
+    init.add_argument("--no-backup", action="store_true", help="do not create a backup when overwriting")
     generate = subcommands.add_parser("generate", help="generate project gitignore and prompt templates")
     generate.add_argument("selectors", nargs="*", help="gitignore,templates (comma or space separated; default both)")
 
@@ -170,6 +179,9 @@ Examples:
     install.add_argument("--scope", choices=("project", "user"))
     install.add_argument("--apply", action="store_true")
     install.add_argument("--force", action="store_true")
+    install.add_argument("--diff", action="store_true", help="show diff when files change")
+    install.add_argument("--yes", "-y", action="store_true", help="bypass confirmation prompt when --force is used")
+    install.add_argument("--no-backup", action="store_true", help="do not create backups when overwriting")
     install.add_argument("--run", dest="run_slug", help="use the model preset from this run")
 
     doctor = subcommands.add_parser("doctor", help="check the environment and project")
@@ -229,15 +241,25 @@ AGENT_TEAM_GITIGNORE_ENTRIES: tuple[str, ...] = (
     "/.agent-team/templates/prompts/coordinate.md",
     "/.agent-team/templates/prompts/review.md",
     "/.agent-team/templates/prompts/discovery.md",
+    "/.agent-team/templates/roles/",
+    "/.agent-team/templates/profiles/",
+    "/.agent-team/templates/role/",
+    "/.agent-team/templates/profile/",
 )
 
 
-def _upsert_prompt_templates(root: Path) -> list[Path]:
-    prompts_dir = root / ".agent-team" / "templates" / "prompts"
-    templates = load_prompt_templates()
+def _upsert_templates(root: Path) -> list[Path]:
+    templates_dir = root / ".agent-team" / "templates"
+    prompts_dir = templates_dir / "prompts"
+    prompt_templates = load_prompt_templates()
     upserted: list[Path] = []
-    for name, content in templates.items():
+    for name, content in prompt_templates.items():
         destination = prompts_dir / name
+        if not destination.exists() or destination.read_text(encoding="utf-8") != content:
+            atomic_write(destination, content)
+        upserted.append(destination)
+    for rel_path, content in load_example_templates().items():
+        destination = templates_dir / rel_path
         if not destination.exists() or destination.read_text(encoding="utf-8") != content:
             atomic_write(destination, content)
         upserted.append(destination)
@@ -290,14 +312,46 @@ def _upsert_gitignore(
     return missing
 
 
-def _init(root: Path, scope: str | None = None) -> int:
+def _init(
+    root: Path,
+    scope: str | None = None,
+    force: bool = False,
+    yes: bool = False,
+    no_backup: bool = False,
+    input_func: object = input,
+) -> int:
     if scope != "user":
         require_project_context(root)
     path = user_config_root() / "team.toml" if scope == "user" else root / ".agent-team" / "team.toml"
-    if path.exists():
-        print(f"warning: existing configuration preserved at {path}", file=sys.stderr)
-        return 0
     content = user_init_toml() if scope == "user" else project_init_toml(isolated=scope == "project")
+    if path.exists():
+        existing = path.read_text(encoding="utf-8")
+        if existing != content:
+            diff_lines = list(difflib.unified_diff(
+                existing.splitlines(keepends=True),
+                content.splitlines(keepends=True),
+                fromfile=f"a/{path}",
+                tofile=f"b/{path}",
+            ))
+            if diff_lines:
+                sys.stdout.writelines(diff_lines)
+        if not force:
+            print(f"warning: existing configuration preserved at {path}", file=sys.stderr)
+            return 0
+        if not yes:
+            try:
+                response = input_func(f"Overwrite existing configuration at {path}? [y/N]: ")
+            except (EOFError, KeyboardInterrupt):
+                print("\nAborted.", file=sys.stderr)
+                return 1
+            if response.strip().lower() not in {"y", "yes"}:
+                print("Aborted.", file=sys.stderr)
+                return 1
+        if not no_backup:
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            backup_path = path.parent / f".backup_{timestamp}"
+            backup_path.write_text(existing, encoding="utf-8")
+            print(f"backup created at {backup_path}")
     atomic_write(path, content)
     print(f"initialized {path}")
     return 0
@@ -306,11 +360,12 @@ def _init(root: Path, scope: str | None = None) -> int:
 def _generate(root: Path, selectors: list[str]) -> int:
     require_project_context(root)
     selected = [part.strip() for value in selectors for part in value.split(",") if part.strip()] or ["gitignore", "templates"]
-    unknown = [part for part in selected if part not in {"gitignore", "templates"}]
+    normalized = ["templates" if part in {"template", "templates"} else part for part in selected]
+    unknown = [part for part in normalized if part not in {"gitignore", "templates"}]
     if unknown:
         raise ValidationFailure([Diagnostic("generate", f"unknown selector: {part}", code="enum") for part in unknown])
     entries = AGENT_TEAM_GITIGNORE_ENTRIES
-    if "gitignore" in selected:
+    if "gitignore" in normalized:
         config = load_team_config(root)
         paths: dict[PurePosixPath, str] = {}
         for target in config.enabled_targets:
@@ -323,20 +378,16 @@ def _generate(root: Path, selectors: list[str]) -> int:
         # Authored definitions may themselves live beneath the generic native
         # patterns. Reopen their directories after the generated output rules.
         source_directories: set[PurePosixPath] = set()
-        for scoped_sources, marker in (
-            (config.scoped_role_sources, "role.toml"),
-            (config.scoped_skill_sources, "SKILL.md"),
-        ):
-            for source_root, reference in scoped_sources:
-                if source_root.resolve() == root.resolve() and not reference.startswith("builtin:"):
-                    source = (source_root / reference).resolve()
-                    if source == root.resolve():
-                        source_directories.update(
-                            PurePosixPath(path.parent.relative_to(root.resolve()).as_posix())
-                            for path in source.glob(f"*/{marker}")
-                        )
-                    else:
-                        source_directories.add(PurePosixPath(source.relative_to(root.resolve()).as_posix()))
+        for source_root, reference in config.scoped_role_sources:
+            if source_root.resolve() == root.resolve() and not reference.startswith("builtin:"):
+                source = (source_root / reference).resolve()
+                if source == root.resolve():
+                    source_directories.update(
+                        PurePosixPath(path.parent.relative_to(root.resolve()).as_posix())
+                        for path in source.glob("*/role.toml")
+                    )
+                else:
+                    source_directories.add(PurePosixPath(source.relative_to(root.resolve()).as_posix()))
         for directory in sorted(source_directories):
             ancestors = reversed((directory, *directory.parents))
             entries += tuple(
@@ -355,10 +406,10 @@ def _generate(root: Path, selectors: list[str]) -> int:
                 for parent in reversed(relative.parents) if parent != PurePosixPath(".")
             )
             entries += ("!" + _literal_gitignore_entry(relative),)
-    if "templates" in selected:
-        templates = _upsert_prompt_templates(root)
-        print(f"upserted {len(templates)} prompt templates")
-    if "gitignore" in selected:
+    if "templates" in normalized:
+        templates = _upsert_templates(root)
+        print(f"upserted {len(templates)} templates")
+    if "gitignore" in normalized:
         added = _upsert_gitignore(root, entries)
         print(f"upserted {len(added)} entries in {root / '.gitignore'}")
     return 0
@@ -418,7 +469,7 @@ def _render(root: Path, args: argparse.Namespace) -> int:
     return 0
 
 
-def _install(root: Path, args: argparse.Namespace) -> int:
+def _install(root: Path, args: argparse.Namespace, input_func: object = input) -> int:
     targets = args.target.split(",")
     if any(target not in TARGETS for target in targets) or len(set(targets)) != len(targets):
         raise ValidationFailure([Diagnostic("target", "targets must be unique nonempty names: " + ",".join(TARGETS), code="enum")])
@@ -433,12 +484,17 @@ def _install(root: Path, args: argparse.Namespace) -> int:
     scope = args.scope or config.install.default_scope
     if scope == "user" and args.scope != "user":
         args.scope = "user"
-        return _install(root, args)
+        return _install(root, args, input_func=input_func)
     target_root = root if scope == "project" else Path.home()
     config_root = root if scope == "project" else user_config_root()
     model_preset = load_run_model_preset(root, config, args.run_slug) if args.run_slug else config.default_model_preset
     project_context = root != Path.home().resolve() and (root / ".agent-team" / "team.toml").is_file()
     backup_root = root / ".agent-team" / "backups" if scope == "project" or project_context else None
+    force = getattr(args, "force", False)
+    yes = getattr(args, "yes", False)
+    no_backup = getattr(args, "no_backup", False)
+    show_diff = getattr(args, "diff", False)
+    backups = False if no_backup else config.install.backups
     pi_status = None
     if "pi" in targets:
         from agent_team.pi_plugins import require_pi_plugins, scan_pi_plugins
@@ -455,23 +511,56 @@ def _install(root: Path, args: argparse.Namespace) -> int:
                 raise ValidationFailure([Diagnostic(str(path), "targets render different content to a shared destination", code="collision")])
             shared[path] = content
         rendered[target] = files
+
+    if show_diff:
+        for rel_path, content in shared.items():
+            destination = target_root / Path(rel_path)
+            if destination.is_file():
+                existing = destination.read_text(encoding="utf-8")
+                if existing != content:
+                    diff_lines = list(difflib.unified_diff(
+                        existing.splitlines(keepends=True),
+                        content.splitlines(keepends=True),
+                        fromfile=f"a/{destination}",
+                        tofile=f"b/{destination}",
+                    ))
+                    if diff_lines:
+                        sys.stdout.writelines(diff_lines)
+
+    for target in targets:
+        files = rendered[target]
         install_files(target=target, target_root=target_root, files=files, apply=False,
-                      force=args.force, backups=config.install.backups, backup_root=backup_root,
+                      force=force, backups=backups, backup_root=backup_root,
                       backup_containment_root=root if backup_root is not None else None,
-                      require_backup_root=scope == "user")
+                      require_backup_root=scope == "user",
+                      allow_no_backup=no_backup)
     # The union also catches resolved aliases and file/ancestor conflicts that
     # cannot be seen by checking each target's output in isolation.
-    install_files(
+    preview_actions = install_files(
         target=targets[0], target_root=target_root, files=shared, apply=False,
-        force=args.force, backups=config.install.backups, backup_root=backup_root,
+        force=force, backups=backups, backup_root=backup_root,
         backup_containment_root=root if backup_root is not None else None,
         require_backup_root=scope == "user",
+        allow_no_backup=no_backup,
     )
+
+    has_conflicts = any(action.action in {"conflict", "drift"} for action in preview_actions)
+    if has_conflicts and force and not yes and getattr(args, "apply", False):
+        try:
+            response = input_func("Overwrite conflicting files? [y/N]: ")
+        except (EOFError, KeyboardInterrupt):
+            print("\nAborted.", file=sys.stderr)
+            return 1
+        if response.strip().lower() not in {"y", "yes"}:
+            print("Aborted.", file=sys.stderr)
+            return 1
+
     for target, files in rendered.items():
-        actions = install_files(target=target, target_root=target_root, files=files, apply=args.apply,
-                                force=args.force, backups=config.install.backups, backup_root=backup_root,
+        actions = install_files(target=target, target_root=target_root, files=files, apply=getattr(args, "apply", False),
+                                force=force, backups=backups, backup_root=backup_root,
                                 backup_containment_root=root if backup_root is not None else None,
-                                require_backup_root=scope == "user")
+                                require_backup_root=scope == "user",
+                                allow_no_backup=no_backup)
         mode = "applied" if args.apply else "preview"
         print(f"{mode} for {target} ({scope} scope, {model_preset} preset):")
         for action in actions:
@@ -499,19 +588,19 @@ def _source_for_role(config: object, target: str, preset: str, role: object) -> 
     def source(key: str) -> str:
         field_origin = config.field_origins.get(key)
         return f"{field_origin}:{key}" if field_origin in ("user", "ancestor") else key
-    coordinator = role.role_id == "coordinator"
-    use_class = not coordinator or "model_class" in role.routing_override_origins
-    use_effort = not coordinator or "effort" in role.routing_override_origins
-    model_source = (
-        source(f"{prefix}.models.{role.model_class}") if role.model_class in override.models else profile_source
-    ) if use_class else (
-        source(f"{prefix}.coordinator_model") if override.coordinator_model is not None else profile_source
-    )
-    effort_source = (
-        source(f"{prefix}.effort.{role.effort}") if role.effort in override.effort else profile_source
-    ) if use_effort else (
-        source(f"{prefix}.coordinator_effort") if override.coordinator_effort is not None else profile_source
-    )
+    if role.role_id == "coordinator" and override.coordinator_model and "model_class" not in role.routing_override_origins:
+        model_source = source(f"{prefix}.coordinator_model")
+    elif role.model_class in override.models:
+        model_source = source(f"{prefix}.models.{role.model_class}")
+    else:
+        model_source = profile_source
+
+    if role.role_id == "coordinator" and override.coordinator_effort and "effort" not in role.routing_override_origins:
+        effort_source = source(f"{prefix}.coordinator_effort")
+    elif role.effort in override.effort:
+        effort_source = source(f"{prefix}.effort.{role.effort}")
+    else:
+        effort_source = profile_source
     return model_source, effort_source
 
 
@@ -533,12 +622,12 @@ def _effective_routing(root: Path, args: argparse.Namespace) -> dict[str, object
         for role in roles:
             model, effort = _mapped_role(profile, preset_name, role)
             model_source, effort_source = _source_for_role(config, target, preset_name, role)
+            model_class = role.model_class
+            if role.role_id == "coordinator" and "model_class" not in role.routing_override_origins:
+                model_class = "coordinator"
             resolved_roles.append({
                 "role_id": role.role_id,
-                "model_class": (
-                    "coordinator" if role.role_id == "coordinator" and "model_class" not in role.routing_override_origins
-                    else role.model_class
-                ),
+                "model_class": model_class,
                 "native_model": model,
                 "native_effort": effort,
                 "model_source": model_source,
@@ -768,7 +857,7 @@ def main(argv: list[str] | None = None) -> int:
     root = project_root()
     try:
         if args.command == "init":
-            return _init(root, args.scope)
+            return _init(root, args.scope, force=args.force, yes=args.yes, no_backup=args.no_backup)
         if args.command == "generate":
             return _generate(root, args.selectors)
         if args.command == "validate":

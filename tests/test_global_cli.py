@@ -116,20 +116,20 @@ class GlobalCliTests(unittest.TestCase):
     def test_generate_preserves_custom_sources_matching_native_wildcards(self) -> None:
         self.run_cli("init")
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
-        source = self.root / ".custom/skills/team-plan"
+        source = self.root / ".custom/roles/coordinator"
         source.mkdir(parents=True)
-        (source / "SKILL.md").write_text(asset_text("skills", "team-plan", "SKILL.md"))
-        (source / "reference.md").write_text("Authored supporting material")
+        (source / "role.toml").write_text(asset_text("definitions", "roles", "coordinator", "role.toml"))
+        (source / "instructions.md").write_text("Authored supporting material")
         profile = self.root / ".custom/agents/coordinator-profile.toml"
         profile.parent.mkdir(parents=True)
         profile.write_text(asset_text("definitions", "targets", "codex.toml"))
         (self.root / ".agent-team/team.toml").write_text(
-            'inherit_user_defaults = false\nskill_sources = [".custom/skills"]\n'
+            'inherit_user_defaults = false\nrole_sources = [".custom/roles"]\n'
             '[target_profiles]\ncodex = ".custom/agents/coordinator-profile.toml"'
         )
         generated = self.run_cli("generate", "gitignore")
         self.assertEqual(generated.returncode, 0, generated.stderr)
-        for path in (".custom/skills/team-plan/SKILL.md", ".custom/skills/team-plan/reference.md",
+        for path in (".custom/roles/coordinator/role.toml", ".custom/roles/coordinator/instructions.md",
                      ".custom/agents/coordinator-profile.toml"):
             ignored = subprocess.run(["git", "check-ignore", path], cwd=self.root,
                                      capture_output=True, check=False)
@@ -174,7 +174,7 @@ class GlobalCliTests(unittest.TestCase):
         failed = self.run_cli("install", "--scope", "user", "--target", "codex", "--apply", "--force", cwd=self.home)
         self.assertNotEqual(failed.returncode, 0)
         self.assertEqual(conflict.read_text(), "handwritten")
-        applied = self.run_cli("install", "--scope", "user", "--target", "codex,claude,antigravity", "--apply", "--force")
+        applied = self.run_cli("install", "--scope", "user", "--target", "codex,claude,antigravity", "--apply", "--force", "--yes")
         self.assertEqual(applied.returncode, 0, applied.stderr)
         self.assertTrue(list((self.root / ".agent-team" / "backups").rglob("coordinator.toml")))
         self.assertFalse((self.home / ".agent-team" / "backups").exists())

@@ -36,7 +36,6 @@ default_tier = "adaptive"
 default_model_preset = "balanced"
 enabled_targets = ["codex", "claude", "antigravity"]
 role_sources = ["builtin:roles"]
-skill_sources = ["builtin:skills"]
 
 [target_profiles]
 codex = "builtin:codex"
@@ -229,7 +228,8 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
         _required(data, "enabled_targets", "", diagnostics), "enabled_targets", diagnostics
     )
     role_sources = _string_list(_required(data, "role_sources", "", diagnostics), "role_sources", diagnostics)
-    skill_sources = _string_list(_required(data, "skill_sources", "", diagnostics), "skill_sources", diagnostics)
+    if "skill_sources" in data:
+        _string_list(data["skill_sources"], "skill_sources", diagnostics)
 
     if schema_version != 1:
         diagnostics.append(Diagnostic("schema_version", "only schema version 1 is supported", code="enum"))
@@ -514,18 +514,17 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
     if modify_settings:
         diagnostics.append(Diagnostic("install.modify_native_settings", "v1 requires false", code="invariant"))
 
-    for source_kind, sources in (("role_sources", role_sources), ("skill_sources", skill_sources)):
-        for index, source in enumerate(sources):
-            if source.startswith("builtin:") and source != f"builtin:{source_kind.removesuffix('_sources')}s":
-                diagnostics.append(Diagnostic(f"{source_kind}.{index}", "unsupported builtin source", code="enum"))
-            if not source.startswith("builtin:"):
-                _contained_path(root, source, f"{source_kind}.{index}", diagnostics)
+    for index, source in enumerate(role_sources):
+        if source.startswith("builtin:") and source != "builtin:roles":
+            diagnostics.append(Diagnostic(f"role_sources.{index}", "unsupported builtin source", code="enum"))
+        if not source.startswith("builtin:"):
+            _contained_path(root, source, f"role_sources.{index}", diagnostics)
 
     if diagnostics:
         raise ValidationFailure(diagnostics)
     return TeamConfig(
         schema_version, team_id, name, description, default_tier, default_preset,
-        enabled_targets, role_sources, skill_sources, target_profiles, model_presets, workflow,
+        enabled_targets, role_sources, target_profiles, model_presets, workflow,
         tiers, InstallConfig(default_scope, overwrite, backups, modify_settings),
         review=review_config,
         inherit_user_defaults=inherit_user_defaults,
@@ -585,7 +584,6 @@ def _layered_config(
     profile_roots = {target: root for target in TARGETS}
     sources: dict[str, list[tuple[Path, str]]] = {
         "role": [(root, "builtin:roles")],
-        "skill": [(root, "builtin:skills")],
     }
     for name, scope_root, data in layers:
         # Validate each explicit layer before a later layer can mask bad values.
@@ -621,27 +619,23 @@ def _layered_config(
         origins.update({key: name for key in _leaves(data)})
         for target in data.get("target_profiles", {}):
             profile_roots[target] = scope_root
-        for kind, references in sources.items():
-            for reference in data.get(f"{kind}_sources", []):
-                if not reference.startswith("builtin:"):
-                    references.append((scope_root, reference))
+        for reference in data.get("role_sources", []):
+            if not reference.startswith("builtin:"):
+                sources["role"].append((scope_root, reference))
     # The scoped references have already been checked at their defining root.
     safe = dict(merged)
     safe["target_profiles"] = {
         target: f"builtin:{target}" for target in merged["target_profiles"]
     }
     safe["role_sources"] = ["builtin:roles"]
-    safe["skill_sources"] = ["builtin:skills"]
     config = parse_team_config(safe, root)
     return replace(
         config,
         target_profiles=merged["target_profiles"],
         role_sources=tuple(merged["role_sources"]),
-        skill_sources=tuple(merged["skill_sources"]),
         field_origins=origins,
         target_profile_roots=profile_roots,
         scoped_role_sources=tuple(sources["role"]),
-        scoped_skill_sources=tuple(sources["skill"]),
     )
 
 
@@ -961,8 +955,6 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
         for preset_name, preset in presets.items():
             if set(preset.effort) != {"low", "medium", "high"}:
                 diagnostics.append(Diagnostic(f"{source}.presets.{preset_name}.effort", "effort-capable targets must map low, medium, and high", code="required"))
-            if preset.coordinator_effort is None:
-                diagnostics.append(Diagnostic(f"{source}.presets.{preset_name}.coordinator_effort", "effort-capable targets must set coordinator effort", code="required"))
     agent_destination = _string(
         _required(data, "agent_destination", source, diagnostics),
         f"{source}.agent_destination", diagnostics,
@@ -1021,11 +1013,6 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
         ))
     supported_efforts = set(effort_levels)
     for preset_name, preset in presets.items():
-        if preset.coordinator_effort is not None and preset.coordinator_effort not in supported_efforts:
-            diagnostics.append(Diagnostic(
-                f"{source}.presets.{preset_name}.coordinator_effort",
-                "unsupported native effort", code="enum",
-            ))
         for semantic, native in preset.effort.items():
             if native not in supported_efforts:
                 diagnostics.append(Diagnostic(

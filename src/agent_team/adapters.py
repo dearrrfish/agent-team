@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Iterable
 from pathlib import Path, PurePosixPath
 
@@ -22,14 +21,19 @@ def _mapped_role(profile: TargetProfile, preset_name: str, role: RoleDefinition)
     if role.role_id == "coordinator":
         model = (
             preset.models[role.model_class]
-            if "model_class" in role.routing_override_origins else preset.coordinator_model
+            if "model_class" in role.routing_override_origins
+            else (preset.coordinator_model or preset.models.get(role.model_class, ""))
         )
-        effort = (
-            preset.effort.get(role.effort)
-            if "effort" in role.routing_override_origins else preset.coordinator_effort
-        ) if profile.supports_effort else None
+        if profile.supports_effort:
+            effort = (
+                preset.effort.get(role.effort)
+                if "effort" in role.routing_override_origins
+                else (preset.coordinator_effort or preset.effort.get(role.effort))
+            )
+        else:
+            effort = None
     else:
-        model = preset.models[role.model_class]
+        model = preset.models.get(role.model_class, "")
         effort = preset.effort.get(role.effort) if profile.supports_effort else None
     if model in profile.models_without_effort:
         effort = None
@@ -239,29 +243,15 @@ def _render_agent(target: str, role: RoleDefinition, profile: TargetProfile, pre
     })
 
 
-def load_skills(config: TeamConfig, root: Path) -> Iterable[tuple[str, str]]:
-    selected: dict[str, str] = {}
-    from agent_team.config import _ensure_contained
+def load_builtin_skills() -> tuple[tuple[str, str], ...]:
+    return tuple(
+        (skill_id, asset_text("skills", skill_id, "SKILL.md"))
+        for skill_id in ("team-coordinate", "team-plan", "team-review", "team-workflow")
+    )
 
-    for scope_root, source in config.scoped_skill_sources or tuple((root, source) for source in config.skill_sources):
-        if source == "builtin:skills":
-            for skill_id in ("team-workflow", "team-plan", "team-coordinate", "team-review"):
-                selected[skill_id] = asset_text("skills", skill_id, "SKILL.md")
-            continue
-        directory = (scope_root / source).resolve()
-        _ensure_contained(scope_root, directory, source)
-        if not directory.is_dir():
-            raise ValidationFailure([Diagnostic(source, "skill source directory does not exist", code="missing")])
-        for skill_file in sorted(directory.glob("*/SKILL.md")):
-            _ensure_contained(scope_root, skill_file, str(skill_file))
-            skill_id = skill_file.parent.name
-            if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", skill_id):
-                raise ValidationFailure([Diagnostic(str(skill_file), "skill directory must be kebab-case", code="format")])
-            try:
-                selected[skill_id] = skill_file.read_text(encoding="utf-8")
-            except OSError as exc:
-                raise ValidationFailure([Diagnostic(str(skill_file), str(exc), code="read")])
-    return tuple(sorted(selected.items()))
+
+def load_skills(config: TeamConfig, root: Path) -> Iterable[tuple[str, str]]:
+    return load_builtin_skills()
 
 
 def render_target(

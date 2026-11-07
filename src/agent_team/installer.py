@@ -98,6 +98,7 @@ def install_files(
     *, target: str, target_root: Path, files: dict[PurePosixPath, str], apply: bool,
     force: bool, backups: bool, backup_root: Path | None = None,
     backup_containment_root: Path | None = None, require_backup_root: bool = False,
+    allow_no_backup: bool = False,
 ) -> list[InstallAction]:
     target_root = target_root.resolve()
     path_diagnostics: list[Diagnostic] = []
@@ -151,12 +152,12 @@ def install_files(
             Diagnostic(action.path, f"{action.reason}; rerun with --force to back up and replace", code=action.action)
             for action in conflicts
         ])
-    if conflicts and force and not backups:
+    if conflicts and force and not backups and not allow_no_backup:
         raise ValidationFailure([
             Diagnostic(action.path, "forced replacement requires backups", code="backup")
             for action in conflicts
         ])
-    if conflicts and force:
+    if conflicts and force and backups:
         if require_backup_root and backup_root is None:
             raise ValidationFailure([Diagnostic("backup", "forced user replacement requires a project context for backups", code="backup")])
         backup_root = (backup_root or target_root / ".agent-team" / "backups").resolve()
@@ -187,7 +188,7 @@ def install_files(
         previous = state["files"].get(relative.as_posix(), {})
         previous_backup = previous.get("backup")
         backup_reference = previous_backup if isinstance(previous_backup, str) else None
-        if action.action in {"conflict", "drift"}:
+        if action.action in {"conflict", "drift"} and backups and backup_root is not None:
             backup = backup_root / backup_stamp / Path(relative)
             backup.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(destination, backup)

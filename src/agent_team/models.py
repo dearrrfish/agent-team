@@ -62,7 +62,6 @@ class TeamConfig:
     default_model_preset: str
     enabled_targets: tuple[str, ...]
     role_sources: tuple[str, ...]
-    skill_sources: tuple[str, ...]
     target_profiles: Mapping[str, str]
     model_presets: Mapping[str, Mapping[str, TargetPresetOverride]]
     workflow: WorkflowConfig
@@ -73,7 +72,6 @@ class TeamConfig:
     field_origins: Mapping[str, str] = field(default_factory=dict)
     target_profile_roots: Mapping[str, Path] = field(default_factory=dict)
     scoped_role_sources: tuple[tuple[Path, str], ...] = ()
-    scoped_skill_sources: tuple[tuple[Path, str], ...] = ()
     role_overrides: Mapping[str, RoleOverride] = field(default_factory=dict)
     target_role_overrides: Mapping[str, Mapping[str, RoleOverride]] = field(default_factory=dict)
 

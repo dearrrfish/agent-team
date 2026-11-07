@@ -344,9 +344,6 @@ class CliTests(unittest.TestCase):
             role.mkdir(parents=True)
             (role / "role.toml").write_text(CUSTOM_ROLE, encoding="utf-8")
             (role / "instructions.md").write_text("Analyze the task.\n", encoding="utf-8")
-            skill = root / "definitions" / "skills" / "local-skill"
-            skill.mkdir(parents=True)
-            (skill / "SKILL.md").write_text("# Local skill\n", encoding="utf-8")
 
             first = self._run(root, "install", "--target", "codex", "--apply")
             self.assertEqual(first.returncode, 0, first.stderr)
@@ -354,9 +351,7 @@ class CliTests(unittest.TestCase):
             ignore = root / ".gitignore"
             rules = ignore.read_text(encoding="utf-8").splitlines()
             self.assertIn("/.codex/generated\\[agents\\]/analyst.toml", rules)
-            self.assertIn("/.agents/skills/local-skill/SKILL.md", rules)
             self.assertNotIn("/definitions/roles/analyst/role.toml", rules)
-            self.assertNotIn("/definitions/skills/local-skill/SKILL.md", rules)
 
             config.write_text(
                 config.read_text(encoding="utf-8").replace(
