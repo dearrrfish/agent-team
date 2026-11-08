@@ -1,0 +1,81 @@
+schema_version = 1
+slug = "dsh-tui-feasibility"
+title = "dsh-TUI 支持可行性与插件生态研究"
+created_at = "2026-11-08T05:01:59Z"
+updated_at = "2026-11-08T05:17:00Z"
+status = "complete"
+tier = "solo"
+max_workers = 0
+write_isolation = "coordinator-only"
+reports_required = false
+model_preset = "balanced"
+host = "minos"
+
+[git]
+repository = "/home/yjin/codes/agent-team"
+baseline_revision = "e1e8f6c0ead0257cbb7dd10c97be6712d5318a07"
+branch = "main"
+worktree_decision = "current-checkout"
+
+[review]
+required = false
+limit = 3
+used = 0
+verdict = "not-required"
+re_review_mode = "diff-only"
+nit_cap = 2
+policy_file = ".agent-team/REVIEW.md"
+
+[gates]
+requirements = true
+design = true
+plan = true
+worktree = true
+live_validation = true
+worker_closure = true
+
+[artifacts]
+requirements = "requirements.md"
+plan = "plan.md"
+decisions = "decisions.md"
+final_report = "final-report.md"
+
+[[verification]]
+command = "python3 -m agent_team validate"
+cwd = "."
+exit_status = 1
+revision = "e1e8f6c0ead0257cbb7dd10c97be6712d5318a07"
+tracked_diff_sha256 = ""
+untracked_sha256 = ""
+producer = "coordinator"
+at = "2026-11-08T05:13:39Z"
+
+[[verification]]
+command = "python3 -m agent_team validate"
+cwd = "."
+exit_status = 0
+revision = "e1e8f6c0ead0257cbb7dd10c97be6712d5318a07"
+tracked_diff_sha256 = ""
+untracked_sha256 = ""
+producer = "coordinator"
+at = "2026-11-08T05:13:56Z"
+
+[[verification]]
+command = "git diff --cached --check"
+cwd = "."
+exit_status = 0
+revision = "e1e8f6c0ead0257cbb7dd10c97be6712d5318a07"
+tracked_diff_sha256 = ""
+untracked_sha256 = ""
+producer = "coordinator"
+at = "2026-11-08T05:14:45Z"
+
+[[verification]]
+command = "python3 -m agent_team validate"
+cwd = "."
+exit_status = 0
+revision = "e1e8f6c0ead0257cbb7dd10c97be6712d5318a07"
+tracked_diff_sha256 = ""
+untracked_sha256 = ""
+producer = "coordinator"
+at = "2026-11-08T05:14:45Z"
