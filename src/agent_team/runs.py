@@ -168,7 +168,7 @@ def init_run(
         "decisions": "decisions.md.tpl",
         "plan": "plan.md.tpl",
         "tasks": "tasks.md.tpl",
-        "review": "review.md.tpl",
+        "review": "code-review.md.tpl",
         "final_report": "final-report.md.tpl",
     }
     template_variables_for = {
