@@ -150,7 +150,7 @@ advisory cleanups once `approved` is reached.
 3. **Consecutive Non-Product Run Halting (零产出停机)**:
    - If two consecutive runs produce 0 lines of product code and only touch
      manifests, test previews, or test fixtures, halt the pipeline immediately
-     and escalate to the human via AskHuman.
+     and escalate to the human via the primary interaction channel (e.g. AskHuman when configured).
 
 4. **Human-First Language Protocol (人话报告规范)**:
    - Strictly forbid telegraphic run-on text without spaces.

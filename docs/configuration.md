@@ -147,6 +147,14 @@ adds a required `review.md` artifact and approval gate.
 `[install]` defaults to project scope, always refuses implicit overwrite,
 requires backups, and cannot modify native client settings in schema v1.
 
+`[integrations]` configures optional third-party protocol alignments. Currently
+supports `askhuman` (`true` or `false`, default `false`). When enabled,
+cross-tool `agent-team dispatch` injects the mandatory subagent non-interactive
+directive (`This protocol does not apply to subagents. You are a subagent and
+must not use AskHuman.`) into child prompt headers. This is a prompt instruction;
+it does not install AskHuman or block tool execution. Override the effective
+configuration per command via `agent-team dispatch --askhuman` or `--no-askhuman`.
+
 Paths retain the defining scope as described above and cannot escape it.
 
 ## Roles

@@ -106,3 +106,7 @@ modify_native_settings = false
 # [roles.reviewer]
 # runner = "claude"
 # model_class = "deep"
+
+[integrations]
+# AskHuman protocol integration: when true, injects subagent guardrails into dispatch prompt.
+# askhuman = false

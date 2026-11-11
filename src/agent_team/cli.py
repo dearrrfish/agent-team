@@ -238,6 +238,12 @@ Examples:
     dispatch.add_argument("--worktree", action="store_true", help="run task in an isolated git worktree")
     dispatch.add_argument("--dry-run", action="store_true", help="preview command and prompt without execution")
     dispatch.add_argument("--timeout", type=float, default=600.0, help="timeout in seconds (default: 600)")
+    dispatch.add_argument(
+        "--askhuman",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="explicitly enable/disable AskHuman subagent protocol guardrails in prompt",
+    )
     dispatch.add_argument("--format", choices=("text", "json"), default="text", help="output format (default: text)")
 
     status = subcommands.add_parser("status", help="show effective configuration, role routing, and team status")
@@ -1077,6 +1083,7 @@ def _dispatch(root: Path, args: argparse.Namespace) -> int:
         worktree=args.worktree,
         timeout=args.timeout,
         dry_run=args.dry_run,
+        askhuman=args.askhuman,
     )
     plan = build_dispatch_plan(req)
 

@@ -18,6 +18,7 @@ from agent_team.models import (
     TARGETS,
     TIERS,
     InstallConfig,
+    IntegrationsConfig,
     ReviewConfig,
     RoleDefinition,
     RoleOverride,
@@ -83,6 +84,9 @@ default_scope = "project"
 overwrite = "refuse"
 backups = true
 modify_native_settings = false
+
+[integrations]
+askhuman = false
 """
 
 _ID = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
@@ -214,7 +218,7 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
         "schema_version", "id", "name", "description", "default_tier",
         "default_model_preset", "enabled_targets", "role_sources", "skill_sources",
         "target_profiles", "model_presets", "workflow", "review", "tiers", "install",
-        "inherit_user_defaults", "roles",
+        "inherit_user_defaults", "roles", "integrations",
     }
     _unknown_keys(data, allowed, "", diagnostics)
     inherit_user_defaults = _boolean(data.get("inherit_user_defaults", True), "inherit_user_defaults", diagnostics)
@@ -539,6 +543,11 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
         if not source.startswith("builtin:"):
             _contained_path(root, source, f"role_sources.{index}", diagnostics)
 
+    integrations_data = _mapping(data.get("integrations", {}), "integrations", diagnostics)
+    _unknown_keys(integrations_data, {"askhuman"}, "integrations", diagnostics)
+    askhuman = _boolean(integrations_data.get("askhuman", False), "integrations.askhuman", diagnostics)
+    integrations = IntegrationsConfig(askhuman=askhuman)
+
     if diagnostics:
         raise ValidationFailure(diagnostics)
     return TeamConfig(
@@ -546,6 +555,7 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
         role_sources, target_profiles, model_presets, workflow,
         tiers, InstallConfig(default_scope, overwrite, backups, modify_settings),
         review=review_config,
+        integrations=integrations,
         inherit_user_defaults=inherit_user_defaults,
         role_overrides=role_overrides,
         target_role_overrides=target_role_overrides,

@@ -100,6 +100,106 @@ class TestDispatch(unittest.TestCase):
         self.assertTrue(plan.report_path.as_posix().endswith("reports/implementer-adhoc.md"))
         self.assertIn("Implement feature X", plan.prompt)
         self.assertIn("## Report Contract", plan.prompt)
+        self.assertIn("## Subagent Directives", plan.prompt)
+        # Default should NOT mention AskHuman
+        self.assertNotIn("AskHuman", plan.prompt)
+
+    def test_askhuman_integration_prompt_injection(self) -> None:
+        config = load_team_config(self.repo)
+        self.assertFalse(config.integrations.askhuman)
+
+        # 1. Explicitly enable via request
+        req_enabled = DispatchRequest(
+            root=self.repo,
+            config=config,
+            slug="dispatch-test-run",
+            role_id="implementer",
+            askhuman=True,
+        )
+        plan_enabled = build_dispatch_plan(req_enabled)
+        self.assertIn(
+            "- **This protocol does not apply to subagents. You are a subagent and must not use AskHuman.**",
+            plan_enabled.prompt,
+        )
+
+        # 2. Config level enable
+        team_toml = self.repo / ".agent-team" / "team.toml"
+        content = team_toml.read_text(encoding="utf-8")
+        if "askhuman = false" in content:
+            updated = content.replace("askhuman = false", "askhuman = true")
+        else:
+            updated = content + "\n[integrations]\naskhuman = true\n"
+        team_toml.write_text(updated, encoding="utf-8")
+        config_with_askhuman = load_team_config(self.repo)
+        self.assertTrue(config_with_askhuman.integrations.askhuman)
+
+        req_config_default = DispatchRequest(
+            root=self.repo,
+            config=config_with_askhuman,
+            slug="dispatch-test-run",
+            role_id="implementer",
+        )
+        plan_config_default = build_dispatch_plan(req_config_default)
+        self.assertIn(
+            "- **This protocol does not apply to subagents. You are a subagent and must not use AskHuman.**",
+            plan_config_default.prompt,
+        )
+
+        # 3. Explicitly disable overrides config
+        req_explicit_disabled = DispatchRequest(
+            root=self.repo,
+            config=config_with_askhuman,
+            slug="dispatch-test-run",
+            role_id="implementer",
+            askhuman=False,
+        )
+        plan_explicit_disabled = build_dispatch_plan(req_explicit_disabled)
+        self.assertNotIn("AskHuman", plan_explicit_disabled.prompt)
+
+        # 4. CLI test via --askhuman
+        res = self._run(
+            self.repo,
+            "dispatch",
+            "--slug",
+            "dispatch-test-run",
+            "--role",
+            "implementer",
+            "--askhuman",
+            "--dry-run",
+        )
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("AskHuman", res.stdout)
+
+        disabled = self._run(
+            self.repo, "dispatch", "--slug", "dispatch-test-run",
+            "--no-askhuman", "--dry-run",
+        )
+        self.assertEqual(disabled.returncode, 0, disabled.stderr)
+        self.assertNotIn("AskHuman", disabled.stdout)
+
+        reviewer = build_dispatch_plan(DispatchRequest(
+            root=self.repo, config=config_with_askhuman,
+            slug="dispatch-test-run", role_id="reviewer",
+        ))
+        self.assertIn("must not use AskHuman", reviewer.prompt)
+
+    def test_askhuman_config_rejects_invalid_values(self) -> None:
+        team_toml = self.repo / ".agent-team" / "team.toml"
+        content = team_toml.read_text(encoding="utf-8")
+        for value in ('"true"', '1'):
+            with self.subTest(value=value):
+                team_toml.write_text(
+                    content.replace("askhuman = false", f"askhuman = {value}"),
+                    encoding="utf-8",
+                )
+                with self.assertRaises(ValidationFailure) as ctx:
+                    load_team_config(self.repo)
+                self.assertTrue(any(
+                    d.path == "integrations.askhuman" for d in ctx.exception.diagnostics
+                ))
+        team_toml.write_text(content + '\n[integrations.unknown]\n', encoding="utf-8")
+        with self.assertRaises(ValidationFailure):
+            load_team_config(self.repo)
 
     def test_build_dispatch_plan_reviewer(self) -> None:
         config = load_team_config(self.repo)

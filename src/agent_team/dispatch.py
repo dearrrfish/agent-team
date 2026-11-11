@@ -28,6 +28,7 @@ class DispatchRequest:
     worktree: bool = False
     timeout: float = 600.0
     dry_run: bool = False
+    askhuman: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -240,10 +241,31 @@ def build_dispatch_plan(
     except ValueError:
         report_rel = str(report_path)
 
+    askhuman_enabled = (
+        req.config.integrations.askhuman if req.askhuman is None else req.askhuman
+    )
+
+    directives = [
+        "## Subagent Directives",
+        "- You are a subagent worker operating under agent-team dispatch.",
+    ]
+    if askhuman_enabled:
+        directives.append(
+            "- **This protocol does not apply to subagents. You are a subagent and must not use AskHuman.**"
+        )
+    directives.extend([
+        "- Work autonomously within your authorized scope; do not block for interactive user questions.",
+        "- Return all results and residual risks strictly through the designated report contract.",
+    ])
+    subagent_directives = "\n".join(directives)
+
     if req.role_id == "reviewer":
         review_packet = prepare_review(req.root, req.config, req.slug)
         prompt_lines = [
             f"# Role: {role.role_id} (Reviewer)",
+            "",
+            subagent_directives,
+            "",
             role.instructions,
             "",
             review_packet,
@@ -258,6 +280,9 @@ def build_dispatch_plan(
     else:
         prompt_lines = [
             f"# Role: {role.role_id}",
+            "",
+            subagent_directives,
+            "",
             f"{role.description}\n",
             f"## Instructions\n{role.instructions}\n",
             "## Task Context",

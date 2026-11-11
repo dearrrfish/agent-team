@@ -50,6 +50,11 @@ class InstallConfig:
 
 
 @dataclass(frozen=True)
+class IntegrationsConfig:
+    askhuman: bool = False
+
+
+@dataclass(frozen=True)
 class RoleOverride:
     model_class: str | None = None
     effort: str | None = None
@@ -71,6 +76,7 @@ class TeamConfig:
     tiers: Mapping[str, TierConfig]
     install: InstallConfig
     review: ReviewConfig = field(default_factory=ReviewConfig)
+    integrations: IntegrationsConfig = field(default_factory=IntegrationsConfig)
     inherit_user_defaults: bool = True
     field_origins: Mapping[str, str] = field(default_factory=dict)
     target_profile_roots: Mapping[str, Path] = field(default_factory=dict)
