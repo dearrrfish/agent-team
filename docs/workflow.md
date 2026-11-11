@@ -333,3 +333,32 @@ artifacts in audit mode, persists the independent audit, asks the user only
 material
 unresolved questions, and updates artifacts before planning. A new coordinator
 session can resume from the same durable state.
+
+## Worktree lifecycle and safety
+
+When parallel writers use Git worktrees (`write_isolation = "file-disjoint-or-worktree"`),
+worktrees live under `.worktrees/` (governed by `workflow.worktree_root`).
+
+Inspect and clean worktrees safely:
+
+```console
+# Inspect existing worktrees and their safety status:
+agent-team worktree list
+agent-team worktree list --format json
+
+# Preview or execute safe cleanup:
+agent-team worktree clean --dry-run
+agent-team worktree clean
+agent-team worktree clean --slug <slug>
+```
+
+Worktree safety guarantees:
+
+- **Zero accidental data loss**: Worktrees with uncommitted changes (`DIRTY`) or
+  unmerged commits ahead of the base branch (`AHEAD`) are strictly blocked from
+  silent removal unless forced with `--discard-changes` or `--force`.
+- **Evidence preservation**: Prior to deleting any worktree, run artifacts in
+  `<worktree>/.agent-team/runs/` are automatically synchronized back to the main
+  repository.
+- **Git metadata self-consistency**: Cleans and prunes `.git/worktrees`
+  metadata automatically.

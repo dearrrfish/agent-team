@@ -27,6 +27,8 @@ class WorkflowConfig:
     deep_discovery_default: bool
     require_worktree_decision: bool
     persist_agent_reports: bool
+    worktree_root: Path = Path(".worktrees")
+    worktree_default_cleanup: str = "safe-auto"
 
 
 @dataclass(frozen=True)

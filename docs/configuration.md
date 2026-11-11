@@ -129,8 +129,10 @@ Top-level fields identify the team, select `adaptive`, `solo`, `assisted`, or
 preset, enable native targets, and declare role and skill sources.
 
 `[workflow]` controls the contained run directory, review-cycle limit (1–5,
-default 3), deep-discovery default, worktree decision gate, and worker-report
-persistence.
+default 3), deep-discovery default, worktree decision gate, worker-report
+persistence, worktree root (`worktree_root`, default `.worktrees`), and default
+worktree cleanup policy (`worktree_default_cleanup`: `safe-auto`, `prompt`, or
+`keep`, default `safe-auto`).
 
 `[review]` configures review convergence policy: `re_review_mode` (`diff-only`
 or `full-scope`, default `diff-only`), `bug_class_sweep` (default `true`),

@@ -49,6 +49,8 @@ review_cycle_limit = 3
 deep_discovery_default = false
 require_worktree_decision = true
 persist_agent_reports = true
+worktree_root = ".worktrees"
+worktree_default_cleanup = "safe-auto"
 
 [review]
 re_review_mode = "diff-only"
@@ -355,7 +357,15 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
     workflow_data = _mapping(_required(data, "workflow", "", diagnostics), "workflow", diagnostics)
     _unknown_keys(
         workflow_data,
-        {"run_root", "review_cycle_limit", "deep_discovery_default", "require_worktree_decision", "persist_agent_reports"},
+        {
+            "run_root",
+            "review_cycle_limit",
+            "deep_discovery_default",
+            "require_worktree_decision",
+            "persist_agent_reports",
+            "worktree_root",
+            "worktree_default_cleanup",
+        },
         "workflow", diagnostics,
     )
     run_root_raw = _string(_required(workflow_data, "run_root", "workflow", diagnostics), "workflow.run_root", diagnostics)
@@ -365,6 +375,19 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
         diagnostics.append(Diagnostic(
             "workflow.run_root", "existing run root must be a directory", code="path"
         ))
+    worktree_root_raw = workflow_data.get("worktree_root", ".worktrees")
+    worktree_root_str = _string(worktree_root_raw, "workflow.worktree_root", diagnostics)
+    worktree_root = _contained_path(root, worktree_root_str, "workflow.worktree_root", diagnostics)
+
+    worktree_cleanup_raw = workflow_data.get("worktree_default_cleanup", "safe-auto")
+    worktree_default_cleanup = _string(worktree_cleanup_raw, "workflow.worktree_default_cleanup", diagnostics)
+    if worktree_default_cleanup not in {"safe-auto", "prompt", "keep"}:
+        diagnostics.append(Diagnostic(
+            "workflow.worktree_default_cleanup",
+            "must be one of: safe-auto, prompt, keep",
+            code="enum",
+        ))
+
     review_limit = _integer(
         _required(workflow_data, "review_cycle_limit", "workflow", diagnostics),
         "workflow.review_cycle_limit", diagnostics,
@@ -386,6 +409,8 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
             _required(workflow_data, "persist_agent_reports", "workflow", diagnostics),
             "workflow.persist_agent_reports", diagnostics,
         ),
+        worktree_root=worktree_root,
+        worktree_default_cleanup=worktree_default_cleanup,
     )
 
     review_data = _mapping(data.get("review", {}), "review", diagnostics)

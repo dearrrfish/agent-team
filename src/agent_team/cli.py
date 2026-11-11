@@ -213,6 +213,19 @@ Examples:
     fetch.add_argument("--target", choices=TARGETS, required=True)
     fetch.add_argument("--format", choices=("text", "json", "table"), default="text")
     fetch.add_argument("--timeout", type=float, default=10.0)
+
+    worktree = subcommands.add_parser("worktree", help="manage and safely clean git worktrees")
+    worktree_subs = worktree.add_subparsers(dest="worktree_command", required=True)
+    wt_list = worktree_subs.add_parser("list", help="list project worktrees and safety status")
+    wt_list.add_argument("--slug", help="filter worktrees associated with a specific run slug")
+    wt_list.add_argument("--format", choices=("table", "json"), default="table", help="output format (default: table)")
+
+    wt_clean = worktree_subs.add_parser("clean", help="clean safe worktrees and preserve run evidence")
+    wt_clean.add_argument("--slug", help="only clean worktrees associated with a specific run slug")
+    wt_clean.add_argument("--dry-run", action="store_true", help="preview cleanup actions without deleting")
+    wt_clean.add_argument("--force", action="store_true", help="force deletion of unmerged (ahead) worktrees")
+    wt_clean.add_argument("--discard-changes", action="store_true", help="force deletion of dirty worktrees with uncommitted changes")
+    wt_clean.add_argument("--no-sync", action="store_true", help="skip syncing run evidence back to main repo")
     return parser
 
 
@@ -917,6 +930,113 @@ def _resume(root: Path, args: argparse.Namespace) -> int:
     return 3 if selected is None and active else 0
 
 
+def _worktree(root: Path | None, args: argparse.Namespace) -> int:
+    require_project_context(root)
+    assert root is not None
+
+    from agent_team.worktrees import (
+        WorktreeStatus,
+        clean_worktree,
+        list_worktrees,
+    )
+
+    worktrees = list_worktrees(root)
+    if args.slug:
+        worktrees = [wt for wt in worktrees if wt.associated_slug == args.slug]
+
+    if args.worktree_command == "list":
+        if args.format == "json":
+            data = [
+                {
+                    "path": str(wt.path),
+                    "branch": wt.branch,
+                    "head": wt.head_commit,
+                    "is_main": wt.is_main,
+                    "status": wt.status.value,
+                    "details": wt.details,
+                    "associated_slug": wt.associated_slug,
+                }
+                for wt in worktrees
+            ]
+            print(json.dumps(data, ensure_ascii=False, indent=2))
+            return 0
+
+        if not worktrees:
+            print("No worktrees found.")
+            return 0
+
+        headers = ("Path", "Branch", "Run Slug", "Status", "Details")
+        rows = []
+        for wt in worktrees:
+            try:
+                rel = str(wt.path.relative_to(root))
+            except ValueError:
+                rel = str(wt.path)
+            rows.append((
+                rel,
+                wt.branch or "(detached)",
+                wt.associated_slug or "-",
+                wt.status.value,
+                wt.details,
+            ))
+        col_widths = [len(h) for h in headers]
+        for row in rows:
+            for i, val in enumerate(row):
+                col_widths[i] = max(col_widths[i], len(val))
+
+        header_line = "  ".join(h.ljust(col_widths[i]) for i, h in enumerate(headers))
+        sep_line = "  ".join("-" * col_widths[i] for i in range(len(headers)))
+        print(header_line)
+        print(sep_line)
+        for row in rows:
+            print("  ".join(val.ljust(col_widths[i]) for i, val in enumerate(row)))
+        return 0
+
+    if args.worktree_command == "clean":
+        sync_artifacts = not args.no_sync
+        candidates = [wt for wt in worktrees if not wt.is_main]
+        if not candidates:
+            print("No candidate worktrees to clean.")
+            return 0
+
+        any_failed = False
+        action_count = 0
+        for wt in candidates:
+            if wt.status == WorktreeStatus.DIRTY and not args.discard_changes:
+                print(f"Skipping dirty worktree {wt.path}: {wt.details} (use --discard-changes to clean)")
+                continue
+            if wt.status == WorktreeStatus.AHEAD and not args.force:
+                print(f"Skipping unmerged worktree {wt.path}: {wt.details} (use --force to clean)")
+                continue
+            if wt.status == WorktreeStatus.LOCKED and not args.force:
+                print(f"Skipping locked worktree {wt.path}: {wt.details} (use --force to clean)")
+                continue
+
+            res = clean_worktree(
+                root,
+                wt,
+                force=args.force,
+                discard_changes=args.discard_changes,
+                sync_artifacts=sync_artifacts,
+                dry_run=args.dry_run,
+            )
+            if res.success:
+                action_count += 1
+                sync_info = f" (synced {len(res.synced_files)} run artifact(s))" if res.synced_files else ""
+                print(f"[{res.action.upper()}] {wt.path}: {res.details}{sync_info}")
+            else:
+                any_failed = True
+                print(f"[FAILED] {wt.path}: {res.details}", file=sys.stderr)
+
+        if args.dry_run:
+            print(f"\nDry run complete. {action_count} worktree(s) would be cleaned.")
+        else:
+            print(f"\nCleanup complete. {action_count} worktree(s) processed.")
+        return 1 if any_failed else 0
+
+    return 2
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     arguments = list(sys.argv[1:] if argv is None else argv)
@@ -993,6 +1113,8 @@ def main(argv: list[str] | None = None) -> int:
                 return _models_fetch(root, args)
         if args.command == "doctor":
             return _doctor(root, args.format)
+        if args.command == "worktree":
+            return _worktree(root, args)
     except ValidationFailure as exc:
         return _print_failure(exc)
     parser.error("unsupported command")

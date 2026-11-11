@@ -39,6 +39,10 @@ deep_discovery_default = false
 require_worktree_decision = true
 # Persist structured worker reports.
 persist_agent_reports = true
+# Project-relative root directory for git worktrees.
+worktree_root = ".worktrees"
+# Default cleanup policy for git worktrees: safe-auto, prompt, or keep.
+worktree_default_cleanup = "safe-auto"
 
 [review]
 # Re-review scope for Cycle 2+: diff-only or full-scope.
