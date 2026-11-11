@@ -19,7 +19,7 @@
         in {
           default = pkgs.python3Packages.buildPythonApplication {
             pname = "agent-team";
-            version = "0.5.1";
+            version = "0.6.0";
             pyproject = true;
             src = self;
             build-system = [ pkgs.python3Packages.setuptools ];

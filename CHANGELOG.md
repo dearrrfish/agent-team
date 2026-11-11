@@ -6,6 +6,36 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-11
+
+### Added
+
+- Four new standard workflow skills:
+  - `team-debug`: Reproduce-first methodology, evidence-based hypothesis
+    testing, test scaffolding volume limit (<= 50%), and original failure input
+    regression verification.
+  - `team-research`: Read-only/sandboxed discovery, strict fact versus inference
+    demarcation, and structured decision packs.
+  - `team-docs`: Contract change synchronization, runnable command and example
+    verification in real environments, and architecture decision records
+    (ADRs).
+  - `team-ops`: Nix and flake integrity gates, drift and installation
+    management, platform/CI verification, and clean workspace hygiene.
+- Main-thread coordinator activation choices and anti-involution circuit
+  breakers (no recursive planning, scaffolding volume cap <= 50%, consecutive
+  non-product run halting) embedded in standard skills (`team-plan`,
+  `team-coordinate`, `team-review`).
+
+### Changed
+
+- Converged workflow prompts into native skills: `agent-team generate templates`
+  focuses purely on configuration and scaffolding examples (`profile/`,
+  `role/`, `review/`) and stops generating redundant stock prompt files.
+- Normalized generated template directories to singular form (`profile/`,
+  `role/`, `review/`), removing historical duplicate plural forms (`profiles/`,
+  `roles/`, `prompts/`).
+- Updated Homebrew formula with verified archive digests and strict lag bounds.
+
 ## [0.5.1] - 2026-11-02
 
 ### Fixed
@@ -180,7 +210,8 @@ All notable changes to this project are documented here. The format follows
 - Claude Code and Antigravity read-only roles omit shell access because those
   clients cannot guarantee a non-mutating command boundary in every parent mode.
 
-[Unreleased]: https://github.com/dearrrfish/agent-team/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/dearrrfish/agent-team/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/dearrrfish/agent-team/releases/tag/v0.6.0
 [0.5.1]: https://github.com/dearrrfish/agent-team/releases/tag/v0.5.1
 [0.5.0]: https://github.com/dearrrfish/agent-team/releases/tag/v0.5.0
 [0.4.1]: https://github.com/dearrrfish/agent-team/releases/tag/v0.4.1
