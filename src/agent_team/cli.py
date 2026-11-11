@@ -4,6 +4,7 @@ import argparse
 import difflib
 import fnmatch
 import json
+import shlex
 import shutil
 import subprocess
 import sys
@@ -226,6 +227,18 @@ Examples:
     wt_clean.add_argument("--force", action="store_true", help="force deletion of unmerged (ahead) worktrees")
     wt_clean.add_argument("--discard-changes", action="store_true", help="force deletion of dirty worktrees with uncommitted changes")
     wt_clean.add_argument("--no-sync", action="store_true", help="skip syncing run evidence back to main repo")
+
+    dispatch = subcommands.add_parser("dispatch", help="dispatch a role or task to a target tool runner")
+    dispatch.add_argument("--slug", required=True, help="run slug")
+    dispatch.add_argument("--role", default="implementer", help="role to dispatch (default: implementer)")
+    dispatch.add_argument("--task", help="task ID (e.g. T-001)")
+    dispatch.add_argument("--runner", choices=TARGETS, help="target runner CLI (default: configured role runner or target profile)")
+    dispatch.add_argument("--model", help="override model for the runner")
+    dispatch.add_argument("--instruction", help="specific instruction or prompt addition")
+    dispatch.add_argument("--worktree", action="store_true", help="run task in an isolated git worktree")
+    dispatch.add_argument("--dry-run", action="store_true", help="preview command and prompt without execution")
+    dispatch.add_argument("--timeout", type=float, default=600.0, help="timeout in seconds (default: 600)")
+    dispatch.add_argument("--format", choices=("text", "json"), default="text", help="output format (default: text)")
     return parser
 
 
@@ -1037,6 +1050,73 @@ def _worktree(root: Path | None, args: argparse.Namespace) -> int:
     return 2
 
 
+def _dispatch(root: Path, args: argparse.Namespace) -> int:
+    require_project_context(root)
+    config = load_team_config(root)
+    from agent_team.dispatch import (
+        DispatchRequest,
+        build_dispatch_plan,
+        execute_dispatch,
+    )
+
+    req = DispatchRequest(
+        root=root,
+        config=config,
+        slug=args.slug,
+        role_id=args.role,
+        task_id=args.task,
+        runner=args.runner,
+        model=args.model,
+        instruction=args.instruction,
+        worktree=args.worktree,
+        timeout=args.timeout,
+        dry_run=args.dry_run,
+    )
+    plan = build_dispatch_plan(req)
+
+    if args.dry_run:
+        if args.format == "json":
+            data = {
+                "runner": plan.runner,
+                "role": plan.role_id,
+                "task": plan.task_id,
+                "command": list(plan.command),
+                "cwd": str(plan.cwd),
+                "report_path": str(plan.report_path),
+                "worktree_path": str(plan.worktree_path) if plan.worktree_path else None,
+                "timeout": plan.timeout,
+                "prompt": plan.prompt,
+            }
+            print(json.dumps(data, ensure_ascii=False, indent=2))
+        else:
+            print(f"Dispatch Plan for Run: {args.slug}")
+            print(f"  Role:        {plan.role_id}")
+            print(f"  Runner:      {plan.runner}")
+            print(f"  Task ID:     {plan.task_id or '(adhoc)'}")
+            print(f"  Working Dir: {plan.cwd}")
+            print(f"  Report Path: {plan.report_path}")
+            if plan.worktree_path:
+                print(f"  Worktree:    {plan.worktree_path}")
+            cmd_preview = shlex.join(list(plan.command)[:-1]) if len(plan.command) > 1 else plan.command[0]
+            print(f"  Command:     {cmd_preview} <prompt>")
+            print("\nPrompt Preview:")
+            preview = plan.prompt if len(plan.prompt) <= 600 else plan.prompt[:600] + "\n... (truncated)"
+            print(preview)
+        return 0
+
+    print(f"Dispatching role '{plan.role_id}' to runner '{plan.runner}' (timeout: {plan.timeout}s)...")
+    res = execute_dispatch(root, config, args.slug, plan)
+    if res.success:
+        print(f"Dispatch succeeded: {res.details}")
+        print(f"Report saved to: {res.report_path}")
+        return 0
+    else:
+        print(f"Dispatch failed: {res.details}", file=sys.stderr)
+        if res.stderr:
+            print(f"Error output:\n{res.stderr}", file=sys.stderr)
+        return res.returncode if res.returncode != 0 else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     arguments = list(sys.argv[1:] if argv is None else argv)
@@ -1115,6 +1195,8 @@ def main(argv: list[str] | None = None) -> int:
             return _doctor(root, args.format)
         if args.command == "worktree":
             return _worktree(root, args)
+        if args.command == "dispatch":
+            return _dispatch(root, args)
     except ValidationFailure as exc:
         return _print_failure(exc)
     parser.error("unsupported command")

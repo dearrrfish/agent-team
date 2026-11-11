@@ -444,6 +444,14 @@ agent-team render --target codex|claude|antigravity|pi
 agent-team install --target TARGET[,TARGET...]
                    [--scope project|user] [--run SLUG]
                    [--apply] [--force]
+agent-team worktree list [--slug SLUG] [--format table|json]
+agent-team worktree clean [--slug SLUG] [--dry-run] [--force]
+                          [--discard-changes] [--no-sync]
+agent-team dispatch --slug SLUG [--role ROLE] [--task TASK]
+                    [--runner codex|claude|antigravity|pi]
+                    [--model MODEL] [--instruction INSTRUCTION]
+                    [--worktree] [--dry-run] [--timeout SECONDS]
+                    [--format text|json]
 agent-team doctor [--format text|json]
 ```
 

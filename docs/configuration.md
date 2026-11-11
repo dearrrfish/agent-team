@@ -158,7 +158,9 @@ roles must remain available.
 
 Role metadata selects semantic model class (`fast`, `balanced`, `deep`), effort
 (`low`, `medium`, `high`), write policy (`deny`, `workspace`), capabilities,
-activation guidance, turn limit, and report kind. The coordinator must delegate;
+activation guidance, turn limit, and report kind. Optional `runner` binds the
+role to a preferred native CLI runner (`codex`, `claude`, `antigravity`, `pi`)
+for cross-tool dispatch via `agent-team dispatch`. The coordinator must delegate;
 all worker roles must not. Only reviewer uses the `review-cycle` report contract;
 every other role uses `agent-report`. Read-only roles cannot request
 `filesystem.write`.

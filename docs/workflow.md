@@ -362,3 +362,40 @@ Worktree safety guarantees:
   repository.
 - **Git metadata self-consistency**: Cleans and prunes `.git/worktrees`
   metadata automatically.
+
+## Cross-tool role dispatch
+
+When the primary coordinator session runs in one client (such as Claude Code or
+Pi) but specific roles benefit from another tool's features (for example, running
+`implementer` inside Codex with sandbox or worktree isolation, or running
+`reviewer` in Claude), use `agent-team dispatch`:
+
+```console
+# Preview execution plan, prompt, and runner command:
+agent-team dispatch --slug <slug> --role implementer --task T-001 --dry-run
+
+# Run implementer in an isolated worktree via Codex:
+agent-team dispatch --slug <slug> --role implementer --task T-001 --runner codex --worktree
+
+# Run independent review via Claude:
+agent-team dispatch --slug <slug> --role reviewer --runner claude
+```
+
+Role runners can be permanently configured in `.agent-team/team.toml`:
+
+```toml
+[roles.implementer]
+runner = "codex"
+
+[roles.reviewer]
+runner = "claude"
+```
+
+Dispatch lifecycle features:
+
+- Automatically injects role instructions, review packets, and run context.
+- Monitors execution timeout and return status.
+- Automatically preserves and writes reports to `reports/<task_id>.md` or
+  `review.md`.
+- Automatically synchronizes run evidence back to the main project when
+  `--worktree` is used.

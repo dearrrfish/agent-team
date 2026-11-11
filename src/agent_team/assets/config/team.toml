@@ -97,3 +97,12 @@ overwrite = "refuse"
 backups = true
 # Version 1 requires false; native settings remain managed separately.
 modify_native_settings = false
+
+# Role overrides and cross-tool runner dispatch (optional):
+# [roles.implementer]
+# runner = "codex"
+# effort = "high"
+#
+# [roles.reviewer]
+# runner = "claude"
+# model_class = "deep"

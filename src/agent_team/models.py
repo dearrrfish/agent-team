@@ -53,6 +53,7 @@ class InstallConfig:
 class RoleOverride:
     model_class: str | None = None
     effort: str | None = None
+    runner: str | None = None
 
 
 @dataclass(frozen=True)
@@ -95,6 +96,7 @@ class RoleDefinition:
     avoid_when: str
     source: str = "builtin"
     routing_override_origins: Mapping[str, str] = field(default_factory=dict)
+    runner: str | None = None
 
 
 @dataclass(frozen=True)

@@ -320,6 +320,7 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
         for key, allowed_values in (
             ("model_class", ("fast", "balanced", "deep")),
             ("effort", ("low", "medium", "high")),
+            ("runner", TARGETS),
         ):
             if key in item:
                 value = _string(item[key], f"{path}.{key}", diagnostics)
@@ -338,7 +339,7 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
                 role_path, "must be a lowercase kebab-case identifier", code="format"
             ))
         item = _mapping(raw_override, role_path, diagnostics)
-        _unknown_keys(item, {"model_class", "effort", "targets"}, role_path, diagnostics)
+        _unknown_keys(item, {"model_class", "effort", "runner", "targets"}, role_path, diagnostics)
         role_overrides[role_id] = parse_override(item, role_path)
         targets = _mapping(item.get("targets", {}), f"{role_path}.targets", diagnostics)
         _unknown_keys(targets, TARGETS, f"{role_path}.targets", diagnostics)
@@ -737,7 +738,7 @@ def parse_role(data: dict[str, Any], instructions: str, source: str) -> RoleDefi
     diagnostics: list[Diagnostic] = []
     _unknown_keys(
         data,
-        {"schema_version", "id", "description", "instructions", "model_class", "effort", "write_policy", "delegation", "max_turns", "report_kind", "capabilities", "activation"},
+        {"schema_version", "id", "description", "instructions", "model_class", "effort", "write_policy", "delegation", "max_turns", "report_kind", "capabilities", "activation", "runner"},
         source, diagnostics,
     )
     activation = _mapping(_required(data, "activation", source, diagnostics), f"{source}.activation", diagnostics)
@@ -802,6 +803,11 @@ def parse_role(data: dict[str, Any], instructions: str, source: str) -> RoleDefi
     instructions_reference = _string(
         _required(data, "instructions", source, diagnostics), f"{source}.instructions", diagnostics
     )
+    runner = None
+    if "runner" in data:
+        runner = _string(data["runner"], f"{source}.runner", diagnostics)
+        if runner not in TARGETS:
+            diagnostics.append(Diagnostic(f"{source}.runner", f"must be one of {', '.join(TARGETS)}", code="enum"))
     description = _string(
         _required(data, "description", source, diagnostics), f"{source}.description", diagnostics
     )
@@ -831,6 +837,7 @@ def parse_role(data: dict[str, Any], instructions: str, source: str) -> RoleDefi
         use_when=use_when,
         avoid_when=avoid_when,
         source=source,
+        runner=runner,
     )
 
 
@@ -894,7 +901,7 @@ def load_roles(
     for overrides, suffix in overlays:
         for role_id, override in overrides.items():
             values = {
-                key: value for key in ("model_class", "effort")
+                key: value for key in ("model_class", "effort", "runner")
                 if (value := getattr(override, key)) is not None
             }
             roles[role_id] = replace(

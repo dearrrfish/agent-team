@@ -79,6 +79,38 @@ command result, have it return the exact command and expected evidence; run the
 command in the coordinator or a separately authorized write-capable worker and
 record who produced the evidence.
 
+## Cross-tool role dispatch (跨工具角色互通)
+
+When the coordinator runs in one client (such as Claude Code or Pi) but specific
+roles benefit from another tool's strengths (for example, invoking `codex` for
+`implementer` with sandbox isolation, or calling `claude` for `reviewer`):
+
+1. **Configure default runners in `team.toml`**:
+   ```toml
+   [roles.implementer]
+   runner = "codex"
+
+   [roles.reviewer]
+   runner = "claude"
+   ```
+
+2. **Dispatch via CLI**:
+   ```bash
+   # Preview execution plan and prompt:
+   agent-team dispatch --slug <slug> --role implementer --task T-001 --worktree --dry-run
+
+   # Execute worker:
+   agent-team dispatch --slug <slug> --role implementer --task T-001 --worktree
+
+   # Dispatch independent review:
+   agent-team dispatch --slug <slug> --role reviewer --runner claude
+   ```
+
+3. **Report contract and worktree integration**:
+   - `dispatch` constructs role instructions, task context, and review packets automatically.
+   - It checks runner exit status and ensures the output report (`reports/<task_id>.md` or `review.md`) is safely written.
+   - When `--worktree` is enabled, run evidence is automatically synced back to the main project upon worker completion.
+
 ## Recovery and integration
 
 On partial output, budget exhaustion, or tool failure, inspect the worker's
