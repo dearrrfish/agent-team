@@ -239,6 +239,12 @@ Examples:
     dispatch.add_argument("--dry-run", action="store_true", help="preview command and prompt without execution")
     dispatch.add_argument("--timeout", type=float, default=600.0, help="timeout in seconds (default: 600)")
     dispatch.add_argument("--format", choices=("text", "json"), default="text", help="output format (default: text)")
+
+    status = subcommands.add_parser("status", help="show effective configuration, role routing, and team status")
+    status.add_argument("--target", choices=TARGETS, help="target client context (default: auto-detected)")
+    status.add_argument("--format", choices=("text", "json"), default="text", help="output format (default: text)")
+    status.add_argument("--tui", action="store_true", help="force interactive multi-tab TUI")
+    status.add_argument("--no-tui", action="store_true", help="disable interactive TUI and print plain text")
     return parser
 
 
@@ -1117,6 +1123,27 @@ def _dispatch(root: Path, args: argparse.Namespace) -> int:
         return res.returncode if res.returncode != 0 else 1
 
 
+def _status(root: Path, args: argparse.Namespace) -> int:
+    require_project_context(root)
+    from agent_team.status import (
+        collect_team_status,
+        format_json_status,
+        format_text_status,
+        run_status_tui,
+    )
+
+    report = collect_team_status(root, requested_target=args.target)
+    if args.format == "json":
+        print(format_json_status(report))
+        return 0
+
+    use_tui = (sys.stdout.isatty() and not args.no_tui) or args.tui
+    if use_tui:
+        return run_status_tui(report)
+    print(format_text_status(report))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     arguments = list(sys.argv[1:] if argv is None else argv)
@@ -1197,6 +1224,8 @@ def main(argv: list[str] | None = None) -> int:
             return _worktree(root, args)
         if args.command == "dispatch":
             return _dispatch(root, args)
+        if args.command == "status":
+            return _status(root, args)
     except ValidationFailure as exc:
         return _print_failure(exc)
     parser.error("unsupported command")

@@ -55,7 +55,7 @@ class AdapterAndInstallerTests(unittest.TestCase):
                 first = render_target(target, config, root)
                 second = render_target(target, config, root)
                 self.assertEqual(first, second)
-                self.assertEqual(len(first), 14)
+                self.assertEqual(len(first), 15)
 
             codex = render_target("codex", config, root)
             explorer = tomllib.loads(codex[next(path for path in codex if str(path).endswith("explorer.toml"))])
@@ -199,7 +199,7 @@ medium = "high"
             config = load_team_config(root)
             files = render_target("codex", config, root)
             written = write_rendered(output, files)
-            self.assertEqual(len(written), 14)
+            self.assertEqual(len(written), 15)
             write_rendered(output, files)
             written[0].write_text("changed", encoding="utf-8")
             with self.assertRaises(ValidationFailure):

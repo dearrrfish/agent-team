@@ -326,7 +326,8 @@ templates beneath `.agent-team/templates/` (`profile/`, `role/`, `review/`)
 and adds generic ignore rules for local output and state. Operational
 workflow rules, pragmatic review guidelines, and anti-involution circuit breakers
 live natively in installed skills (`team-workflow`, `team-plan`, `team-coordinate`,
-`team-review`, `team-debug`, `team-research`, `team-docs`, and `team-ops`).
+`team-review`, `team-debug`, `team-research`, `team-docs`, `team-status`,
+and `team-ops`).
 Initialization and installation do not update `.gitignore`.
 
 Install local native definitions whenever a project needs its own routing:
@@ -452,6 +453,8 @@ agent-team dispatch --slug SLUG [--role ROLE] [--task TASK]
                     [--model MODEL] [--instruction INSTRUCTION]
                     [--worktree] [--dry-run] [--timeout SECONDS]
                     [--format text|json]
+agent-team status [--target codex|claude|antigravity|pi]
+                  [--format text|json] [--tui] [--no-tui]
 agent-team doctor [--format text|json]
 ```
 

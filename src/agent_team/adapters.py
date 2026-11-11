@@ -254,6 +254,7 @@ def load_builtin_skills() -> tuple[tuple[str, str], ...]:
             "team-plan",
             "team-research",
             "team-review",
+            "team-status",
             "team-workflow",
         )
     )

@@ -246,7 +246,8 @@ of substituting a generic child.
 
 `agent-team install` deploys native skills (`team-workflow`, `team-plan`,
 `team-coordinate`, `team-review`, `team-debug`, `team-research`, `team-docs`,
-and `team-ops`) containing complete operational procedures, pragmatic review
+`team-status`, and `team-ops`) containing complete operational procedures,
+pragmatic review
 policies, and anti-involution circuit breakers.
 
 `agent-team generate templates` generates configuration and customization
@@ -399,3 +400,27 @@ Dispatch lifecycle features:
   `review.md`.
 - Automatically synchronizes run evidence back to the main project when
   `--worktree` is used.
+
+## Team status and inspection
+
+Inspect effective configuration, role routing, and active runs:
+
+```console
+# Launch interactive multi-tab TUI (alternate screen buffer, no history pollution):
+agent-team status
+
+# Inspect in plain text or JSON format:
+agent-team status --format text
+agent-team status --target claude --format json
+```
+
+The `agent-team status` command and `team-status` skill provide:
+
+- Auto-detection of the active target client from environment variables or
+  project markers.
+- Effective configuration values reflecting `builtin < user < project`
+  inheritance.
+- Role matrix with permission boundaries, turn limits, and cross-tool runner
+  dispatch mappings.
+- Model preset mappings for the active target client.
+- Discovered active runs and git worktree health.
