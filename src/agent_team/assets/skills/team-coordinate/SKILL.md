@@ -5,6 +5,11 @@ description: Coordinate bounded native subagents and integrate evidence-backed r
 
 # Team coordination
 
+If the user explicitly asks for the agent-team coordinator in the main thread,
+ask whether to load the coordinator harness into this thread or spawn a dedicated
+native coordinator subagent. Explain both options and wait for the choice before
+spawning.
+
 Use the initialized run directory for all artifacts and report destinations.
 The default is `<project>/.agent-team/runs/<slug>/` relative to the target project
 root, unless the user explicitly specifies another location or the effective
@@ -93,3 +98,33 @@ or error site (rather than failing early in fixture setup). After integration or
 fixes, rerun invalidated checks and reassess affected review conclusions before
 claiming completion; do not open a new review cycle solely for optional `Nit`
 advisory cleanups once `approved` is reached.
+
+## Anti-involution circuit breakers (防内卷断路器)
+
+1. **No Recursive Planning & Recovery Loops (禁止套娃复苏)**:
+   - When a test, fixture, or environment verification fails, fix it in-place
+     within the active task or report directly to the human.
+   - Do NOT create new child runs to "plan", "prepare materials for", or "review"
+     recovery of the test harness.
+   - Maximum 1 direct recovery attempt per failure before human escalation.
+
+2. **Pragmatic Scope & Scaffolding Limits (禁止过度工程)**:
+   - Test fixtures and diagnostic scaffolding must not exceed 50% of the
+     target feature's code size.
+   - Local single-user tools must not construct adversarial kernel-level
+     defense architectures (e.g. pidfd namespaces, SCM_RIGHTS brokers,
+     synthetic oracles). Rely on OS user isolation.
+
+3. **Consecutive Non-Product Run Halting (零产出停机)**:
+   - If two consecutive runs produce 0 lines of product code and only touch
+     manifests, test previews, or test fixtures, halt the pipeline immediately
+     and escalate to the human via AskHuman.
+
+4. **Human-First Language Protocol (人话报告规范)**:
+   - Strictly forbid telegraphic run-on text without spaces.
+   - Forbid defensive boilerplate spam.
+   - All reports and reviews must be concise, structured, and understandable:
+     1. What was done (plain language summary)
+     2. Verification evidence & concrete results
+     3. Blockers & real tradeoffs
+     4. Concrete next steps.

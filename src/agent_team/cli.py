@@ -40,7 +40,6 @@ from agent_team.run_state import bind, lease_change, prepare_review, reconcile, 
 from agent_team.runs import init_run, load_run_model_preset, validate_all_runs
 from agent_team.templates import (
     load_example_templates,
-    load_prompt_templates,
 )
 
 _NATIVE_CLIENTS = {
@@ -263,9 +262,7 @@ def _upsert_templates(
 ) -> list[Path]:
     user_root = user_config_root()
     user_templates_dir = user_root / "templates"
-    user_prompt_dir = user_templates_dir / "prompt"
 
-    prompt_templates = load_prompt_templates()
     example_templates = load_example_templates()
 
     # 1. Always ensure canonical physical templates exist in user scope
@@ -279,11 +276,13 @@ def _upsert_templates(
             raise
 
     if can_use_user:
-        for name, content in prompt_templates.items():
-            destination = user_prompt_dir / name
-            if not destination.exists() or destination.read_text(encoding="utf-8") != content:
-                atomic_write(destination, content)
-            user_upserted.append(destination)
+        for legacy_prompt in ("prompts", "prompt"):
+            legacy_dir = user_templates_dir / legacy_prompt
+            if legacy_dir.is_symlink() or legacy_dir.is_file():
+                legacy_dir.unlink()
+            elif legacy_dir.is_dir():
+                shutil.rmtree(legacy_dir, ignore_errors=True)
+
         for rel_path, content in example_templates.items():
             destination = user_templates_dir / rel_path
             if not destination.exists() or destination.read_text(encoding="utf-8") != content:
@@ -300,8 +299,14 @@ def _upsert_templates(
     proj_templates_dir = root / ".agent-team" / "templates"
     proj_upserted: list[Path] = []
 
-    all_templates: dict[str, str] = {f"prompt/{name}": content for name, content in prompt_templates.items()}
-    all_templates.update(example_templates)
+    for legacy_prompt in ("prompts", "prompt"):
+        legacy_dir = proj_templates_dir / legacy_prompt
+        if legacy_dir.is_symlink() or legacy_dir.is_file():
+            legacy_dir.unlink()
+        elif legacy_dir.is_dir():
+            shutil.rmtree(legacy_dir, ignore_errors=True)
+
+    all_templates = dict(example_templates)
 
     effective_copy = copy or not can_use_user
     for rel_path, content in all_templates.items():

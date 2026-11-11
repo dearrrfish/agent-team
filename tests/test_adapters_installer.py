@@ -55,7 +55,7 @@ class AdapterAndInstallerTests(unittest.TestCase):
                 first = render_target(target, config, root)
                 second = render_target(target, config, root)
                 self.assertEqual(first, second)
-                self.assertEqual(len(first), 10)
+                self.assertEqual(len(first), 14)
 
             codex = render_target("codex", config, root)
             explorer = tomllib.loads(codex[next(path for path in codex if str(path).endswith("explorer.toml"))])
@@ -81,6 +81,26 @@ class AdapterAndInstallerTests(unittest.TestCase):
                 path for path in codex if str(path).endswith("team-review/SKILL.md")
             )]
             self.assertIn("increment `review.used`", review_skill)
+
+            debug_skill = codex[next(
+                path for path in codex if str(path).endswith("team-debug/SKILL.md")
+            )]
+            self.assertIn("Reproduce First", debug_skill)
+
+            research_skill = codex[next(
+                path for path in codex if str(path).endswith("team-research/SKILL.md")
+            )]
+            self.assertIn("Read-Only / Sandboxed Discovery", research_skill)
+
+            docs_skill = codex[next(
+                path for path in codex if str(path).endswith("team-docs/SKILL.md")
+            )]
+            self.assertIn("Contract Change Synchronization", docs_skill)
+
+            ops_skill = codex[next(
+                path for path in codex if str(path).endswith("team-ops/SKILL.md")
+            )]
+            self.assertIn("Nix & Flake Integrity", ops_skill)
 
             quality_codex = render_target("codex", config, root, "quality")
             quality_coordinator = tomllib.loads(quality_codex[next(
@@ -179,7 +199,7 @@ medium = "high"
             config = load_team_config(root)
             files = render_target("codex", config, root)
             written = write_rendered(output, files)
-            self.assertEqual(len(written), 10)
+            self.assertEqual(len(written), 14)
             write_rendered(output, files)
             written[0].write_text("changed", encoding="utf-8")
             with self.assertRaises(ValidationFailure):

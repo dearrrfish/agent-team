@@ -62,7 +62,7 @@ class OptimizationTests(unittest.TestCase):
                 self.assertEqual(code, 0)
         self.assertTrue((self.root / ".agent-team" / "templates" / "role" / "coordinator" / "role.toml.example").exists())
         self.assertTrue((self.root / ".agent-team" / "templates" / "profile" / "codex.toml.example").exists())
-        self.assertTrue((self.root / ".agent-team" / "templates" / "prompt" / "plan.md").exists())
+        self.assertFalse((self.root / ".agent-team" / "templates" / "prompt").exists())
         self.assertFalse((self.root / ".agent-team" / "templates" / "roles").exists())
         self.assertFalse((self.root / ".agent-team" / "templates" / "profiles").exists())
         self.assertFalse((self.root / ".agent-team" / "templates" / "prompts").exists())

@@ -246,7 +246,16 @@ def _render_agent(target: str, role: RoleDefinition, profile: TargetProfile, pre
 def load_builtin_skills() -> tuple[tuple[str, str], ...]:
     return tuple(
         (skill_id, asset_text("skills", skill_id, "SKILL.md"))
-        for skill_id in ("team-coordinate", "team-plan", "team-review", "team-workflow")
+        for skill_id in (
+            "team-coordinate",
+            "team-debug",
+            "team-docs",
+            "team-ops",
+            "team-plan",
+            "team-research",
+            "team-review",
+            "team-workflow",
+        )
     )
 
 

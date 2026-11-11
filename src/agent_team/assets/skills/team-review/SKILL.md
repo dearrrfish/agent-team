@@ -4,6 +4,10 @@ description: Run an independent read-only review with stable findings and a verd
 ---
 # Team review
 
+Focus on actual correctness, functionality, regressions, and security risks—not
+procedural formalities. Follow `.agent-team/REVIEW.md` (when present) for
+project-specific assumptions, accepted risks, and skip paths.
+
 Use a fresh reviewer context with requirements, plan, decisions, reports, diff,
 verification evidence, prior findings/dispositions, and `.agent-team/REVIEW.md`
 (if present) for tracking. Before dispatching `reviewer` (especially on
@@ -14,6 +18,10 @@ review packet (recommended `review.md` header block with `Review-Mode`,
 changed files, prior findings, and verification state). The reviewer must not
 author or fix the implementation. Record the reviewed revision and
 working-tree or diff identity, and identify who produced verification evidence.
+Do not demand exhaustive full-repository SHA-256 hash baselines of unchanged files,
+and forbid `changes-requested` or `blocked` verdicts for missing boilerplate
+disclaimers or procedural hedging. Provide clear, actionable findings with
+exact `file:line` evidence and direct instructions on how to resolve them.
 
 ## Convergence rules
 

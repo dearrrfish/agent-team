@@ -24,6 +24,14 @@ class TemplateAndRunTests(unittest.TestCase):
                 self.assertIn("spawn a dedicated", content)
                 self.assertIn("wait for the choice before", content)
 
+        for skill in ("team-plan", "team-coordinate"):
+            with self.subTest(skill=skill):
+                content = asset_text("skills", skill, "SKILL.md")
+                self.assertIn("explicitly asks for the agent-team coordinator", content)
+                self.assertIn("load the coordinator harness into this thread", content)
+                self.assertIn("spawn a dedicated", content)
+                self.assertIn("wait for the choice before", content)
+
     def _project(self) -> tempfile.TemporaryDirectory[str]:
         temporary = tempfile.TemporaryDirectory()
         root = Path(temporary.name)

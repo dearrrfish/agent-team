@@ -71,3 +71,14 @@ Thumbs.db
 .claude/settings.local.json
 .codex/hooks.json
 .agents/hooks.json
+/.agent-team/templates/prompt/plan.md
+/.agent-team/templates/prompt/coordinate.md
+/.agent-team/templates/prompt/review.md
+/.agent-team/templates/prompt/discovery.md
+/.agent-team/templates/prompt/
+/.agent-team/templates/prompts/
+/.agent-team/templates/roles/
+/.agent-team/templates/profiles/
+/.agent-team/templates/role/
+/.agent-team/templates/profile/
+/.agent-team/templates/review/

@@ -321,11 +321,13 @@ agent-team generate gitignore,templates
 ```
 
 `generate` accepts either selector separately and defaults to both when no
-selector is supplied. It refreshes the four stock workflow prompts beneath
-`.agent-team/templates/prompt/` and adds generic ignore rules for local output
-and state. Keep authored prompts at separate paths because generating templates
-overwrites stock examples. Initialization and installation do not update
-`.gitignore`.
+selector is supplied. It refreshes stock configuration and scaffolding
+templates beneath `.agent-team/templates/` (`profile/`, `role/`, `review/`)
+and adds generic ignore rules for local output and state. Operational
+workflow rules, pragmatic review guidelines, and anti-involution circuit breakers
+live natively in installed skills (`team-workflow`, `team-plan`, `team-coordinate`,
+`team-review`, `team-debug`, `team-research`, `team-docs`, and `team-ops`).
+Initialization and installation do not update `.gitignore`.
 
 Install local native definitions whenever a project needs its own routing:
 

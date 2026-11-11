@@ -242,19 +242,22 @@ permissions, and role instructions. If a named role is unavailable, stop and
 diagnose installation, trust, working directory, and session freshness instead
 of substituting a generic child.
 
-### Common usage prompts
+### Common workflow skills and prompts
 
-`agent-team generate templates` writes these common workflow prompts to
-`.agent-team/templates/prompt/` (`plan.md`, `coordinate.md`, `review.md`, and
-`discovery.md`), and seeds `.agent-team/REVIEW.md` when absent so projects can
-record repository-specific review assumptions, accepted risks, and skip paths
-without losing customizations on later template updates. Run
-`agent-team generate gitignore` to ignore the stock prompt examples. The prompt
-examples are
-overwritten when template generation is rerun. Put authored prompts at separate
-paths. These examples use
-Codex skill syntax. Other targets should use their native skill invocation
-syntax while retaining the explicit roles and boundaries.
+`agent-team install` deploys native skills (`team-workflow`, `team-plan`,
+`team-coordinate`, `team-review`, `team-debug`, `team-research`, `team-docs`,
+and `team-ops`) containing complete operational procedures, pragmatic review
+policies, and anti-involution circuit breakers.
+
+`agent-team generate templates` generates configuration and customization
+scaffolding beneath `.agent-team/templates/` (`profile/`, `role/`, `review/`),
+and seeds `.agent-team/REVIEW.md` when absent so projects can record
+repository-specific review assumptions, accepted risks, and skip paths without
+losing customizations on later updates. Run `agent-team generate gitignore` to
+ignore generated scaffolding templates and native client files.
+
+For manual thread kickoffs or clients without automatic skill discovery, use
+these coordinator invocation patterns:
 
 Create a plan before coding:
 

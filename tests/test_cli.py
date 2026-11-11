@@ -221,13 +221,12 @@ class CliTests(unittest.TestCase):
             # verify team.toml
             self.assertTrue((root / ".agent-team" / "team.toml").is_file())
 
-            # verify prompt templates
-            prompts_dir = root / ".agent-team" / "templates" / "prompt"
-            self.assertTrue(prompts_dir.is_dir())
-            for name in ("plan.md", "coordinate.md", "review.md", "discovery.md"):
-                prompt_file = prompts_dir / name
-                self.assertTrue(prompt_file.is_file(), f"{name} is missing")
-                self.assertGreater(len(prompt_file.read_text(encoding="utf-8")), 0)
+            # verify configuration & scaffolding templates
+            templates_dir = root / ".agent-team" / "templates"
+            self.assertTrue((templates_dir / "profile" / "codex.toml.example").is_file())
+            self.assertTrue((templates_dir / "role" / "coordinator" / "role.toml.example").is_file())
+            self.assertTrue((templates_dir / "review" / "REVIEW.md.example").is_file())
+            self.assertFalse((templates_dir / "prompt").exists())
 
             # verify gitignore entries
             gitignore_file = root / ".gitignore"
@@ -236,10 +235,9 @@ class CliTests(unittest.TestCase):
             for entry in (
                 ".worktrees/", ".agent-team/runs/", ".agent-team/backups/",
                 ".agent-team/install-state.json",
-                "/.agent-team/templates/prompt/plan.md",
-                "/.agent-team/templates/prompt/coordinate.md",
-                "/.agent-team/templates/prompt/review.md",
-                "/.agent-team/templates/prompt/discovery.md",
+                "/.agent-team/templates/role/",
+                "/.agent-team/templates/profile/",
+                "/.agent-team/templates/review/",
             ):
                 self.assertIn(entry, content)
 
@@ -255,9 +253,9 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(self._run(root, "generate").returncode, 0)
 
-            # modify one prompt template to verify update
-            plan_prompt = root / ".agent-team" / "templates" / "prompt" / "plan.md"
-            plan_prompt.write_text("modified", encoding="utf-8")
+            # modify one example template to verify update
+            codex_example = root / ".agent-team" / "templates" / "profile" / "codex.toml.example"
+            codex_example.write_text("modified", encoding="utf-8")
 
             # review example template is generated
             review_example = root / ".agent-team" / "templates" / "review" / "REVIEW.md.example"
@@ -277,8 +275,8 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(self._run(root, "generate").returncode, 0)
 
-            # modified prompt template was updated/upserted
-            self.assertNotEqual(plan_prompt.read_text(encoding="utf-8"), "modified")
+            # modified template was updated/upserted
+            self.assertNotEqual(codex_example.read_text(encoding="utf-8"), "modified")
 
             # customized REVIEW.md was preserved untouched
             self.assertEqual(review_policy.read_text(encoding="utf-8"), custom_review_policy)
