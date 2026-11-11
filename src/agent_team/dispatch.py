@@ -72,7 +72,110 @@ def resolve_runner_for_role(role: RoleDefinition, config: TeamConfig, requested_
     return "codex"
 
 
-def build_dispatch_plan(req: DispatchRequest) -> DispatchPlan:
+def sanitize_dispatch_env(
+    base_env: dict[str, str],
+    target_runner: str,
+    slug: str,
+    role_id: str,
+    task_id: str | None = None,
+    max_depth: int = 1,
+) -> dict[str, str]:
+    """Sanitize environment variables for child runner execution.
+
+    1. Enforces recursion limits (workers must not delegate recursively).
+    2. Strips session/harness markers of heterogeneous targets (e.g. CLAUDE_* when running codex).
+    3. Strips session IDs of the target itself to guarantee fresh child sessions.
+    4. Preserves API credentials (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.) and system paths.
+    5. Injects child agent metadata (AGENT_TEAM_ACTIVE_TARGET, AGENT_TEAM_RUNNER, etc.).
+    """
+    raw_depth = base_env.get("AGENT_TEAM_DISPATCH_DEPTH", "0")
+    try:
+        depth = int(raw_depth)
+    except ValueError:
+        depth = 0
+
+    if depth >= max_depth:
+        fail(
+            f"role '{role_id}' cannot recursively dispatch child agents "
+            f"(current dispatch depth {depth} >= limit {max_depth}). "
+            "Subagent workers must not delegate recursively."
+        )
+
+    env = dict(base_env)
+
+    # Protected credential suffixes: never strip API keys / tokens
+    protected_suffixes = (
+        "_API_KEY",
+        "_KEY",
+        "_TOKEN",
+        "_SECRET",
+        "_CREDENTIALS",
+        "_AUTH_TOKEN",
+        "_ACCESS_TOKEN",
+    )
+
+    def is_protected_auth(key: str) -> bool:
+        upper = key.upper()
+        return any(upper.endswith(suffix) for suffix in protected_suffixes)
+
+    # 1. Claude markers
+    if target_runner != "claude":
+        for k in list(env.keys()):
+            if k.startswith("CLAUDE_") and not is_protected_auth(k):
+                env.pop(k, None)
+            elif k.startswith("ANTHROPIC_CLI_"):
+                env.pop(k, None)
+    else:
+        env.pop("CLAUDE_SESSION_ID", None)
+        env.pop("CLAUDE_CONVERSATION_ID", None)
+
+    # 2. Pi markers
+    if target_runner != "pi":
+        for k in list(env.keys()):
+            if k.startswith("PI_") and not is_protected_auth(k):
+                env.pop(k, None)
+    else:
+        env.pop("PI_SESSION_ID", None)
+
+    # 3. Codex markers
+    if target_runner != "codex":
+        for k in list(env.keys()):
+            if (
+                k.startswith("CODEX_SESSION")
+                or k.startswith("CODEX_INTERNAL_")
+                or k == "CODEX_SANDBOX"
+            ) and not is_protected_auth(k):
+                env.pop(k, None)
+    else:
+        env.pop("CODEX_SESSION", None)
+        env.pop("CODEX_SESSION_ID", None)
+
+    # 4. Antigravity markers
+    if target_runner != "antigravity":
+        for k in list(env.keys()):
+            if k.startswith("ANTIGRAVITY_") and not is_protected_auth(k):
+                env.pop(k, None)
+    else:
+        env.pop("ANTIGRAVITY_SESSION_ID", None)
+
+    # Injected Agent Team Metadata
+    env["AGENT_TEAM_DISPATCH_DEPTH"] = str(depth + 1)
+    env["AGENT_TEAM_ACTIVE_TARGET"] = target_runner
+    env["AGENT_TEAM_RUNNER"] = target_runner
+    env["AGENT_TEAM_RUN_SLUG"] = slug
+    env["AGENT_TEAM_ROLE_ID"] = role_id
+    if task_id:
+        env["AGENT_TEAM_TASK_ID"] = task_id
+    else:
+        env.pop("AGENT_TEAM_TASK_ID", None)
+
+    return env
+
+
+def build_dispatch_plan(
+    req: DispatchRequest,
+    base_env: dict[str, str] | None = None,
+) -> DispatchPlan:
     candidate, _ = select_run(discover_runs(req.root, req.config), req.root, slug=req.slug)
     if candidate is None or candidate.errors:
         fail(f"run '{req.slug}' cannot be read safely")
@@ -207,11 +310,14 @@ def build_dispatch_plan(req: DispatchRequest) -> DispatchPlan:
     else:
         fail(f"unhandled runner '{runner}'")
 
-    env = dict(os.environ)
-    env["AGENT_TEAM_RUN_SLUG"] = req.slug
-    env["AGENT_TEAM_ROLE_ID"] = req.role_id
-    if req.task_id:
-        env["AGENT_TEAM_TASK_ID"] = req.task_id
+    raw_env = dict(os.environ) if base_env is None else dict(base_env)
+    env = sanitize_dispatch_env(
+        base_env=raw_env,
+        target_runner=runner,
+        slug=req.slug,
+        role_id=req.role_id,
+        task_id=req.task_id,
+    )
 
     return DispatchPlan(
         runner=runner,

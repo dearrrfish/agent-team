@@ -15,6 +15,7 @@ from agent_team.dispatch import (
     build_dispatch_plan,
     execute_dispatch,
     resolve_runner_for_role,
+    sanitize_dispatch_env,
 )
 
 SOURCE = str(Path(__file__).parents[1] / "src")
@@ -229,6 +230,91 @@ class TestDispatch(unittest.TestCase):
             content = plan.report_path.read_text(encoding="utf-8")
             self.assertIn("## Status\nCompleted widget implementation.", content)
             self.assertTrue(result.report_synced)
+
+
+    def test_sanitize_dispatch_env_cross_tool_and_auth(self) -> None:
+        dirty_env = {
+            "PATH": "/usr/bin:/bin",
+            "HOME": "/home/user",
+            "ANTHROPIC_API_KEY": "sk-ant-valid-key",
+            "OPENAI_API_KEY": "sk-oai-valid-key",
+            "CLAUDE_CODE": "1",
+            "CLAUDE_PROJECT_ROOT": "/some/project",
+            "CLAUDE_SESSION_ID": "parent-claude-sess",
+            "PI_SESSION_ID": "parent-pi-sess",
+            "PI_CODING_AGENT": "1",
+            "CODEX_SESSION": "parent-codex-sess",
+            "CODEX_SANDBOX": "workspace-write",
+            "ANTIGRAVITY_SESSION_ID": "parent-ag-sess",
+        }
+
+        # Dispatching to codex
+        clean_env = sanitize_dispatch_env(
+            base_env=dirty_env,
+            target_runner="codex",
+            slug="test-slug",
+            role_id="implementer",
+            task_id="task-1",
+        )
+
+        # Alien client markers must be removed
+        self.assertNotIn("CLAUDE_CODE", clean_env)
+        self.assertNotIn("CLAUDE_PROJECT_ROOT", clean_env)
+        self.assertNotIn("CLAUDE_SESSION_ID", clean_env)
+        self.assertNotIn("PI_SESSION_ID", clean_env)
+        self.assertNotIn("PI_CODING_AGENT", clean_env)
+        self.assertNotIn("ANTIGRAVITY_SESSION_ID", clean_env)
+
+        # Target runner's own parent session marker must be removed
+        self.assertNotIn("CODEX_SESSION", clean_env)
+
+        # Essential paths and API keys must be retained
+        self.assertEqual(clean_env["PATH"], "/usr/bin:/bin")
+        self.assertEqual(clean_env["HOME"], "/home/user")
+        self.assertEqual(clean_env["ANTHROPIC_API_KEY"], "sk-ant-valid-key")
+        self.assertEqual(clean_env["OPENAI_API_KEY"], "sk-oai-valid-key")
+
+        # Injected metadata must be present
+        self.assertEqual(clean_env["AGENT_TEAM_ACTIVE_TARGET"], "codex")
+        self.assertEqual(clean_env["AGENT_TEAM_RUNNER"], "codex")
+        self.assertEqual(clean_env["AGENT_TEAM_RUN_SLUG"], "test-slug")
+        self.assertEqual(clean_env["AGENT_TEAM_ROLE_ID"], "implementer")
+        self.assertEqual(clean_env["AGENT_TEAM_TASK_ID"], "task-1")
+        self.assertEqual(clean_env["AGENT_TEAM_DISPATCH_DEPTH"], "1")
+
+    def test_sanitize_dispatch_env_same_tool_fresh_session(self) -> None:
+        parent_claude_env = {
+            "ANTHROPIC_API_KEY": "sk-ant-test",
+            "CLAUDE_CODE": "1",
+            "CLAUDE_SESSION_ID": "parent-session-xyz",
+            "CLAUDE_CONVERSATION_ID": "parent-conv-123",
+        }
+        clean_env = sanitize_dispatch_env(
+            base_env=parent_claude_env,
+            target_runner="claude",
+            slug="test-slug",
+            role_id="reviewer",
+        )
+        self.assertNotIn("CLAUDE_SESSION_ID", clean_env)
+        self.assertNotIn("CLAUDE_CONVERSATION_ID", clean_env)
+        self.assertEqual(clean_env["ANTHROPIC_API_KEY"], "sk-ant-test")
+        self.assertEqual(clean_env["AGENT_TEAM_ACTIVE_TARGET"], "claude")
+
+    def test_sanitize_dispatch_env_recursion_guard(self) -> None:
+        nested_env = {
+            "AGENT_TEAM_DISPATCH_DEPTH": "1",
+        }
+        with self.assertRaises(ValidationFailure) as ctx:
+            sanitize_dispatch_env(
+                base_env=nested_env,
+                target_runner="codex",
+                slug="test-slug",
+                role_id="worker",
+                max_depth=1,
+            )
+        self.assertTrue(
+            any("cannot recursively dispatch child agents" in d.message for d in ctx.exception.diagnostics)
+        )
 
 
 if __name__ == "__main__":
