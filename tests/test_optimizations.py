@@ -36,6 +36,7 @@ class OptimizationTests(unittest.TestCase):
         for role in ("coordinator", "explorer", "implementer", "reviewer"):
             key = f"role/{role}/role.toml.example"
             self.assertIn(key, templates)
+            self.assertNotIn(f"roles/{role}/role.toml.example", templates)
             content = templates[key]
             self.assertIn(f"Agent Team Role Definition Template: {role}", content)
             self.assertIn('schema_version = 1', content)
@@ -46,6 +47,7 @@ class OptimizationTests(unittest.TestCase):
         for target in ("codex", "claude", "antigravity", "pi"):
             key = f"profile/{target}.toml.example"
             self.assertIn(key, templates)
+            self.assertNotIn(f"profiles/{target}.toml.example", templates)
             content = templates[key]
             self.assertIn(f"Agent Team Target Profile Template: {target}", content)
             self.assertIn('schema_version = 1', content)
@@ -60,6 +62,10 @@ class OptimizationTests(unittest.TestCase):
                 self.assertEqual(code, 0)
         self.assertTrue((self.root / ".agent-team" / "templates" / "role" / "coordinator" / "role.toml.example").exists())
         self.assertTrue((self.root / ".agent-team" / "templates" / "profile" / "codex.toml.example").exists())
+        self.assertTrue((self.root / ".agent-team" / "templates" / "prompt" / "plan.md").exists())
+        self.assertFalse((self.root / ".agent-team" / "templates" / "roles").exists())
+        self.assertFalse((self.root / ".agent-team" / "templates" / "profiles").exists())
+        self.assertFalse((self.root / ".agent-team" / "templates" / "prompts").exists())
 
     def test_init_diff_and_force_with_backup(self) -> None:
         # 1. First init creates team.toml

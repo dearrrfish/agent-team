@@ -238,10 +238,16 @@ AGENT_TEAM_GITIGNORE_ENTRIES: tuple[str, ...] = (
     ".claude/settings.local.json",
     ".codex/hooks.json",
     ".agents/hooks.json",
+    "/.agent-team/templates/prompt/plan.md",
+    "/.agent-team/templates/prompt/coordinate.md",
+    "/.agent-team/templates/prompt/review.md",
+    "/.agent-team/templates/prompt/discovery.md",
     "/.agent-team/templates/prompts/plan.md",
     "/.agent-team/templates/prompts/coordinate.md",
     "/.agent-team/templates/prompts/review.md",
     "/.agent-team/templates/prompts/discovery.md",
+    "/.agent-team/templates/prompt/",
+    "/.agent-team/templates/prompts/",
     "/.agent-team/templates/roles/",
     "/.agent-team/templates/profiles/",
     "/.agent-team/templates/role/",
@@ -257,7 +263,7 @@ def _upsert_templates(
 ) -> list[Path]:
     user_root = user_config_root()
     user_templates_dir = user_root / "templates"
-    user_prompts_dir = user_templates_dir / "prompts"
+    user_prompt_dir = user_templates_dir / "prompt"
 
     prompt_templates = load_prompt_templates()
     example_templates = load_example_templates()
@@ -274,7 +280,7 @@ def _upsert_templates(
 
     if can_use_user:
         for name, content in prompt_templates.items():
-            destination = user_prompts_dir / name
+            destination = user_prompt_dir / name
             if not destination.exists() or destination.read_text(encoding="utf-8") != content:
                 atomic_write(destination, content)
             user_upserted.append(destination)
@@ -294,7 +300,7 @@ def _upsert_templates(
     proj_templates_dir = root / ".agent-team" / "templates"
     proj_upserted: list[Path] = []
 
-    all_templates: dict[str, str] = {f"prompts/{name}": content for name, content in prompt_templates.items()}
+    all_templates: dict[str, str] = {f"prompt/{name}": content for name, content in prompt_templates.items()}
     all_templates.update(example_templates)
 
     effective_copy = copy or not can_use_user

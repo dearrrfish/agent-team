@@ -245,7 +245,7 @@ of substituting a generic child.
 ### Common usage prompts
 
 `agent-team generate templates` writes these common workflow prompts to
-`.agent-team/templates/prompts/` (`plan.md`, `coordinate.md`, `review.md`, and
+`.agent-team/templates/prompt/` (`plan.md`, `coordinate.md`, `review.md`, and
 `discovery.md`), and seeds `.agent-team/REVIEW.md` when absent so projects can
 record repository-specific review assumptions, accepted risks, and skip paths
 without losing customizations on later template updates. Run

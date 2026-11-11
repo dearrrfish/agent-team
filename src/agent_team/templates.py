@@ -18,7 +18,9 @@ def asset_text(*parts: str) -> str:
 
 
 def load_prompt_templates() -> dict[str, str]:
-    prompts_dir = resources.files("agent_team.assets").joinpath("templates", "prompts")
+    prompts_dir = resources.files("agent_team.assets").joinpath("templates", "prompt")
+    if not prompts_dir.is_dir():
+        prompts_dir = resources.files("agent_team.assets").joinpath("templates", "prompts")
     templates: dict[str, str] = {}
     for entry in sorted(prompts_dir.iterdir(), key=lambda item: item.name):
         if entry.is_file() and entry.name.endswith(".md"):
@@ -58,7 +60,7 @@ def generate_annotated_profile(target: str) -> str:
 #
 # HOW TO USE:
 # 1. Copy this template to your project or user configuration directory:
-#      cp .agent-team/templates/profiles/{target}.toml.example targets/{target}.toml
+#      cp .agent-team/templates/profile/{target}.toml.example targets/{target}.toml
 # 2. Modify the presets or options below to fit your workflow.
 # 3. Reference this custom profile in your team.toml:
 #      [target_profiles]
@@ -83,8 +85,8 @@ def generate_annotated_role(role_id: str) -> str:
 # 1. Copy this folder (role.toml.example and instructions.md.example) to your custom
 #    role sources directory:
 #      mkdir -p custom_roles/{role_id}
-#      cp .agent-team/templates/roles/{role_id}/role.toml.example custom_roles/{role_id}/role.toml
-#      cp .agent-team/templates/roles/{role_id}/instructions.md.example custom_roles/{role_id}/instructions.md
+#      cp .agent-team/templates/role/{role_id}/role.toml.example custom_roles/{role_id}/role.toml
+#      cp .agent-team/templates/role/{role_id}/instructions.md.example custom_roles/{role_id}/instructions.md
 # 2. Add your custom role source directory to team.toml:
 #      role_sources = ["custom_roles", "builtin:roles"]
 #
@@ -132,19 +134,14 @@ def load_example_templates() -> dict[str, str]:
 
     examples: dict[str, str] = {}
     for target in TARGETS:
-        content = generate_annotated_profile(target)
-        examples[f"profiles/{target}.toml.example"] = content
-        examples[f"profile/{target}.toml.example"] = content
+        examples[f"profile/{target}.toml.example"] = generate_annotated_profile(target)
 
     for role_id in ROLE_IDS:
-        toml_content = generate_annotated_role(role_id)
-        md_content = asset_text("definitions", "roles", role_id, "instructions.md")
-        examples[f"roles/{role_id}/role.toml.example"] = toml_content
-        examples[f"roles/{role_id}/instructions.md.example"] = md_content
-        examples[f"role/{role_id}/role.toml.example"] = toml_content
-        examples[f"role/{role_id}/instructions.md.example"] = md_content
+        examples[f"role/{role_id}/role.toml.example"] = generate_annotated_role(role_id)
+        examples[f"role/{role_id}/instructions.md.example"] = asset_text(
+            "definitions", "roles", role_id, "instructions.md"
+        )
 
-    review_content = generate_annotated_review_policy()
-    examples["review/REVIEW.md.example"] = review_content
+    examples["review/REVIEW.md.example"] = generate_annotated_review_policy()
 
     return examples

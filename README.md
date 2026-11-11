@@ -322,7 +322,7 @@ agent-team generate gitignore,templates
 
 `generate` accepts either selector separately and defaults to both when no
 selector is supplied. It refreshes the four stock workflow prompts beneath
-`.agent-team/templates/prompts/` and adds generic ignore rules for local output
+`.agent-team/templates/prompt/` and adds generic ignore rules for local output
 and state. Keep authored prompts at separate paths because generating templates
 overwrites stock examples. Initialization and installation do not update
 `.gitignore`.

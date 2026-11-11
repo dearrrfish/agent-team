@@ -222,7 +222,7 @@ class CliTests(unittest.TestCase):
             self.assertTrue((root / ".agent-team" / "team.toml").is_file())
 
             # verify prompt templates
-            prompts_dir = root / ".agent-team" / "templates" / "prompts"
+            prompts_dir = root / ".agent-team" / "templates" / "prompt"
             self.assertTrue(prompts_dir.is_dir())
             for name in ("plan.md", "coordinate.md", "review.md", "discovery.md"):
                 prompt_file = prompts_dir / name
@@ -236,10 +236,10 @@ class CliTests(unittest.TestCase):
             for entry in (
                 ".worktrees/", ".agent-team/runs/", ".agent-team/backups/",
                 ".agent-team/install-state.json",
-                "/.agent-team/templates/prompts/plan.md",
-                "/.agent-team/templates/prompts/coordinate.md",
-                "/.agent-team/templates/prompts/review.md",
-                "/.agent-team/templates/prompts/discovery.md",
+                "/.agent-team/templates/prompt/plan.md",
+                "/.agent-team/templates/prompt/coordinate.md",
+                "/.agent-team/templates/prompt/review.md",
+                "/.agent-team/templates/prompt/discovery.md",
             ):
                 self.assertIn(entry, content)
 
@@ -256,7 +256,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(self._run(root, "generate").returncode, 0)
 
             # modify one prompt template to verify update
-            plan_prompt = root / ".agent-team" / "templates" / "prompts" / "plan.md"
+            plan_prompt = root / ".agent-team" / "templates" / "prompt" / "plan.md"
             plan_prompt.write_text("modified", encoding="utf-8")
 
             # review example template is generated
@@ -288,10 +288,10 @@ class CliTests(unittest.TestCase):
             for entry in (
                 ".worktrees/", ".agent-team/runs/", ".agent-team/backups/",
                 ".agent-team/install-state.json",
-                "/.agent-team/templates/prompts/plan.md",
-                "/.agent-team/templates/prompts/coordinate.md",
-                "/.agent-team/templates/prompts/review.md",
-                "/.agent-team/templates/prompts/discovery.md",
+                "/.agent-team/templates/prompt/plan.md",
+                "/.agent-team/templates/prompt/coordinate.md",
+                "/.agent-team/templates/prompt/review.md",
+                "/.agent-team/templates/prompt/discovery.md",
             ):
                 self.assertEqual(gitignore_content.count(entry), 1)
 

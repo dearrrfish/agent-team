@@ -66,7 +66,7 @@ class RoleHarnessContractsTests(unittest.TestCase):
         return manifest, config
 
     def test_generated_review_verdicts_persist_without_normalization(self) -> None:
-        sources = [asset_text("templates", "prompts", "review.md")]
+        sources = [asset_text("templates", "prompt", "review.md")]
         for target in TARGETS:
             for preset in PRESETS:
                 output = render_target(target, self.config, self.root, preset)

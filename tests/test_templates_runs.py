@@ -18,7 +18,7 @@ class TemplateAndRunTests(unittest.TestCase):
     def test_main_thread_coordinator_prompts_offer_activation_choice(self) -> None:
         for prompt in ("plan.md", "coordinate.md"):
             with self.subTest(prompt=prompt):
-                content = asset_text("templates", "prompts", prompt)
+                content = asset_text("templates", "prompt", prompt)
                 self.assertIn("explicitly asks for the agent-team coordinator", content)
                 self.assertIn("load the coordinator harness into this thread", content)
                 self.assertIn("spawn a dedicated", content)

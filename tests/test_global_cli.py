@@ -53,8 +53,8 @@ class GlobalCliTests(unittest.TestCase):
                 self.assertTrue((project / ".agent-team/team.toml").is_file())
                 generated = self.run_cli("generate", "templates", cwd=project)
                 self.assertEqual(generated.returncode, 0, generated.stderr)
-                self.assertTrue((project / ".agent-team/templates/prompts/plan.md").is_file())
-                self.assertTrue((project / ".agent-team/templates/prompts/plan.md").is_symlink())
+                self.assertTrue((project / ".agent-team/templates/prompt/plan.md").is_file())
+                self.assertTrue((project / ".agent-team/templates/prompt/plan.md").is_symlink())
         self.assertTrue((self.home / ".agent-team/templates").exists())
 
     def test_project_commands_reject_home_and_user_config_directory(self) -> None:
@@ -192,7 +192,7 @@ class GlobalCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, path)
         self.assertNotEqual(subprocess.run(["git", "check-ignore", ".agents/definitions/roles/ops/role.toml"], cwd=self.root, capture_output=True, check=False).returncode, 0)
         self.assertEqual(self.run_cli("generate", "gitignore,", "templates").returncode, 0)
-        self.assertTrue((self.root / ".agent-team" / "templates" / "prompts" / "plan.md").is_file())
+        self.assertTrue((self.root / ".agent-team" / "templates" / "prompt" / "plan.md").is_file())
 
     def test_model_table_has_sources(self) -> None:
         self.run_cli("init")
