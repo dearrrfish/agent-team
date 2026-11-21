@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -8,6 +9,7 @@ TIERS = ("solo", "assisted", "team")
 TARGETS = ("codex", "claude", "antigravity", "pi")
 DEFAULT_ENABLED_TARGETS = ("codex", "claude", "antigravity")
 PRESETS = ("economy", "balanced", "quality")
+PRESET_NAME = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 ROLE_IDS = ("coordinator", "explorer", "design-agent", "implementer", "ops", "reviewer")
 RE_REVIEW_MODES = ("diff-only", "full-scope")
 
@@ -84,6 +86,7 @@ class TeamConfig:
     role_overrides: Mapping[str, RoleOverride] = field(default_factory=dict)
     target_role_overrides: Mapping[str, Mapping[str, RoleOverride]] = field(default_factory=dict)
     enabled_targets: tuple[str, ...] = DEFAULT_ENABLED_TARGETS
+    target_default_presets: Mapping[str, str] = field(default_factory=dict)
     dsh_compatibility: bool = False
 
 
@@ -120,6 +123,7 @@ class TargetPresetOverride:
     coordinator_effort: str | None
     models: Mapping[str, str]
     effort: Mapping[str, str]
+    template: str | None = None
 
 
 @dataclass(frozen=True)

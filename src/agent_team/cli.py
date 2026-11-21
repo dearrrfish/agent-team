@@ -15,6 +15,7 @@ from agent_team import __version__
 from agent_team.adapters import _mapped_role, load_skills, render_target, write_rendered
 from agent_team.catalog import fetch_catalog
 from agent_team.config import (
+    effective_default_preset,
     load_roles,
     load_team_config,
     load_user_config,
@@ -31,7 +32,7 @@ from agent_team.diagnostics import Diagnostic, ValidationFailure, render_diagnos
 from agent_team.fs import atomic_write
 from agent_team.host import detect_host
 from agent_team.installer import install_files
-from agent_team.models import PRESETS, ROLE_IDS, TARGETS, TIERS
+from agent_team.models import PRESETS, PRESET_NAME, ROLE_IDS, TARGETS, TIERS
 from agent_team.recovery import (
     discover_runs,
     recovery_status,
@@ -48,6 +49,12 @@ _NATIVE_CLIENTS = {
     "antigravity": "agy",
     "pi": "pi",
 }
+
+
+def _preset_name(value: str) -> str:
+    if not PRESET_NAME.fullmatch(value):
+        raise argparse.ArgumentTypeError("preset names must be lowercase kebab-case (a-z, 0-9, -)")
+    return value
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -90,7 +97,7 @@ Examples:
     run_init.add_argument("--slug", required=True)
     run_init.add_argument("--title")
     run_init.add_argument("--tier", choices=(*TIERS, "adaptive"))
-    run_init.add_argument("--model-preset", choices=PRESETS)
+    run_init.add_argument("--model-preset", "--preset", dest="model_preset", type=_preset_name)
 
     lease = run_commands.add_parser("lease", help="claim or release observed worker ownership")
     lease_commands = lease.add_subparsers(dest="lease_command", required=True)
@@ -172,7 +179,13 @@ Examples:
     render = subcommands.add_parser("render", help="render native agent files into an output directory")
     render.add_argument("--target", choices=TARGETS, required=True)
     render.add_argument("--output", type=Path, required=True)
-    render.add_argument("--run", dest="run_slug", help="use the model preset from this run")
+    render_selection = render.add_mutually_exclusive_group()
+    render_selection.add_argument(
+        "--model-preset", "--preset", dest="model_preset", type=_preset_name,
+        help="select the preset for custom agents "
+             "(defaults to the target's default_preset or default_model_preset)",
+    )
+    render_selection.add_argument("--run", dest="run_slug", help="use the model preset from this run")
 
     dsh = subcommands.add_parser("dsh", help="generate a DeepSeek Harness preset bundle")
     dsh_commands = dsh.add_subparsers(dest="dsh_command", required=True)
@@ -187,7 +200,13 @@ Examples:
     install.add_argument("--diff", action="store_true", help="show diff when files change")
     install.add_argument("--yes", "-y", action="store_true", help="bypass confirmation prompt when --force is used")
     install.add_argument("--no-backup", action="store_true", help="do not create backups when overwriting")
-    install.add_argument("--run", dest="run_slug", help="use the model preset from this run")
+    install_selection = install.add_mutually_exclusive_group()
+    install_selection.add_argument(
+        "--model-preset", "--preset", dest="model_preset", type=_preset_name,
+        help="select the preset for custom agents "
+             "(defaults to the target's default_preset or default_model_preset)",
+    )
+    install_selection.add_argument("--run", dest="run_slug", help="use the model preset from this run")
 
     doctor = subcommands.add_parser("doctor", help="check the environment and project")
     doctor.add_argument("--format", choices=("text", "json"), default="text")
@@ -197,7 +216,7 @@ Examples:
     presets = config_commands.add_parser("model-presets", help="preview and edit model routing presets")
     presets.add_argument("--scope", choices=("user", "project"), default="project")
     presets.add_argument("--target", help="comma-separated enabled native targets (default installed clients)")
-    presets.add_argument("--preset", choices=PRESETS, help="edit one preset (default all three)")
+    presets.add_argument("--preset", type=_preset_name, help="edit one named preset (defaults to all presets for each target)")
     presets.add_argument("--dry-run", action="store_true")
 
     roles = config_commands.add_parser("roles", help="preview and edit semantic role routing")
@@ -211,7 +230,7 @@ Examples:
     show = model_commands.add_parser("show", help="show configured effective model routing")
     show.add_argument("--target", choices=TARGETS)
     selection = show.add_mutually_exclusive_group()
-    selection.add_argument("--model-preset", choices=PRESETS)
+    selection.add_argument("--model-preset", "--preset", dest="model_preset", type=_preset_name)
     selection.add_argument("--run", dest="run_slug", help="use the model preset from this run")
     show.add_argument("--format", choices=("text", "json", "table"), default="text")
     fetch = model_commands.add_parser("fetch", help="fetch a live model catalog")
@@ -489,7 +508,8 @@ def _generate(
         config = load_team_config(root)
         paths: dict[PurePosixPath, str] = {}
         for target in TARGETS:
-            paths.update(render_target(target, config, root, config.default_model_preset, "project"))
+            # Presets affect content only. Use a builtin to enumerate paths.
+            paths.update(render_target(target, config, root, PRESETS[0], "project"))
         entries += tuple(
             _literal_gitignore_entry(path) for path in sorted(paths)
             if not any(fnmatch.fnmatchcase(path.as_posix(), pattern.rstrip("/") + ("*" if pattern.endswith("/") else ""))
@@ -550,7 +570,7 @@ def _collect_validation(root: Path) -> list[Diagnostic]:
     targets_to_resolve = tuple(dict.fromkeys((*TARGETS, *config.model_presets)))
     for target in targets_to_resolve:
         try:
-            resolve_target_profile(config, target, root)
+            resolve_target_profile(config, target, root, validate_default=True)
         except ValidationFailure as exc:
             diagnostics.extend(exc.diagnostics)
     diagnostics.extend(validate_all_runs(root, config))
@@ -566,10 +586,30 @@ def _validate(root: Path, output_format: str) -> int:
     return 1 if any(item.severity == "error" for item in diagnostics) else 0
 
 
+def _require_preset_defined(root: Path, config: object, name: str) -> None:
+    if name in PRESETS:
+        return
+    enabled = [target for target in config.enabled_targets if target in TARGETS]
+    available: set[str] = set()
+    for target in enabled:
+        try:
+            available.update(resolve_target_profile(config, target, root).presets)
+        except ValidationFailure:
+            continue  # reported separately by validate / doctor
+    if name not in available:
+        raise ValidationFailure([Diagnostic(
+            "model_preset",
+            f"{name} is not defined by any enabled target profile "
+            f"({', '.join(enabled) or 'none'}); available: {', '.join(sorted(available))}",
+            code="enum",
+        )])
+
+
 def _run_init(root: Path, args: argparse.Namespace) -> int:
     config = load_team_config(root)
     tier = resolve_tier(config, root, args.tier)
-    model_preset = args.model_preset or config.default_model_preset
+    model_preset = _model_preset(root, config, args)
+    _require_preset_defined(root, config, model_preset)
     destination = init_run(root, config, args.slug, args.title, tier, model_preset)
     print(f"initialized {tier} run at {destination}")
     return 0
@@ -577,10 +617,7 @@ def _run_init(root: Path, args: argparse.Namespace) -> int:
 
 def _render(root: Path, args: argparse.Namespace) -> int:
     config = load_team_config(root)
-    model_preset = (
-        load_run_model_preset(root, config, args.run_slug)
-        if args.run_slug else config.default_model_preset
-    )
+    model_preset = _model_preset(root, config, args, args.target)
     files = render_target(args.target, config, root, model_preset)
     written = write_rendered(args.output, files)
     print(
@@ -619,7 +656,23 @@ def _install(root: Path, args: argparse.Namespace, input_func: object = input) -
         return _install(root, args, input_func=input_func)
     target_root = root if scope == "project" else Path.home()
     config_root = root if scope == "project" else user_config_root()
-    model_preset = load_run_model_preset(root, config, args.run_slug) if args.run_slug else config.default_model_preset
+    presets_by_target = {target: _model_preset(root, config, args, target) for target in targets}
+    failures: list[Diagnostic] = []
+    for target in targets:
+        try:
+            profile = resolve_target_profile(config, target, config_root)
+        except ValidationFailure as exc:
+            failures.extend(exc.diagnostics)
+            continue
+        selected = presets_by_target[target]
+        if selected not in profile.presets:
+            failures.append(Diagnostic(
+                "model_preset",
+                f"{selected} is not defined by the {target} profile; available: {', '.join(profile.presets)}",
+                code="enum",
+            ))
+    if failures:
+        raise ValidationFailure(failures)
     project_context = root != Path.home().resolve() and (root / ".agent-team" / "team.toml").is_file()
     backup_root = root / ".agent-team" / "backups" if scope == "project" or project_context else None
     force = getattr(args, "force", False)
@@ -637,7 +690,7 @@ def _install(root: Path, args: argparse.Namespace, input_func: object = input) -
     rendered: dict[str, dict[PurePosixPath, str]] = {}
     shared: dict[PurePosixPath, str] = {}
     for target in targets:
-        files = render_target(target, config, config_root, model_preset, scope, pi_status=pi_status)
+        files = render_target(target, config, config_root, presets_by_target[target], scope, pi_status=pi_status)
         for path, content in files.items():
             if path in shared and shared[path] != content:
                 raise ValidationFailure([Diagnostic(str(path), "targets render different content to a shared destination", code="collision")])
@@ -694,7 +747,7 @@ def _install(root: Path, args: argparse.Namespace, input_func: object = input) -
                                 require_backup_root=scope == "user",
                                 allow_no_backup=no_backup)
         mode = "applied" if args.apply else "preview"
-        print(f"{mode} for {target} ({scope} scope, {model_preset} preset):")
+        print(f"{mode} for {target} ({scope} scope, {presets_by_target[target]} preset):")
         for action in actions:
             print(f"  {action.action:9} {action.path} — {action.reason}")
     if not args.apply:
@@ -702,10 +755,15 @@ def _install(root: Path, args: argparse.Namespace, input_func: object = input) -
     return 0
 
 
-def _model_preset(root: Path, config: object, args: argparse.Namespace) -> str:
-    if args.run_slug:
+def _model_preset(root: Path, config: object, args: argparse.Namespace,
+                  target: str | None = None) -> str:
+    if getattr(args, "run_slug", None):
         return load_run_model_preset(root, config, args.run_slug)
-    return args.model_preset or config.default_model_preset
+    if getattr(args, "model_preset", None):
+        return args.model_preset
+    if target is not None:
+        return effective_default_preset(config, target)
+    return config.default_model_preset
 
 
 def _source_for_role(config: object, target: str, preset: str, role: object) -> tuple[str, str | None]:
@@ -741,15 +799,18 @@ def _effective_routing(root: Path, args: argparse.Namespace) -> dict[str, object
     targets = (args.target,) if args.target else TARGETS
     if args.target and args.target not in TARGETS:
         raise ValidationFailure([Diagnostic("target", f"{args.target} is not a supported target", code="enum")])
-    preset_name = _model_preset(root, config, args)
+    failures: list[Diagnostic] = []
     output: list[dict[str, object]] = []
     for target in targets:
+        preset_name = _model_preset(root, config, args, target)
         roles = load_roles(config, root, target=target)
         profile = resolve_target_profile(config, target, root)
         if preset_name not in profile.presets:
-            raise ValidationFailure([Diagnostic(
+            # Aggregated so a multi-target listing reports every bad target at once.
+            failures.append(Diagnostic(
                 "model_preset", f"{preset_name} is not defined by the {target} profile", code="enum"
-            )])
+            ))
+            continue
         resolved_roles: list[dict[str, object]] = []
         for role in roles:
             model, effort = _mapped_role(profile, preset_name, role)
@@ -766,6 +827,8 @@ def _effective_routing(root: Path, args: argparse.Namespace) -> dict[str, object
                 "effort_source": effort_source if effort is not None else None,
             })
         output.append({"target": target, "preset": preset_name, "roles": resolved_roles})
+    if failures:
+        raise ValidationFailure(failures)
     return {"schema_version": 1, "kind": "effective-routing", "targets": output}
 
 

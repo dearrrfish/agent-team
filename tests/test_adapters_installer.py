@@ -454,6 +454,67 @@ medium = "high"
                 )
             self.assertTrue(any(item.code == "backup" for item in context.exception.diagnostics))
             self.assertFalse((target_root / ".agent-team" / "install-state.json").exists())
+    def _write_custom_preset_team(self, root: Path) -> None:
+        (root / ".agent-team" / "team.toml").write_text(DEFAULT_TEAM_TOML + '''
+[model_presets.codex.turbo]
+template = "quality"
+coordinator_model = "turbo-coordinator"
+[model_presets.codex.turbo.models]
+deep = "turbo-deep"
+''', encoding="utf-8")
+
+    def test_render_uses_explicit_custom_preset(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            self._write_custom_preset_team(root)
+            config = load_team_config(root)
+            baseline = render_target("codex", config, root)
+            rendered = render_target("codex", config, root, "turbo")
+            self.assertEqual(set(rendered), set(baseline))
+            coordinator = tomllib.loads(rendered[next(
+                path for path in rendered if str(path).endswith("coordinator.toml")
+            )])
+            reviewer = tomllib.loads(rendered[next(
+                path for path in rendered if str(path).endswith("reviewer.toml")
+            )])
+            self.assertEqual(coordinator["model"], "turbo-coordinator")
+            self.assertEqual(coordinator["model_reasoning_effort"], "medium")
+            self.assertEqual(reviewer["model"], "turbo-deep")
+
+    def test_render_prefers_per_target_default_preset(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            (root / ".agent-team" / "team.toml").write_text(
+                DEFAULT_TEAM_TOML + '\n[model_presets.codex]\ndefault_preset = "quality"\n',
+                encoding="utf-8",
+            )
+            config = load_team_config(root)
+            self.assertEqual(config.default_model_preset, "balanced")
+            rendered = render_target("codex", config, root)
+            coordinator = tomllib.loads(rendered[next(
+                path for path in rendered if str(path).endswith("coordinator.toml")
+            )])
+            self.assertEqual(coordinator["model"], "gpt-6-astra")
+
+    def test_render_reports_missing_preset_with_available_names(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            config = load_team_config(root)
+            with self.assertRaises(ValidationFailure) as context:
+                render_target("codex", config, root, "ghost")
+            message = str(context.exception)
+            self.assertIn("not defined by the codex profile", message)
+            self.assertIn("available:", message)
+
+    def test_render_custom_preset_does_not_change_file_count(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            self._write_custom_preset_team(root)
+            config = load_team_config(root)
+            baseline = render_target("codex", config, root)
+            custom = render_target("codex", config, root, "turbo")
+            self.assertEqual(len(baseline), 15)
+            self.assertEqual(len(custom), len(baseline))
 
 
 if __name__ == "__main__":

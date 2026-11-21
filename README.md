@@ -428,22 +428,24 @@ agent-team config roles [--scope project|user]
                         [--dry-run]
 agent-team config model-presets [--scope project|user]
                                 [--target TARGET[,TARGET...]]
-                                [--preset economy|balanced|quality] [--dry-run]
+                                [--preset NAME] [--dry-run]
 agent-team validate [--format text|json]
 agent-team run init --slug SLUG [--title TITLE]
                     [--tier adaptive|solo|assisted|team]
-                    [--model-preset economy|balanced|quality]
+                    [--model-preset NAME | --preset NAME]
 agent-team resume [status] [--slug SLUG] [--json] [--session-id ID]
 agent-team resume context [--slug SLUG] [--session-id ID]
 agent-team models show [--target codex|claude|antigravity|pi]
-                       [--model-preset economy|balanced|quality | --run SLUG]
+                       [--model-preset NAME | --preset NAME | --run SLUG]
                        [--format text|json|table]
 agent-team models fetch --target codex|claude|antigravity|pi
                         [--format text|json|table] [--timeout SECONDS]
 agent-team render --target codex|claude|antigravity|pi
-                  [--run SLUG] --output PATH
+                  [--model-preset NAME | --preset NAME | --run SLUG]
+                  --output PATH
 agent-team install --target TARGET[,TARGET...]
-                   [--scope project|user] [--run SLUG]
+                   [--scope project|user]
+                   [--model-preset NAME | --preset NAME | --run SLUG]
                    [--apply] [--force]
 agent-team worktree list [--slug SLUG] [--format table|json]
 agent-team worktree clean [--slug SLUG] [--dry-run] [--force]
@@ -498,9 +500,13 @@ Use `render` when you want to inspect or package the generated files separately.
 It refuses to overwrite different output. Use `install` to target native
 discovery paths; it is always a preview unless `--apply` is present.
 
-Passing `--run SLUG` to `render` or `install` applies the model preset recorded
-in that run. Without it, the command uses `default_model_preset` from
-`.agent-team/team.toml`.
+`render`, `install`, and `models show` accept `--model-preset NAME` with the
+alias `--preset NAME`; `run init --model-preset NAME` records the preset for a
+new run. An explicit `--model-preset`/`--preset` wins; a run named by `--run
+SLUG` supplies the preset recorded in that run, and the two options are mutually
+exclusive. Without either, the target's `[model_presets.<target>]
+default_preset` applies, and the resolved `default_model_preset` is the final
+fallback. The name must be defined by every selected target's profile.
 
 `models show` lists the effective model and effort for each role without
 network access. `models fetch` queries a live catalog when the installed
@@ -509,8 +515,10 @@ catalog entries do not prove account entitlement.
 
 `config model-presets` walks through live model and effort choices, previews
 the configuration diff, and asks before saving. It defaults to project scope,
-all installed enabled targets, and all three presets. Use `--preset balanced`
-to change only balanced routing, or `--dry-run` to preview without saving.
+all installed enabled targets, and the three builtin presets. Use
+`--preset balanced` to change only balanced routing, `--preset <name>` to edit a
+custom preset that every selected target's profile defines, or `--dry-run` to
+preview without saving.
 See [interactive preset editing](docs/configuration.md#interactive-preset-editing)
 for scope and profile behavior. Reinstall the affected targets after saving.
 
@@ -590,9 +598,15 @@ cross-field policy violations fail validation.
 Projects may bind role routing to targets with `[roles.<id>.targets.<target>]`,
 replace a complete target profile, add sparse `model_presets` overrides in
 `team.toml`, or add and override roles from project-relative
-source directories. Built-in target profiles deliberately map
-semantic classes (`fast`, `balanced`, and `deep`) rather than embedding native
-model names in role definitions.
+source directories. A target profile may also declare presets beyond the builtin
+`economy`, `balanced`, and `quality` tiers, and `team.toml` can declare one in
+place with `template` or pick a per-target `default_preset`. Built-in target
+profiles deliberately map semantic classes (`fast`, `balanced`, and `deep`)
+rather than embedding native model names in role definitions.
+
+See [custom presets](docs/configuration.md#custom-presets) for profile-declared
+presets and `team.toml` overrides, and [selecting a
+preset](docs/configuration.md#selecting-a-preset) for the precedence order.
 
 See [Configuration reference](docs/configuration.md) for the schema, source
 layout, precedence rules, target-specific model routing, and adapter safety

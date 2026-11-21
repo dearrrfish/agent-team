@@ -15,6 +15,7 @@ from typing import Any
 from agent_team.catalog import CatalogResult, fetch_catalog
 from agent_team.config import (
     _layered_config,
+    _project_config_layers,
     load_roles,
     require_project_context,
     resolve_target_profile,
@@ -23,7 +24,7 @@ from agent_team.config import (
 from agent_team.diagnostics import Diagnostic, ValidationFailure
 from agent_team.fs import atomic_write
 from agent_team.models import (
-    PRESETS,
+    PRESET_NAME,
     ROLE_IDS,
     TARGETS,
     TargetPreset,
@@ -240,7 +241,7 @@ def _edit_model_presets(
     read: Callable[[str], str] | None = None, emit: Callable[[str], None] = print,
 ) -> int:
     read = read or input
-    if scope not in ("project", "user") or (preset is not None and preset not in PRESETS):
+    if scope not in ("project", "user") or (preset is not None and not PRESET_NAME.fullmatch(preset)):
         raise _fail("selection", "invalid scope or preset")
     root = root.resolve()
     user_root = user_config_root()
@@ -253,14 +254,15 @@ def _edit_model_presets(
         require_project_context(root)
     _safe_destination(config_path, boundary)
     scoped_text = _read(config_path)
-    scoped_data = _parse(scoped_text, config_path)
     snapshots = {config_path: scoped_text}
-    layers = []
-    if scope == "project" and scoped_data.get("inherit_user_defaults", True) and (user_root / "team.toml").exists():
-        user_path = user_root / "team.toml"
-        snapshots[user_path] = _read(user_path)
-        layers.append(("user", user_root, _parse(snapshots[user_path], user_path)))
-    layers.append((scope, boundary, scoped_data))
+
+    def read_layer(path: Path) -> dict[str, Any]:
+        if path not in snapshots:
+            snapshots[path] = _read(path)
+        return _parse(snapshots[path], path)
+
+    layers = (_project_config_layers(root, read_layer) if scope == "project"
+              else [(scope, boundary, read_layer(config_path))])
     config = _layered_config(boundary, layers)
     targets = select_targets(config, target)
     profile_sources: dict[str, tuple[Path, str]] = {}
@@ -272,6 +274,10 @@ def _edit_model_presets(
             snapshots[path] = content
             profile_sources[name] = (path, content)
     profiles = {name: resolve_target_profile(config, name, boundary) for name in targets}
+    if preset is not None:
+        missing = [name for name in targets if preset not in profiles[name].presets]
+        if missing:
+            raise _fail(preset, f"{preset} is not defined by the {','.join(missing)} profile(s)")
     for path, original in snapshots.items():
         if _read(path) != original:
             raise _fail(path, "configuration changed while loading; rerun the command", "conflict")
@@ -280,10 +286,16 @@ def _edit_model_presets(
         if catalog.status != "ok" or not catalog.models:
             raise _fail(name, f"live model catalog unavailable ({catalog.source}): {catalog.message or catalog.status}; fix discovery/authentication and retry")
     try:
-        names = (preset,) if preset else PRESETS
+        # Each target owns its preset inventory: profiles may declare custom presets beside the
+        # builtin three, so iterate the resolved per-target mapping instead of a global list.
         selected = {
-            name: {key: _choose_preset(name, key, profiles[name], catalogs[name], read, emit) for key in names}
+            name: {key: _choose_preset(name, key, profiles[name], catalogs[name], read, emit)
+                   for key in ((preset,) if preset else tuple(profiles[name].presets))}
             for name in targets
+        }
+        profile_presets = {
+            source: set(_parse(content, path).get("presets", {}))
+            for source, (path, content) in profile_sources.items()
         }
         team_changes: dict[tuple[str, ...], str] = {}
         candidates: list[Candidate] = []
@@ -295,10 +307,11 @@ def _edit_model_presets(
                 for leaf, value in _leaves(choice).items()
                 if _leaves(profiles[name].presets[key]).get(leaf) != value
             }
+            file_preset_names = profile_presets.get(name, set())
+            team_changes.update({("model_presets", name, *leaf): value for leaf, value in changed.items()
+                                 if leaf[0] not in file_preset_names})
+            changed = {leaf: value for leaf, value in changed.items() if leaf[0] in file_preset_names}
             if not changed:
-                continue
-            if name not in profile_sources:
-                team_changes.update({("model_presets", name, *leaf): value for leaf, value in changed.items()})
                 continue
             path, original = profile_sources[name]
             inherited = config.target_profile_roots[name].resolve() != boundary
@@ -317,6 +330,7 @@ def _edit_model_presets(
                 override = overrides.get(leaf[0])
                 if override is None:
                     continue
+                # `template` intentionally omitted: the editor must not drop blueprint declarations.
                 override_values = {
                     ("coordinator_model",): override.coordinator_model,
                     ("coordinator_effort",): override.coordinator_effort,
@@ -345,7 +359,7 @@ def _edit_model_presets(
                     effective = resolve_target_profile(candidate_config, name, boundary)
                     for key, desired in selected.get(name, {}).items():
                         if effective.presets[key] != desired:
-                            raise _fail(name, "candidate configuration does not preserve selected routing")
+                            raise _fail(f"{name}.{key}", "candidate configuration does not preserve selected routing; edit one preset at a time")
 
         validate_candidates()
         if not candidates:

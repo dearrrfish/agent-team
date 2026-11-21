@@ -17,6 +17,9 @@ user settings live. For example:
 schema_version = 1
 inherit_user_defaults = true
 
+[model_presets.codex]
+default_preset = "quality"
+
 [model_presets.codex.balanced.models]
 fast = "my-project-model"
 ```
@@ -33,7 +36,10 @@ Role and skill source lists are the exception for definition loading: each scope
 supplies its custom source layer, so ancestor and project sources overlay user
 definitions instead of discarding them. A target-profile reference selects a
 complete profile rather than merging profile files. Sparse model-preset overrides
-then update individual fields of that profile. A run selects which preset is used.
+then update individual fields of that profile. A profile may declare presets
+beyond the builtin `economy`, `balanced`, and `quality` tiers;
+`install --model-preset` and `[model_presets.<target>] default_preset` select
+among them. A run also records which preset is used.
 
 Changing user settings affects opted-in projects on their next command. It does
 not rewrite installed native files: rerun `install --scope user --apply` with
@@ -121,12 +127,17 @@ the user config first. `install --scope project` reads effective project
 configuration and supports `--run SLUG`. User installation rejects `--run`
 because runs stay project-scoped. Comma-separated `--target` values install
 multiple targets after preflight checks; single-target invocations still work.
+`--model-preset` (alias `--preset`) is allowed in both scopes; a project-level
+`[model_presets.<target>] default_preset` never affects user-scope installation
+because that scope reads only the user configuration layer. Set
+`default_preset` in `~/.agent-team/team.toml` to change the user-scope default.
 
 ## Project policy
 
 Top-level fields identify the team, select `adaptive`, `solo`, `assisted`, or
-`team` as the default tier, choose an `economy`, `balanced`, or `quality` model
-preset, enable native targets, and declare role and skill sources.
+`team` as the default tier, choose a model preset (builtin `economy`,
+`balanced`, or `quality`, or any preset the target profiles define), enable
+native targets, and declare role and skill sources.
 
 `[workflow]` controls the contained run directory, review-cycle limit (1–5,
 default 3), deep-discovery default, worktree decision gate, worker-report
@@ -325,11 +336,142 @@ the target's explicit `effort_levels` allow that level. Adapters also emit
 target-specific guidance for whether parallel writers may use worktree
 isolation.
 
-Use `agent-team models show [--target TARGET] [--model-preset PRESET | --run
-SLUG] [--format text|json|table]` to inspect effective role routing without network
-access. Use `agent-team models fetch --target TARGET
-[--format text|json|table]` to
-query a live catalog. Fetch output labels its source and separates
+### Custom presets
+
+A target profile may declare presets beyond the builtin tiers. A custom preset
+either states every field or names one builtin tier as a base and overlays
+individual fields on it:
+
+```toml
+# The builtin economy, balanced, and quality tiers must still exist and keep
+# their current semantics.
+[presets.fast-cheap]
+template = "economy"                 # optional; names a builtin tier as the base
+coordinator_model = "gpt-6-luna"     # optional; replaces the base value
+[presets.fast-cheap.models]
+deep = "gpt-6-sol"                   # overrides deep only; fast and balanced inherit
+[presets.fast-cheap.effort]
+high = "high"                        # overrides high only
+```
+
+The following rules are hard constraints:
+
+- Names are lowercase kebab-case (`^[a-z][a-z0-9-]{0,63}$`); underscores are
+  rejected.
+- `template` may name only a builtin tier (`economy`, `balanced`, `quality`).
+  Chaining is forbidden: the base itself must not declare `template`, which also
+  rules out cycles.
+- Expansion applies the base tier, then overlays fields: `coordinator_model` and
+  `coordinator_effort` replace, `models` and `effort` merge by key. Completeness
+  is validated on the expanded result. `models` must be exactly `fast`,
+  `balanced`, and `deep`; targets with effort support must also provide `effort`
+  with exactly `low`, `medium`, and `high`.
+- All three builtin tiers remain mandatory, so `template` always resolves and
+  the `default_model_preset` default stays available. A builtin tier can be
+  redefined through a base, for example
+  `[presets.balanced] template = "quality"`; a self-reference is caught by the
+  no-chaining rule.
+- A target without native effort support, such as Antigravity, silently drops
+  effort inherited from the base. Effort written explicitly in the entry still
+  fails with `unsupported native effort`.
+- Without `template`, an entry must be complete: `coordinator_model`, the three
+  `models` keys, and the three `effort` keys where the target supports effort.
+
+### Presets declared in team configuration
+
+`[model_presets.<target>]` supports three related forms:
+
+```toml
+# a) Sparse override of a preset the profile defines (existing behavior).
+[model_presets.codex.fast-cheap.models]
+deep = "gpt-6-astra"
+
+# b) A preset the profile does not define: declared in place, needs template.
+[model_presets.codex.quick]
+template = "quality"
+[model_presets.codex.quick.models]
+deep = "gpt-6-astra"
+
+# c) Per-target persistent selection.
+[model_presets.codex]
+default_preset = "quality"
+```
+
+- Form b) requires `template`, which must also name a builtin tier. If the
+  profile already defines that name, `template` is rejected with
+  `preset is already defined by the target profile; remove template`; override
+  the profile preset sparsely instead.
+- Overrides and declarations apply only to their own target and do not propagate
+  to other targets.
+- `default_preset` selects the preset for that target only. `install --scope
+  user` reads only the user layer, so a project-level `default_preset` does not
+  affect user-scope installation.
+- A team configuration declaration takes its template from the target profile.
+  Overrides to the template's own name in `team.toml` apply only to that name.
+
+### Selecting a preset
+
+The effective preset resolves in this order:
+
+| Priority | Source | Applies to |
+| --- | --- | --- |
+| 1 | `--model-preset NAME` (alias `--preset NAME`) | the current invocation |
+| 2 | `model_preset` recorded by the run named in `--run SLUG` | that run |
+| 3 | `[model_presets.<target>] default_preset = "<name>"` | that target |
+| 4 | `default_model_preset` | the resolved configuration |
+
+Priorities 1 and 2 are mutually exclusive: `--run` cannot be combined with
+`--model-preset` or `--preset`, and the argument parser exits 2 when both are
+given.
+
+`install`, `render`, `models show`, and `run init` accept `--model-preset` with
+its `--preset` alias. The name must match `^[a-z][a-z0-9-]{0,63}$`; other names
+exit 2. `run init --model-preset` is not limited to the three builtin tiers and
+accepts any name defined by at least one enabled target's profile.
+
+Every selected target's profile must define the name, otherwise the command
+exits 2 before writing anything:
+
+```console
+$ agent-team install --target codex --model-preset fast-cheap
+ERROR [enum] model_preset: fast-cheap is not defined by the codex profile; available: economy, balanced, quality
+```
+
+`--scope user` accepts `--model-preset`; `--run` remains project-scoped and is
+still rejected.
+
+Reinstalling with a different preset follows the normal install rules. Managed
+files that were not edited by hand are reported as `update` and need no
+`--force`. Hand-edited managed files are reported as `drift` and need
+`--force`, which backs up the previous content first. Omitting `--model-preset`
+falls back to priorities 3 and 4, so a reinstall without an explicit preset can
+still differ from the last install and produce the same `update` or `drift`
+result.
+
+### Preset validation timing
+
+Preset names are validated when a target profile resolves, not when
+configuration is parsed. `default_model_preset` and `[model_presets.<target>.*]`
+accept any kebab-case name during parsing; `validate`, `doctor`, `install`, and
+`render` report a misspelled or undefined name while resolving that target's
+profile.
+
+`validate` and `doctor` check the configured default for enabled targets and
+any target with its own `default_preset`. `install` and `render` check the
+preset they actually use. An explicit selection can succeed even when the
+configured default is missing.
+
+A run's recorded `model_preset` is syntax-checked only, which keeps historical
+runs valid. A run that names a preset deleted afterwards still passes
+`validate`; the error appears when that run is rendered.
+
+Use `agent-team models show [--target TARGET] [--model-preset NAME | --preset
+NAME | --run SLUG] [--format text|json|table]` to inspect effective role routing
+without network access. `--model-preset` accepts any preset name the target
+profile defines, including custom presets, and `--format json` reports the
+effective preset in its `preset` field. Use
+`agent-team models fetch --target TARGET [--format text|json|table]` to query a
+live catalog. Fetch output labels its source and separates
 catalog-reported per-model effort support from effort values configured in the
 target profile. Codex app-server catalogs may include bundled entries and do
 not prove account entitlement. Claude discovery uses the Claude Models API
@@ -350,8 +492,12 @@ agent-team config model-presets --scope user --target codex,claude
 
 `--scope` defaults to `project`. User scope reads only `~/.agent-team/team.toml`;
 project scope uses effective project configuration, including opted-in user
-settings. `--preset` accepts `economy`, `balanced`, or `quality`. Without it,
-the command visits all three; a selected preset leaves the other two untouched.
+settings. `--preset` accepts any effective preset name shared by all selected
+targets, including custom presets. A missing name produces an error. Without
+`--preset`, the editor visits every effective preset for each target. If a
+single edit changes a template and conflicts with choices for a preset that
+inherits it, the editor stops before saving. Select one preset at a time to
+edit those values separately.
 
 Default targets are enabled, configured profiles with a native executable on
 PATH: `codex`, `claude`, `agy`, or opt-in `pi`. `--target` accepts
@@ -377,7 +523,9 @@ selected scope's `team.toml`. A file profile within that scope updates its
 `presets` settings and synchronizes existing overrides that would mask the
 new values. A project inheriting a user-owned file profile receives a local
 copy and a project profile reference; shared user files remain untouched. The
-copy freezes the inherited profile's other settings for that project.
+copy freezes the inherited profile's other settings for that project. Edits
+to presets declared in team configuration are saved to the selected scope's
+`team.toml`.
 
 Edits preserve unrelated settings and comments in supported TOML layouts.
 Unsupported affected layouts fail before saving; simplify those assignments to
@@ -432,8 +580,8 @@ is written to `.pi/agents/` in project scope and `~/.pi/agent/agents/` in user
 scope. Skills share `.agents/skills/` with Codex. Frontmatter contains `name`,
 `description`, comma-separated `tools`, and `model: "provider/model:effort"`.
 The builtin profile maps semantic low/medium/high to Pi low/medium/high; custom
-Pi profiles may also declare off, minimal, xhigh, or max. All three presets start
-with the same provider models and can be customized independently.
+Pi profiles may also declare off, minimal, xhigh, or max. All three builtin
+presets start with the same provider models and can be customized independently.
 
 ### Static plugin preflight
 

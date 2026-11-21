@@ -66,6 +66,15 @@ def generate_annotated_profile(target: str) -> str:
 #      [target_profiles]
 #      {target} = "targets/{target}.toml"
 #
+# Model presets: the builtin tiers economy, balanced, and quality must stay
+# defined. A profile may add its own presets, optionally based on a builtin
+# tier through 'template' with sparse field overrides:
+#      [presets.fast-cheap]
+#      template = "quality"
+#      [presets.fast-cheap.models]
+#      deep = "gpt-6-astra"
+# template may name only a builtin tier; chaining a custom preset is rejected.
+#
 # ------------------------------------------------------------------------------
 
 """

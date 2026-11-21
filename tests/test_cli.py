@@ -19,6 +19,31 @@ from tests.test_customization import CUSTOM_ROLE
 
 SOURCE = str(Path(__file__).parents[1] / "src")
 
+CUSTOM_PRESET_NAME = "spark"
+CUSTOM_PRESET_COORDINATOR = "spark-coordinator"
+
+
+def _builtin_preset(target: str, preset: str) -> dict:
+    return tomllib.loads(asset_text("definitions", "targets", f"{target}.toml"))["presets"][preset]
+
+
+def _append_team_config(root: Path, snippet: str) -> None:
+    config = root / ".agent-team" / "team.toml"
+    config.write_text(config.read_text(encoding="utf-8") + "\n" + snippet.strip() + "\n", encoding="utf-8")
+
+
+def _define_custom_preset(root: Path, target: str = "codex", name: str = CUSTOM_PRESET_NAME) -> None:
+    _append_team_config(
+        root,
+        f"[model_presets.{target}.{name}]\n"
+        f'template = "economy"\n'
+        f'coordinator_model = "{CUSTOM_PRESET_COORDINATOR}"',
+    )
+
+
+def _set_default_preset(root: Path, target: str, name: str) -> None:
+    _append_team_config(root, f'[model_presets.{target}]\ndefault_preset = "{name}"')
+
 
 class CliTests(unittest.TestCase):
     def _run(
@@ -383,6 +408,172 @@ class CliTests(unittest.TestCase):
             lines = [line.strip().strip("/") for line in content.splitlines() if line.strip()]
             self.assertEqual(lines.count(".agent-team/runs"), 1)
             self.assertEqual(lines.count(".worktrees"), 1)
+
+    def test_install_preset_flag_selects_rendering(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(self._run(root, "init", "--scope", "project").returncode, 0)
+            result = self._run(root, "install", "--target", "codex", "--preset", "economy")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("economy preset", result.stdout)
+            self.assertIn("preview only", result.stdout)
+
+    def test_install_model_preset_alias_matches_preset(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(self._run(root, "init", "--scope", "project").returncode, 0)
+            primary = self._run(root, "install", "--target", "codex", "--model-preset", "economy")
+            alias = self._run(root, "install", "--target", "codex", "--preset", "economy")
+            self.assertEqual(primary.returncode, 0, primary.stderr)
+            self.assertEqual(alias.returncode, 0, alias.stderr)
+            self.assertEqual(primary.stdout, alias.stdout)
+
+    def test_install_preset_and_run_are_mutually_exclusive(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(self._run(root, "init", "--scope", "project").returncode, 0)
+            result = self._run(
+                root, "install", "--target", "codex", "--preset", "economy", "--run", "cli-run",
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("not allowed with argument", result.stderr)
+
+    def test_install_rejects_malformed_preset_name(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(self._run(root, "init", "--scope", "project").returncode, 0)
+            result = self._run(root, "install", "--target", "codex", "--preset", "Not A Preset")
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("kebab-case", result.stderr)
+
+    def test_install_rejects_preset_missing_from_target_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(self._run(root, "init", "--scope", "project").returncode, 0)
+            result = self._run(root, "install", "--target", "codex", "--preset", "ghost")
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("[enum] model_preset", result.stderr)
+            self.assertIn("ghost", result.stderr)
+            self.assertIn("available: economy, balanced, quality", result.stderr)
+
+    def test_install_rejects_preset_missing_from_any_of_multiple_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(self._run(root, "init", "--scope", "project").returncode, 0)
+            _define_custom_preset(root, "codex")
+            rejected = self._run(
+                root, "install", "--target", "codex,claude", "--preset", CUSTOM_PRESET_NAME,
+            )
+            self.assertEqual(rejected.returncode, 2)
+            self.assertIn("[enum] model_preset", rejected.stderr)
+            self.assertIn(f"{CUSTOM_PRESET_NAME} is not defined by the claude profile", rejected.stderr)
+            accepted = self._run(root, "install", "--target", "codex", "--preset", CUSTOM_PRESET_NAME)
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertIn(f"{CUSTOM_PRESET_NAME} preset", accepted.stdout)
+
+    def test_render_preset_flag_matches_install(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(self._run(root, "init", "--scope", "project").returncode, 0)
+            result = self._run(
+                root, "render", "--target", "codex", "--preset", "economy", "--output", "dist",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            coordinator = tomllib.loads(
+                (root / "dist" / ".codex" / "agents" / "coordinator.toml").read_text(encoding="utf-8")
+            )
+            self.assertEqual(coordinator["model"], _builtin_preset("codex", "economy")["coordinator_model"])
+            self.assertNotEqual(
+                coordinator["model"], _builtin_preset("codex", "balanced")["coordinator_model"],
+            )
+
+    def test_run_init_accepts_custom_preset_and_rejects_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(self._run(root, "init", "--scope", "project").returncode, 0)
+            _define_custom_preset(root, "codex")
+            accepted = self._run(
+                root, "run", "init", "--slug", "custom-preset-run",
+                "--model-preset", CUSTOM_PRESET_NAME,
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            manifest = tomllib.loads(
+                (root / ".agent-team" / "runs" / "custom-preset-run" / "run.toml").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["model_preset"], CUSTOM_PRESET_NAME)
+            rejected = self._run(
+                root, "run", "init", "--slug", "unknown-preset-run", "--model-preset", "ghost",
+            )
+            self.assertEqual(rejected.returncode, 2)
+            self.assertIn("[enum] model_preset", rejected.stderr)
+            self.assertFalse((root / ".agent-team" / "runs" / "unknown-preset-run").exists())
+
+    def test_models_show_custom_preset(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(self._run(root, "init", "--scope", "project").returncode, 0)
+            _define_custom_preset(root, "codex")
+            result = self._run(
+                root, "models", "show", "--target", "codex",
+                "--model-preset", CUSTOM_PRESET_NAME, "--format", "json",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            target = json.loads(result.stdout)["targets"][0]
+            self.assertEqual(target["preset"], CUSTOM_PRESET_NAME)
+            coordinator = next(item for item in target["roles"] if item["role_id"] == "coordinator")
+            self.assertEqual(coordinator["native_model"], CUSTOM_PRESET_COORDINATOR)
+            self.assertEqual(
+                coordinator["model_source"],
+                f"model_presets.codex.{CUSTOM_PRESET_NAME}.coordinator_model",
+            )
+
+    def test_install_scope_user_honors_preset_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(self._run(root, "init", "--scope", "user").returncode, 0)
+            result = self._run(
+                root, "install", "--scope", "user", "--target", "codex", "--preset", "quality",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("quality preset", result.stdout)
+
+    def test_generate_gitignore_tolerates_custom_default_preset(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(self._run(root, "init", "--scope", "project").returncode, 0)
+            _set_default_preset(root, "codex", CUSTOM_PRESET_NAME)
+            _define_custom_preset(root, "codex")
+            self.assertNotIn(
+                CUSTOM_PRESET_NAME,
+                tomllib.loads(asset_text("definitions", "targets", "pi.toml"))["presets"],
+            )
+            result = self._run(root, "generate", "gitignore")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("upserted", result.stdout)
+
+    def test_install_uses_per_target_default_preset(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(self._run(root, "init", "--scope", "project").returncode, 0)
+            _set_default_preset(root, "codex", "quality")
+            codex = self._run(root, "install", "--target", "codex")
+            self.assertEqual(codex.returncode, 0, codex.stderr)
+            self.assertIn("quality preset", codex.stdout)
+            claude = self._run(root, "install", "--target", "claude")
+            self.assertEqual(claude.returncode, 0, claude.stderr)
+            self.assertIn("balanced preset", claude.stdout)
+
+    def test_install_applies_explicit_custom_preset_over_missing_default(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(self._run(root, "init", "--scope", "project").returncode, 0)
+            _set_default_preset(root, "codex", "missing")
+            _define_custom_preset(root, "codex")
+            result = self._run(root, "install", "--target", "codex", "--preset", CUSTOM_PRESET_NAME, "--apply")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            coordinator = tomllib.loads((root / ".codex/agents/coordinator.toml").read_text())
+            self.assertEqual(coordinator["model"], "spark-coordinator")
+            self.assertEqual(self._run(root, "validate").returncode, 1)
 
     def test_install_does_not_generate_gitignore(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

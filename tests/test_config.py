@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from agent_team.config import (
     DEFAULT_TEAM_TOML,
+    effective_default_preset,
     load_builtin_roles,
     load_target_profile,
     load_team_config,
@@ -18,6 +19,7 @@ from agent_team.config import (
     resolve_tier,
 )
 from agent_team.diagnostics import ValidationFailure
+from agent_team.models import PRESETS, TARGETS, TargetPreset
 from agent_team.templates import asset_text
 
 
@@ -247,6 +249,262 @@ low = "low"
                 (root / f"source-{index}.py").write_text("pass\n", encoding="utf-8")
             config = load_team_config(root)
             self.assertEqual(resolve_tier(config, root, None), "assisted")
+
+    def _write_team(self, root: Path, extra: str, *, profile_text: str | None = None) -> None:
+        team = DEFAULT_TEAM_TOML
+        if profile_text is not None:
+            (root / "codex.toml").write_text(profile_text, encoding="utf-8")
+            team = team.replace('codex = "builtin:codex"', 'codex = "codex.toml"')
+        (root / ".agent-team" / "team.toml").write_text(team + extra, encoding="utf-8")
+
+    def test_target_profile_custom_preset_expands_template_defaults(self) -> None:
+        data = tomllib.loads(asset_text("definitions", "targets", "codex.toml"))
+        data["presets"]["turbo"] = {"template": "quality", "models": {"deep": "turbo-deep"}}
+        profile = parse_target_profile(data, "custom.codex")
+        turbo = profile.presets["turbo"]
+        self.assertEqual(turbo.coordinator_model, "gpt-6-astra")
+        self.assertEqual(turbo.coordinator_effort, "medium")
+        self.assertEqual(
+            dict(turbo.models),
+            {"fast": "gpt-5.6-terra", "balanced": "gpt-6-sol", "deep": "turbo-deep"},
+        )
+        self.assertEqual(dict(turbo.effort), {"low": "medium", "medium": "high", "high": "xhigh"})
+        self.assertEqual(list(profile.presets), [*PRESETS, "turbo"])
+
+    def test_target_profile_custom_preset_rejects_template_chain(self) -> None:
+        data = tomllib.loads(asset_text("definitions", "targets", "codex.toml"))
+        data["presets"]["alpha"] = {"template": "quality"}
+        data["presets"]["beta"] = {"template": "alpha"}
+        with self.assertRaises(ValidationFailure) as context:
+            parse_target_profile(data, "custom.codex")
+        self.assertTrue(any(
+            item.path == "custom.codex.presets.beta.template" and item.code == "enum"
+            for item in context.exception.diagnostics
+        ))
+
+    def test_target_profile_custom_preset_requires_template_base(self) -> None:
+        data = tomllib.loads(asset_text("definitions", "targets", "codex.toml"))
+        data["presets"]["turbo"] = {"template": "nonexistent"}
+        with self.assertRaises(ValidationFailure) as context:
+            parse_target_profile(data, "custom.codex")
+        self.assertTrue(any(
+            item.path == "custom.codex.presets.turbo.template" and item.code == "enum"
+            for item in context.exception.diagnostics
+        ))
+
+    def test_target_profile_custom_preset_requires_completeness_after_expansion(self) -> None:
+        data = tomllib.loads(asset_text("definitions", "targets", "codex.toml"))
+        data["presets"]["partial"] = {"models": {"fast": "only-fast"}}
+        with self.assertRaises(ValidationFailure) as context:
+            parse_target_profile(data, "custom.codex")
+        paths = {
+            item.path for item in context.exception.diagnostics if item.code == "required"
+        }
+        self.assertIn("custom.codex.presets.partial.coordinator_model", paths)
+        self.assertIn("custom.codex.presets.partial.models", paths)
+
+    def test_target_profile_custom_preset_rejects_invalid_name(self) -> None:
+        data = tomllib.loads(asset_text("definitions", "targets", "codex.toml"))
+        data["presets"]["Bad_Name"] = {"template": "quality"}
+        with self.assertRaises(ValidationFailure) as context:
+            parse_target_profile(data, "custom.codex")
+        self.assertTrue(any(
+            item.path == "custom.codex.presets.Bad_Name" and item.code == "format"
+            for item in context.exception.diagnostics
+        ))
+
+    def test_target_profile_template_drops_inherited_effort_without_effort_support(self) -> None:
+        data = tomllib.loads(asset_text("definitions", "targets", "antigravity.toml"))
+        data["presets"]["pro-fast"] = {"template": "quality"}
+        profile = parse_target_profile(data, "custom.antigravity")
+        pro_fast = profile.presets["pro-fast"]
+        self.assertEqual(dict(pro_fast.effort), {})
+        self.assertIsNone(pro_fast.coordinator_effort)
+        self.assertEqual(pro_fast.models["deep"], "pro")
+
+        data["presets"]["pro-fast"].update(effort={"low": "low"}, coordinator_effort="high")
+        with self.assertRaises(ValidationFailure) as context:
+            parse_target_profile(data, "custom.antigravity")
+        self.assertEqual({item.path for item in context.exception.diagnostics if item.code == "enum"}, {
+            "custom.antigravity.presets.pro-fast.effort.low",
+            "custom.antigravity.presets.pro-fast.coordinator_effort",
+        })
+
+    def test_custom_preset_accepts_sparse_team_overrides(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            self._write_team(
+                root,
+                '\n[model_presets.codex.turbo.models]\ndeep = "team-deep"\n',
+                profile_text=(
+                    asset_text("definitions", "targets", "codex.toml")
+                    + '\n[presets.turbo]\ntemplate = "quality"\n'
+                ),
+            )
+            config = load_team_config(root)
+            turbo = resolve_target_profile(config, "codex", root).presets["turbo"]
+            self.assertEqual(turbo.coordinator_model, "gpt-6-astra")
+            self.assertEqual(turbo.models["fast"], "gpt-5.6-terra")
+            self.assertEqual(turbo.models["deep"], "team-deep")
+
+    def test_model_preset_override_of_undefined_preset_reports_diagnostic(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            self._write_team(
+                root, '\n[model_presets.codex.ghost]\ncoordinator_model = "ghost-model"\n'
+            )
+            config = load_team_config(root)
+            with self.assertRaises(ValidationFailure) as context:
+                resolve_target_profile(config, "codex", root)
+            self.assertTrue(any(
+                item.path == "model_presets.codex.ghost" and item.code == "enum"
+                for item in context.exception.diagnostics
+            ))
+
+    def test_model_presets_can_define_new_preset_from_builtin_template(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            self._write_team(root, '''
+[model_presets.codex.quick]
+template = "economy"
+[model_presets.codex.quick.models]
+deep = "quick-deep"
+''')
+            config = load_team_config(root)
+            quick = resolve_target_profile(config, "codex", root).presets["quick"]
+            self.assertEqual(quick.coordinator_model, "gpt-5.6-terra")
+            self.assertEqual(quick.models["fast"], "gpt-6-luna")
+            self.assertEqual(quick.models["deep"], "quick-deep")
+            self.assertEqual(dict(quick.effort), {"low": "low", "medium": "medium", "high": "medium"})
+
+    def test_model_preset_template_rejected_when_profile_defines_preset(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            self._write_team(root, '\n[model_presets.codex.balanced]\ntemplate = "quality"\n')
+            config = load_team_config(root)
+            with self.assertRaises(ValidationFailure) as context:
+                resolve_target_profile(config, "codex", root)
+            self.assertTrue(any(
+                item.path == "model_presets.codex.balanced.template" and item.code == "invariant"
+                for item in context.exception.diagnostics
+            ))
+
+    def test_model_preset_template_must_name_builtin_preset(self) -> None:
+        data = tomllib.loads(DEFAULT_TEAM_TOML)
+        data["model_presets"] = {"codex": {"x": {"template": "turbo"}}}
+        with self.assertRaises(ValidationFailure) as context:
+            parse_team_config(data, Path("/tmp/project"))
+        self.assertTrue(any(
+            item.path == "model_presets.codex.x.template" and item.code == "enum"
+            for item in context.exception.diagnostics
+        ))
+
+    def test_default_model_preset_accepts_custom_name_at_parse_time(self) -> None:
+        data = tomllib.loads(DEFAULT_TEAM_TOML)
+        data["default_model_preset"] = "turbo"
+        config = parse_team_config(data, Path("/tmp/project"))
+        self.assertEqual(config.default_model_preset, "turbo")
+
+    def test_default_model_preset_rejects_malformed_name(self) -> None:
+        data = tomllib.loads(DEFAULT_TEAM_TOML)
+        data["default_model_preset"] = "Turbo!"
+        with self.assertRaises(ValidationFailure) as context:
+            parse_team_config(data, Path("/tmp/project"))
+        self.assertTrue(any(
+            item.path == "default_model_preset" and item.code == "format"
+            for item in context.exception.diagnostics
+        ))
+
+    def _scoped_custom_default(self, root: Path, enabled: str) -> None:
+        team = DEFAULT_TEAM_TOML.replace(
+            'default_model_preset = "balanced"',
+            f'default_model_preset = "turbo"\nenabled_targets = [{enabled}]',
+        )
+        (root / ".agent-team" / "team.toml").write_text(
+            team + '\n[model_presets.codex.turbo]\ntemplate = "quality"\n', encoding="utf-8"
+        )
+
+    def test_default_model_preset_must_exist_in_enabled_target_profiles(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            self._scoped_custom_default(root, '"codex", "claude"')
+            config = load_team_config(root)
+            self.assertIn("turbo", resolve_target_profile(config, "codex", root).presets)
+            with self.assertRaises(ValidationFailure) as context:
+                resolve_target_profile(config, "claude", root, validate_default=True)
+            self.assertTrue(any(
+                item.path == "default_model_preset" and item.code == "enum"
+                for item in context.exception.diagnostics
+            ))
+
+    def test_default_model_preset_ignored_for_disabled_targets(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            self._scoped_custom_default(root, '"codex"')
+            config = load_team_config(root)
+            self.assertEqual(config.enabled_targets, ("codex",))
+            for target in ("claude", "pi"):
+                with self.subTest(target=target):
+                    profile = resolve_target_profile(config, target, root, validate_default=True)
+                    self.assertEqual(set(profile.presets), set(PRESETS))
+
+    def test_per_target_default_preset_is_recorded(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            self._write_team(root, '\n[model_presets.codex]\ndefault_preset = "quality"\n')
+            config = load_team_config(root)
+            self.assertEqual(config.target_default_presets["codex"], "quality")
+            self.assertNotIn("default_preset", config.model_presets.get("codex", {}))
+            self.assertEqual(config.field_origins["model_presets.codex.default_preset"], "project")
+            self.assertEqual(effective_default_preset(config, "codex"), "quality")
+            self.assertEqual(effective_default_preset(config, "claude"), "balanced")
+
+    def test_per_target_default_preset_must_exist_in_its_profile(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            self._write_team(root, '\n[model_presets.codex]\ndefault_preset = "ghost"\n')
+            config = load_team_config(root)
+            with self.assertRaises(ValidationFailure) as context:
+                resolve_target_profile(config, "codex", root, validate_default=True)
+            self.assertTrue(any(
+                item.path == "model_presets.codex.default_preset" and item.code == "enum"
+                for item in context.exception.diagnostics
+            ))
+
+    def test_builtin_target_profiles_parse_identically(self) -> None:
+        expected_quality = {
+            "codex": ("gpt-6-astra", "medium", "gpt-5.6-terra", "gpt-6-sol", "gpt-6-astra"),
+            "claude": ("opus", "high", "sonnet", "sonnet", "opus"),
+            "antigravity": ("pro", None, "flash", "pro", "pro"),
+            "pi": ("openai/gpt-5.4", "medium", "openai/gpt-5.4-mini", "openai/gpt-5.4", "openai/gpt-5.4"),
+        }
+        for target in TARGETS:
+            with self.subTest(target=target):
+                profile = load_target_profile(target, f"builtin:{target}", Path(".").resolve())
+                self.assertEqual(list(profile.presets), list(PRESETS))
+                declared = tomllib.loads(asset_text("definitions", "targets", f"{target}.toml"))
+                for preset_name in PRESETS:
+                    literal = declared["presets"][preset_name]
+                    self.assertEqual(profile.presets[preset_name], TargetPreset(
+                        coordinator_model=literal["coordinator_model"],
+                        coordinator_effort=literal.get("coordinator_effort"),
+                        models=literal["models"],
+                        effort=literal.get("effort", {}),
+                    ))
+                quality = profile.presets["quality"]
+                self.assertEqual(
+                    (
+                        quality.coordinator_model,
+                        quality.coordinator_effort,
+                        quality.models["fast"],
+                        quality.models["balanced"],
+                        quality.models["deep"],
+                    ),
+                    expected_quality[target],
+                )
+        codex = load_target_profile("codex", "builtin:codex", Path(".").resolve())
+        self.assertEqual(codex.presets["balanced"].coordinator_effort, "medium")
+        self.assertEqual(codex.presets["balanced"].models["deep"], "gpt-6-sol")
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path, PurePosixPath
 
-from agent_team.config import load_roles, resolve_target_profile
+from agent_team.config import effective_default_preset, load_roles, resolve_target_profile
 from agent_team.diagnostics import Diagnostic, ValidationFailure
 from agent_team.fs import non_directory_parent
 from agent_team.models import TARGETS, RoleDefinition, TargetProfile, TeamConfig
@@ -273,11 +273,14 @@ def render_target(
         raise ValidationFailure([Diagnostic("target", f"{target} is not a supported target", code="enum")])
     if scope not in {"project", "user"}:
         raise ValidationFailure([Diagnostic("scope", "must be project or user", code="enum")])
-    preset_name = model_preset or config.default_model_preset
+    preset_name = model_preset or effective_default_preset(config, target)
     profile = resolve_target_profile(config, target, root)
     if preset_name not in profile.presets:
         raise ValidationFailure([Diagnostic(
-            "model_preset", f"{preset_name} is not defined by the {target} profile", code="enum"
+            "model_preset",
+            f"{preset_name} is not defined by the {target} profile; "
+            f"available: {', '.join(profile.presets)}",
+            code="enum",
         )])
     roles = load_roles(config, root, target)
     agent_destination = (

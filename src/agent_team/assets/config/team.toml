@@ -14,7 +14,7 @@ name = "Native agent team"
 description = "Portable role-based agent team"
 # adaptive, solo, assisted, or team.
 default_tier = "adaptive"
-# economy, balanced, or quality.
+# economy, balanced, or quality, or any preset the target profiles define.
 default_model_preset = "balanced"
 # Ordered custom directories; whole role IDs replace builtins.
 role_sources = ["builtin:roles"]

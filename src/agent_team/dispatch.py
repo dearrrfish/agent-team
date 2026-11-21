@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Mapping
 
 from agent_team.adapters import _mapped_role
-from agent_team.config import load_roles, resolve_target_profile
+from agent_team.config import effective_default_preset, load_roles, resolve_target_profile
 from agent_team.models import TARGETS, RoleDefinition, TeamConfig
 from agent_team.recovery import discover_runs, select_run
 from agent_team.run_state import fail, prepare_review
@@ -229,7 +229,7 @@ def build_dispatch_plan(
     # Resolve native model if not explicitly specified
     model = req.model
     if not model:
-        preset = req.config.default_model_preset
+        preset = effective_default_preset(req.config, runner)
         profile = resolve_target_profile(req.config, runner, req.root)
         if preset in profile.presets:
             mapped_model, _ = _mapped_role(profile, preset, role)

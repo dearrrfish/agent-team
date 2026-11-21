@@ -4,6 +4,7 @@ import sys
 import tomllib
 import unittest
 
+from agent_team.config import resolve_target_profile
 from agent_team.recovery import classify_evidence, discover_runs, recovery_status
 from agent_team.runs import validate_run
 from tests import test_recovery
@@ -109,4 +110,38 @@ class RunStateTests(unittest.TestCase):
         result = self.runner(self.root, "run", "reconcile", "--slug", "first", "--apply")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("max_workers = 2 # preserved", path.read_text())
+
+    def _rewrite_preset(self, path, preset_name):
+        path.write_text(
+            path.read_text().replace('model_preset = "balanced"', f'model_preset = "{preset_name}"'),
+            encoding="utf-8",
+        )
+
+    def test_run_manifest_accepts_custom_preset_name(self):
+        path = self.create_run()
+        self._rewrite_preset(path, "turbo")
+        self.assertFalse([
+            diagnostic for diagnostic in validate_run(path, self.config)
+            if diagnostic.path.endswith(".model_preset")
+        ])
+
+    def test_run_manifest_rejects_malformed_preset_name(self):
+        path = self.create_run()
+        self._rewrite_preset(path, "Turbo!")
+        self.assertTrue(any(
+            diagnostic.path.endswith(".model_preset") and diagnostic.code == "format"
+            for diagnostic in validate_run(path, self.config)
+        ))
+
+    def test_historical_run_preset_survives_profile_removal(self):
+        path = self.create_run()
+        self._rewrite_preset(path, "retired-preset")
+        self.assertNotIn(
+            "retired-preset",
+            resolve_target_profile(self.config, "codex", self.root).presets,
+        )
+        self.assertFalse([
+            diagnostic for diagnostic in validate_run(path, self.config)
+            if diagnostic.severity == "error"
+        ])
 

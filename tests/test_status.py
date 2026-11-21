@@ -148,6 +148,26 @@ class TestStatus(unittest.TestCase):
         self.assertEqual(res_target.returncode, 0, res_target.stderr)
         self.assertIn("Active Target:        claude", res_target.stdout)
 
+    def test_status_lists_custom_presets(self) -> None:
+        team_toml = self.repo / ".agent-team" / "team.toml"
+        team_toml.write_text(
+            team_toml.read_text(encoding="utf-8")
+            + "\n[model_presets.codex.spark]\n"
+            + 'template = "economy"\n'
+            + 'coordinator_model = "spark-coordinator"\n',
+            encoding="utf-8",
+        )
+
+        report = collect_team_status(self.repo, requested_target="codex")
+        presets = {preset.preset: preset for preset in report.presets}
+        self.assertIn("spark", presets)
+        self.assertEqual(presets["spark"].coordinator_model, "spark-coordinator")
+        self.assertIn("spark", format_text_status(report))
+        self.assertIn(
+            "spark",
+            [item["preset"] for item in json.loads(format_json_status(report))["presets"]],
+        )
+
     def test_run_status_tui_fallback(self) -> None:
         report = collect_team_status(self.repo)
         # Mock curses.wrapper raising curses.error (simulating non-interactive terminal)

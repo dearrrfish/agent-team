@@ -12,7 +12,10 @@ from agent_team.cli import main
 from agent_team.config import (
     load_team_config,
     project_root,
+    resolve_target_profile,
 )
+from agent_team.models import PRESETS, TARGETS
+from agent_team.templates import asset_text
 
 
 class HierarchyTests(unittest.TestCase):
@@ -196,6 +199,50 @@ fast = "user-fast"
                 exit_code = main(["generate", "gitignore"])
             self.assertEqual(exit_code, 0, output.getvalue())
             self.assertTrue((project / ".gitignore").is_file())
+    def test_legacy_config_without_custom_presets_still_loads(self) -> None:
+        project = self.workspace / "legacy-project"
+        project.mkdir()
+        self.write_user("""schema_version = 1
+default_model_preset = "balanced"
+enabled_targets = ["codex", "claude", "antigravity"]
+
+[model_presets.codex.balanced.models]
+fast = "user-fast"
+""")
+        config = load_team_config(project)
+        self.assertEqual(config.target_default_presets, {})
+        for target in TARGETS:
+            with self.subTest(target=target):
+                profile = resolve_target_profile(config, target, project)
+                self.assertEqual(set(profile.presets), set(PRESETS))
+
+    def test_custom_preset_project_layer_overrides_user_profile(self) -> None:
+        profile_dir = self.user_config / "profiles"
+        profile_dir.mkdir()
+        (profile_dir / "codex.toml").write_text(
+            asset_text("definitions", "targets", "codex.toml")
+            + '\n[presets.turbo]\ntemplate = "quality"\n',
+            encoding="utf-8",
+        )
+        self.write_user("""schema_version = 1
+
+[target_profiles]
+codex = "profiles/codex.toml"
+""")
+        project = self.workspace / "custom-project"
+        (project / ".agent-team").mkdir(parents=True)
+        (project / ".agent-team" / "team.toml").write_text("""schema_version = 1
+
+[model_presets.codex.turbo.models]
+deep = "project-deep"
+""", encoding="utf-8")
+
+        config = load_team_config(project)
+        self.assertEqual(config.field_origins["model_presets.codex.turbo.models.deep"], "project")
+        turbo = resolve_target_profile(config, "codex", project).presets["turbo"]
+        self.assertEqual(turbo.coordinator_model, "gpt-6-astra")
+        self.assertEqual(turbo.models["fast"], "gpt-5.6-terra")
+        self.assertEqual(turbo.models["deep"], "project-deep")
 
 
 if __name__ == "__main__":

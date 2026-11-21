@@ -11,7 +11,7 @@ from typing import Any
 
 from agent_team.diagnostics import Diagnostic, ValidationFailure
 from agent_team.fs import atomic_write, non_directory_parent
-from agent_team.models import RE_REVIEW_MODES, ROLE_IDS, TIERS, TeamConfig
+from agent_team.models import PRESET_NAME, RE_REVIEW_MODES, ROLE_IDS, TIERS, TeamConfig
 from agent_team.templates import asset_text, render_template, required_markers
 
 _SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -395,8 +395,11 @@ def validate_run(
             diagnostics.append(Diagnostic(
                 f"{label}.reports_required", "must match the effective project reporting policy", code="invariant"
             ))
-    if data.get("model_preset") not in {"economy", "balanced", "quality"}:
-        diagnostics.append(Diagnostic(f"{label}.model_preset", "unsupported model preset", code="enum"))
+    model_preset = data.get("model_preset")
+    if not isinstance(model_preset, str) or not PRESET_NAME.fullmatch(model_preset):
+        diagnostics.append(Diagnostic(
+            f"{label}.model_preset", "must be a lowercase kebab-case preset name", code="format"
+        ))
     for key in ("created_at", "updated_at"):
         if not _valid_timestamp(data.get(key)):
             diagnostics.append(Diagnostic(f"{label}.{key}", "must be RFC3339 UTC", code="format"))

@@ -70,6 +70,95 @@ class ConfigEditorTests(unittest.TestCase):
             self.path.write_text('schema_version = 1\n')
         return path
 
+    def file_profiles(self, *targets: str) -> dict[str, Path]:
+        paths: dict[str, Path] = {}
+        for target in targets:
+            text = resources.files('agent_team.assets').joinpath(f'definitions/targets/{target}.toml').read_text()
+            path = self.root / f'{target}.toml'
+            path.write_text('# profile comment\n' + text)
+            paths[target] = path
+        self.path.write_text(
+            'schema_version = 1\n[target_profiles]\n'
+            + ''.join(f'{target} = "{target}.toml"\n' for target in targets)
+        )
+        return paths
+
+    def test_parser_accepts_custom_preset_name(self) -> None:
+        args = _parser().parse_args(['config', 'model-presets', '--preset', 'turbo'])
+        self.assertEqual(args.preset, 'turbo')
+        path = self.file_profile()
+        path.write_text(path.read_text() + '\n[presets.turbo]\ntemplate = "quality"\n')
+        answers = iter(['new'] + [''] * 7 + ['yes'])
+        self.assertEqual(edit_model_presets(self.root, target='codex', preset='turbo',
+                                            read=lambda _: next(answers), emit=self.output.append), 0)
+        self.assertEqual(tomllib.loads(path.read_text())['presets']['turbo']['coordinator_model'], 'new')
+
+    def test_parser_rejects_malformed_preset_name(self) -> None:
+        with patch('sys.stderr', new_callable=io.StringIO), self.assertRaises(SystemExit) as exc:
+            _parser().parse_args(['config', 'model-presets', '--preset', 'Bad_Name'])
+        self.assertEqual(exc.exception.code, 2)
+        with self.assertRaisesRegex(ValidationFailure, 'invalid scope or preset'):
+            edit_model_presets(self.root, preset='Bad_Name', read=lambda _: self.fail('prompted'))
+
+    def test_editor_rejects_preset_missing_from_a_selected_target(self) -> None:
+        paths = self.file_profiles('codex', 'claude')
+        paths['codex'].write_text(paths['codex'].read_text() + '\n[presets.turbo]\ntemplate = "quality"\n')
+        with self.assertRaisesRegex(ValidationFailure, 'is not defined by the claude profile'):
+            edit_model_presets(self.root, target='codex,claude', preset='turbo',
+                               read=lambda _: self.fail('prompted'), emit=self.output.append)
+
+    def test_editor_default_iteration_includes_profile_custom_preset(self) -> None:
+        path = self.file_profile()
+        path.write_text(path.read_text() + '\n[presets.turbo]\ntemplate = "quality"\n')
+        answers = iter([''] * 24 + ['new'] + [''] * 7 + ['yes'])
+        self.assertEqual(edit_model_presets(self.root, target='codex', read=lambda _: next(answers),
+                                            emit=self.output.append), 0)
+        text = path.read_text()
+        self.assertEqual(tomllib.loads(text)['presets']['turbo']['coordinator_model'], 'new')
+        self.assertIn('turbo', '\n'.join(self.output))
+        self.assertEqual(self.routing('turbo').coordinator_model, 'new')
+
+    def test_editor_saves_team_only_preset_to_team_toml_with_file_profile(self) -> None:
+        path = self.file_profile()
+        self.path.write_text(self.path.read_text() + '\n[model_presets.codex.quick]\ntemplate = "economy"\n')
+        before_profile = path.read_bytes()
+        answers = iter(['new'] + [''] * 7 + ['yes'])
+        self.assertEqual(edit_model_presets(self.root, target='codex', preset='quick',
+                                            read=lambda _: next(answers), emit=self.output.append), 0)
+        self.assertEqual(path.read_bytes(), before_profile)
+        override = tomllib.loads(self.path.read_text())['model_presets']['codex']['quick']
+        self.assertEqual(override, {'template': 'economy', 'coordinator_model': 'new'})
+
+    def test_editor_loads_custom_preset_from_ancestor(self) -> None:
+        parent_config = self.root.parent / '.agent-team' / 'team.toml'
+        parent_config.parent.mkdir()
+        parent_config.write_text('[model_presets.codex.quick]\ntemplate = "economy"\n')
+        self.path.write_text('schema_version = 1\n')
+        answers = iter(['new'] + [''] * 7 + ['yes'])
+        self.assertEqual(edit_model_presets(self.root, target='codex', preset='quick',
+                                            read=lambda _: next(answers), emit=self.output.append), 0)
+        self.assertEqual(self.routing('quick').coordinator_model, 'new')
+        self.assertNotIn('new', parent_config.read_text())
+
+    def test_editor_refuses_unselected_changes_through_a_template(self) -> None:
+        path = self.file_profile()
+        original = path.read_text() + '\n[presets.turbo]\ntemplate = "quality"\n'
+        path.write_text(original)
+        answers = iter([''] * 16 + ['new'] + [''] * 15)
+        with self.assertRaisesRegex(ValidationFailure, 'codex.turbo.*does not preserve selected routing'):
+            edit_model_presets(self.root, target='codex', read=lambda _: next(answers), emit=self.output.append)
+        self.assertEqual(path.read_text(), original)
+
+    def test_editor_preserves_template_on_sparse_override(self) -> None:
+        self.path.write_text(self.path.read_text() + '\n[model_presets.codex.quick]\ntemplate = "economy"\n')
+        answers = iter([''] * 24 + ['new'] + [''] * 7 + ['yes'])
+        self.assertEqual(edit_model_presets(self.root, target='codex', read=lambda _: next(answers),
+                                            emit=self.output.append), 0)
+        override = tomllib.loads(self.path.read_text())['model_presets']['codex']['quick']
+        self.assertEqual(override['template'], 'economy')
+        self.assertEqual(override['coordinator_model'], 'new')
+        self.assertEqual(self.routing('quick').coordinator_model, 'new')
+
     def test_cli_defaults_and_selection(self) -> None:
         args = _parser().parse_args(['config', 'model-presets'])
         self.assertEqual(args.scope, 'project')

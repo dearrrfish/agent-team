@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `--model-preset` on `install` and `render`, with `--preset` as an alias. It is
+  mutually exclusive with `--run`, so one invocation can select any preset the
+  target profiles define without editing persistent configuration.
+- Custom presets in target profiles: an entry may name a builtin tier as
+  `template` and overlay `coordinator_model`, `coordinator_effort`, `models`,
+  and `effort` sparsely. Completeness is validated on the expanded result.
+- Per-target persistent selection through
+  `[model_presets.<target>] default_preset`, and in-place preset declaration
+  through `[model_presets.<target>.<name>] template`.
+
+### Changed
+
+- Preset names are validated while resolving a target profile instead of while
+  parsing configuration. `default_model_preset` and `[model_presets.<target>.*]`
+  accept any kebab-case name; `validate`, `doctor`, `install`, and `render`
+  report names that no selected profile defines.
+- `validate` and `doctor` check defaults for enabled targets and targets with a
+  `default_preset` override. Rendering and installation check the selected preset.
+- A run's recorded `model_preset` is syntax-checked only, which keeps historical
+  runs valid after a preset is renamed or removed.
+
 ## [0.6.0] - 2026-11-11
 
 ### Added
