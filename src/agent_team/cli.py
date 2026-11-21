@@ -592,7 +592,7 @@ def _render(root: Path, args: argparse.Namespace) -> int:
 
 def _dsh_scaffold(output: Path) -> int:
     paths = (
-        "package.json", "cordis.patch.yml", "spawn-binding.patch.yml", "role-policy.js",
+        "package.json", "cordis.patch.yml", "role-policy.js",
         "README.md", "icon.svg", "locale/en.json", "locale/zh.json",
     )
     files = {PurePosixPath(path): asset_text("dsh", *PurePosixPath(path).parts) for path in paths}

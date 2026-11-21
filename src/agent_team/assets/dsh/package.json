@@ -10,5 +10,5 @@
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
-  "files": ["cordis.patch.yml", "spawn-binding.patch.yml", "role-policy.js", "locale", "icon.svg", "README.md"]
+  "files": ["cordis.patch.yml", "role-policy.js", "locale", "icon.svg", "README.md"]
 }

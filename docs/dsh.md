@@ -61,15 +61,15 @@ agent-team dsh scaffold --output ./dsh-role-presets
 
 Open the generated `README.md` for the deployment steps. The tested runtime
 version is DSH `0.2.2-rc.5` with the base-style tool composition used by DSH
-TUI. Stock Web requires its own composition and spawn binding. Start in an
+TUI. Stock Web requires its own composition. Start in an
 isolated profile. The bundle declares `agent-team-coordinator`,
 `agent-team-explorer`, `agent-team-design-agent`, `agent-team-implementer`,
 `agent-team-ops`, and `agent-team-reviewer`. Choose the coordinator in the main
-session and apply the optional spawn binding to select the five worker presets
-through the native fresh spawn tool. Each child has a separate instance name.
-The coordinator requires an explicit worker preset on each spawn call.
+session. It mounts its own tools, including the `skill` tool for installed
+skills such as `dsh-delivery-feedback`, and delegates through the native fresh
+spawn tool with the five worker presets. Each child has a separate instance
+name, and the coordinator requires an explicit worker preset on each call.
 
 The `team.toml` flag controls native client files. Preset deployment is a
-separate step in DSH. To upgrade a previously generated two-role bundle,
-generate into a fresh directory, update the bundle and the optional spawn
-binding in DSH, then start a fresh session.
+separate step in DSH. To upgrade an earlier bundle, install the new bundle
+directory in DSH and start a fresh session.

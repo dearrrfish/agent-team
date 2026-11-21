@@ -16,6 +16,48 @@
                 Manage shared tasks through the native Team tools when the workflow uses
                 them. A Team task ID is a correlation reference for dsh-delivery.
                 Leave delivery approvals, receipts, and acceptance to dsh-delivery.
+                Use the skill tool to load a matching installed skill.
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              applyPatch: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: delegation
+            name: cordis:group
+            group: true
+            config:
+              - id: tool-subagent-control
+                name: '@deepseek-ai/dsh-tool-subagent-control'
+                config:
+                  interrupt: false
+              - id: tool-subagent
+                name: '@deepseek-ai/dsh-tool-subagent'
+                config:
+                  provider: spawn
+                  toolName: subagent
+                  allowedAgentPresets:
+                    - agent-team-explorer
+                    - agent-team-design-agent
+                    - agent-team-implementer
+                    - agent-team-ops
+                    - agent-team-reviewer
           - id: role-policy
             name: '@local/agent-team-dsh-presets'
             config:
@@ -34,6 +76,16 @@
                 Investigate the assigned question. Trace behavior to source and cite
                 file and line references or external sources. Distinguish observations
                 from hypotheses. Return findings and unresolved questions to the caller.
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              applyPatch: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
           - id: role-policy
             name: '@local/agent-team-dsh-presets'
             config:
@@ -53,6 +105,16 @@
                 audit. For a proposal, explain interfaces, dependencies, tradeoffs,
                 migration, and verification. For an audit, identify evidence-backed
                 gaps and open decisions. Return the design or findings to the caller.
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              applyPatch: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
           - id: role-policy
             name: '@local/agent-team-dsh-presets'
             config:
@@ -73,6 +135,22 @@
                 remaining gaps to the caller. Ask the caller to resolve scope
                 or policy decisions. Leave task and delivery transitions to
                 the owning workflow.
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              applyPatch: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
           - id: role-policy
             name: '@local/agent-team-dsh-presets'
             config:
@@ -92,6 +170,24 @@
                 Verify the change and document operational impact, evidence, and
                 rollback. Escalate any production or deployment decision that
                 requires approval. Return the result to the caller.
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              applyPatch: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
           - id: role-policy
             name: '@local/agent-team-dsh-presets'
             config:
@@ -111,6 +207,14 @@
                 scope. Return actionable findings with file and line references,
                 impact, and a verdict. If verification requires a command, tell
                 the caller what to run and what evidence is needed.
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              applyPatch: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
           - id: role-policy
             name: '@local/agent-team-dsh-presets'
             config:

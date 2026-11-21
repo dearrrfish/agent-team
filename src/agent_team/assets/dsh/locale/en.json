@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Agent Teams role presets",
-    "description": "Adds six Agent Teams role presets for DeepSeek Harness. Native delegation from the coordinator uses an optional spawn binding."
+    "description": "Adds six Agent Teams role presets for DeepSeek Harness. The coordinator mounts its own tools, including skill loading and native delegation."
   }
 }

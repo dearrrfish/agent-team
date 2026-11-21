@@ -93,14 +93,19 @@ class CliTests(unittest.TestCase):
                 [line.strip() for line in patch_text.splitlines() if line.startswith("        id: ")],
                 [f"id: agent-team-{role}" for role in ROLE_IDS],
             )
-            self.assertNotIn("allowedAgentPresets", patch_text)
-            binding = (bundle / "spawn-binding.patch.yml").read_text(encoding="utf-8")
-            self.assertIn("allowedAgentPresets", binding)
             self.assertEqual(
-                [line.strip() for line in binding.splitlines() if line.startswith("      - ")],
+                [line.strip() for line in patch_text.splitlines() if line.strip().startswith("- agent-team-")],
                 [f"- agent-team-{role}" for role in ROLE_IDS if role != "coordinator"],
             )
-            self.assertNotIn("subagent_fork", binding)
+            self.assertNotIn("subagent_fork", patch_text)
+            self.assertFalse((bundle / "spawn-binding.patch.yml").exists())
+            for preset_tool in (
+                "'@deepseek-ai/dsh-skill-filesystem'",
+                "'@deepseek-ai/dsh-tool-skill'",
+                "'@deepseek-ai/dsh-tool-fs'",
+                "'@deepseek-ai/dsh-tool-bash'",
+            ):
+                self.assertIn(preset_tool, patch_text)
             self.assertEqual(self._run(root, *args).returncode, 0)
             patch_path.write_text("custom patch\n", encoding="utf-8")
             result = self._run(root, *args)

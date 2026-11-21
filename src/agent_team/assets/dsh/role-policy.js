@@ -30,30 +30,7 @@ export function apply(ctx, { role }) {
       return `Tool ${name} is unavailable to the Agent Teams ${role} role.`;
     }
     if (name === 'subagent' && !workerPresets.includes(args?.agent_preset)) {
-      return 'Select an Agent Teams worker with agent_preset. Enable the optional spawn binding if the selector is unavailable.';
+      return 'Select an Agent Teams worker preset with agent_preset.';
     }
   }), 'agent-team-role-guard');
-  ctx.effect(() => {
-    let active;
-    let disposeRestriction;
-    const refresh = () => {
-      const registered = allow.filter(name => ctx.tools.get(name) !== undefined);
-      const next = registered.join(' ');
-      if (next === active) {
-        return;
-      }
-      // Some base tools register after preset activation. Restriction changes
-      // also emit tools/change, so record the selection before updating it.
-      active = next;
-      const previous = disposeRestriction;
-      disposeRestriction = ctx.tools.restrict({ allow: registered });
-      previous?.();
-    };
-    refresh();
-    const stop = ctx.on('tools/change', refresh);
-    return () => {
-      stop();
-      disposeRestriction?.();
-    };
-  }, 'agent-team-role-tools');
 }
