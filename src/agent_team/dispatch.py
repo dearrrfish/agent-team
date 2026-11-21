@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Mapping
 
 from agent_team.adapters import _mapped_role
-from agent_team.config import effective_default_preset, load_roles, resolve_target_profile
+from agent_team.config import (
+    effective_default_preset,
+    load_roles,
+    resolve_target_profile,
+)
 from agent_team.models import TARGETS, RoleDefinition, TeamConfig
 from agent_team.recovery import discover_runs, select_run
 from agent_team.run_state import fail, prepare_review

@@ -3,7 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path, PurePosixPath
 
-from agent_team.config import effective_default_preset, load_roles, resolve_target_profile
+from agent_team.config import (
+    effective_default_preset,
+    load_roles,
+    resolve_target_profile,
+)
 from agent_team.diagnostics import Diagnostic, ValidationFailure
 from agent_team.fs import non_directory_parent
 from agent_team.models import TARGETS, RoleDefinition, TargetProfile, TeamConfig
