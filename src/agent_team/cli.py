@@ -29,6 +29,7 @@ from agent_team.config import (
 from agent_team.config_editor import edit_model_presets, edit_roles
 from agent_team.diagnostics import Diagnostic, ValidationFailure, render_diagnostics
 from agent_team.fs import atomic_write
+from agent_team.host import detect_host
 from agent_team.installer import install_files
 from agent_team.models import PRESETS, ROLE_IDS, TARGETS, TIERS
 from agent_team.recovery import (
@@ -39,9 +40,7 @@ from agent_team.recovery import (
 )
 from agent_team.run_state import bind, lease_change, prepare_review, reconcile, verify
 from agent_team.runs import init_run, load_run_model_preset, validate_all_runs
-from agent_team.templates import (
-    load_example_templates,
-)
+from agent_team.templates import asset_text, load_example_templates
 
 _NATIVE_CLIENTS = {
     "codex": "codex",
@@ -174,6 +173,11 @@ Examples:
     render.add_argument("--target", choices=TARGETS, required=True)
     render.add_argument("--output", type=Path, required=True)
     render.add_argument("--run", dest="run_slug", help="use the model preset from this run")
+
+    dsh = subcommands.add_parser("dsh", help="generate a DeepSeek Harness preset bundle")
+    dsh_commands = dsh.add_subparsers(dest="dsh_command", required=True)
+    scaffold = dsh_commands.add_parser("scaffold", help="write a local bundle for manual installation")
+    scaffold.add_argument("--output", type=Path, required=True)
 
     install = subcommands.add_parser("install", help="preview or apply native agent installation")
     install.add_argument("--target", required=True, help="comma-separated native targets")
@@ -583,6 +587,17 @@ def _render(root: Path, args: argparse.Namespace) -> int:
         f"rendered {len(written)} files for {args.target} "
         f"with {model_preset} preset into {args.output.resolve()}"
     )
+    return 0
+
+
+def _dsh_scaffold(output: Path) -> int:
+    paths = (
+        "package.json", "cordis.patch.yml", "spawn-binding.patch.yml", "role-policy.js",
+        "README.md", "icon.svg", "locale/en.json", "locale/zh.json",
+    )
+    files = {PurePosixPath(path): asset_text("dsh", *PurePosixPath(path).parts) for path in paths}
+    written = write_rendered(output, files)
+    print(f"rendered {len(written)} DSH preset bundle files into {output.resolve()}")
     return 0
 
 
@@ -1063,8 +1078,13 @@ def _worktree(root: Path | None, args: argparse.Namespace) -> int:
 
 
 def _dispatch(root: Path, args: argparse.Namespace) -> int:
-    require_project_context(root)
     config = load_team_config(root)
+    if config.dsh_compatibility and not args.dry_run and detect_host()[0] == "dsh":
+        return _print_failure(ValidationFailure([Diagnostic(
+            "dispatch",
+            "DSH owns subagent dispatch in this session. Use the DSH workflow or --dry-run to preview.",
+            code="dsh-host",
+        )]), args.format)
     from agent_team.dispatch import (
         DispatchRequest,
         build_dispatch_plan,
@@ -1213,6 +1233,8 @@ def main(argv: list[str] | None = None) -> int:
             return _resume(root, args)
         if args.command == "render":
             return _render(root, args)
+        if args.command == "dsh":
+            return _dsh_scaffold(args.output)
         if args.command == "install":
             return _install(root, args)
         if args.command == "config":

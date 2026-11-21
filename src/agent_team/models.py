@@ -84,6 +84,7 @@ class TeamConfig:
     role_overrides: Mapping[str, RoleOverride] = field(default_factory=dict)
     target_role_overrides: Mapping[str, Mapping[str, RoleOverride]] = field(default_factory=dict)
     enabled_targets: tuple[str, ...] = DEFAULT_ENABLED_TARGETS
+    dsh_compatibility: bool = False
 
 
 @dataclass(frozen=True)

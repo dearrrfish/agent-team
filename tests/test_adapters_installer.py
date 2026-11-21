@@ -56,6 +56,7 @@ class AdapterAndInstallerTests(unittest.TestCase):
                 second = render_target(target, config, root)
                 self.assertEqual(first, second)
                 self.assertEqual(len(first), 15)
+                self.assertNotRegex("\n".join(first.values()), r"DeepSeek Harness|\bDSH\b|dsh-delivery")
 
             codex = render_target("codex", config, root)
             explorer = tomllib.loads(codex[next(path for path in codex if str(path).endswith("explorer.toml"))])
@@ -165,6 +166,73 @@ class AdapterAndInstallerTests(unittest.TestCase):
                 for path in antigravity_user
             ))
 
+    def test_dsh_compatibility_inherits_and_validates_as_boolean(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            user_config = Path.home() / ".agent-team/team.toml"
+            user_config.parent.mkdir()
+            user_config.write_text("[compatibility]\ndsh = true\n", encoding="utf-8")
+            self.assertTrue(load_team_config(root).dsh_compatibility)
+            project_config = root / ".agent-team/team.toml"
+            project_config.write_text("[compatibility]\ndsh = false\n", encoding="utf-8")
+            self.assertFalse(load_team_config(root).dsh_compatibility)
+            project_config.write_text('[compatibility]\ndsh = "true"\n', encoding="utf-8")
+            with self.assertRaises(ValidationFailure) as failure:
+                load_team_config(root)
+            self.assertIn("compatibility.dsh", str(failure.exception))
+
+    def test_shared_skills_leave_dsh_orchestration_to_host(self) -> None:
+        reference = PurePosixPath("references/agent-team-workflow.md")
+        cli_workflow = {
+            "team-coordinate": "agent-team dispatch",
+            "team-plan": "spawn a dedicated",
+            "team-review": "agent-team run prepare-review",
+            "team-workflow": "agent-team run init",
+        }
+        with self._project() as directory:
+            root = Path(directory)
+            (root / ".agent-team/team.toml").write_text(
+                DEFAULT_TEAM_TOML + "\n[compatibility]\ndsh = true\n", encoding="utf-8",
+            )
+            config = load_team_config(root)
+            expected = {
+                name: asset_text("dsh", "skills", name, "SKILL.md") for name in cli_workflow
+            }
+            for target in ("codex", "claude", "antigravity", "pi"):
+                for scope in ("project", "user"):
+                    with self.subTest(target=target, scope=scope):
+                        rendered = render_target(target, config, root, scope=scope)
+                        self.assertEqual(len(rendered), 21)
+                        agents = [content for path, content in rendered.items() if "agents" in path.parts]
+                        self.assertEqual(len(agents), 6)
+                        self.assertTrue(all("# DeepSeek Harness compatibility" in content for content in agents))
+                        for path, content in rendered.items():
+                            if path.name != "SKILL.md" or path.parent.name not in expected:
+                                continue
+                            name = path.parent.name
+                            self.assertEqual(content, expected[name])
+                            self.assertIn(f"({reference.as_posix()})", content)
+                            self.assertIn(cli_workflow[name], rendered[path.parent / reference])
+                        self.assertEqual(
+                            {path.parent.name for path in rendered if path.name == "SKILL.md"} & expected.keys(),
+                            expected.keys(),
+                        )
+
+        for name, content in expected.items():
+            with self.subTest(skill=name):
+                self.assertIn("current host is known to be outside DSH", content)
+                self.assertIn("DSH and its presets", " ".join(content.split()))
+                self.assertIn("`dsh.agentTeams`", content)
+                self.assertIn("`dsh-delivery`", content)
+                self.assertNotIn(cli_workflow[name], content)
+                self.assertNotIn("`subagent`", content)
+                self.assertNotIn("delivery_execute", content)
+
+        review = expected["team-review"]
+        self.assertIn("A supplied Agent Teams run slug does not change the scope in DSH", review)
+        self.assertIn("Treat a Team task ID as a reference", review)
+        self.assertIn("review context that DSH or its preset supplies", review)
+
     def test_render_applies_sparse_model_preset_overrides(self) -> None:
         config_text = DEFAULT_TEAM_TOML + '''
 
@@ -199,7 +267,7 @@ medium = "high"
             config = load_team_config(root)
             files = render_target("codex", config, root)
             written = write_rendered(output, files)
-            self.assertEqual(len(written), 15)
+            self.assertEqual(len(written), len(files))
             write_rendered(output, files)
             written[0].write_text("changed", encoding="utf-8")
             with self.assertRaises(ValidationFailure):

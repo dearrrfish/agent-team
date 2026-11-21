@@ -232,6 +232,22 @@ class RecoveryTests(unittest.TestCase):
         self.assertIn("nit_cap = 1", updated_text)
         self.assertIn('policy_file = "docs/REVIEW.md"', updated_text)
 
+    def test_cli_review_preview_preserves_run_state(self):
+        self.create_run()
+        before = self.snapshot()
+        for command in (
+            ("run", "prepare-review"),
+            ("dispatch", "--role", "reviewer", "--dry-run"),
+        ):
+            with self.subTest(command=command):
+                existing = self.runner(self.root, *command, "--slug", "first", "--format", "json")
+                self.assertEqual(existing.returncode, 0, existing.stderr)
+                missing = self.runner(self.root, *command, "--slug", "missing")
+                self.assertEqual(missing.returncode, 2, missing.stderr)
+                self.assertIn("run not found: missing", missing.stderr)
+                self.assertEqual(self.snapshot(), before)
+                self.assertFalse((self.root / ".agent-team/runs/missing").exists())
+
     def test_prepare_review_and_review_binding_staleness(self):
         def git(*args):
             result = subprocess.run(["git", *args], check=False, cwd=self.root, capture_output=True)

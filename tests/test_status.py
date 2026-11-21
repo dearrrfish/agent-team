@@ -89,6 +89,24 @@ class TestStatus(unittest.TestCase):
         with patch.dict(os.environ, {"CODEX_HOME": "/some/codex"}, clear=True):
             self.assertEqual(detect_active_target(self.repo, config), "codex")
 
+    def test_dsh_host_is_separate_from_native_target(self) -> None:
+        (self.repo / ".pi").mkdir()
+        base_env = {key: os.environ[key] for key in ("PATH", "HOME") if key in os.environ}
+        with patch.dict(os.environ, {**base_env, "DSH_SHELL": "1", "DSH_SESSION_ID": "fixture-session"}, clear=True):
+            report = collect_team_status(self.repo)
+            self.assertEqual(report.active_target, "pi")
+            self.assertEqual(report.host, "dsh")
+            self.assertIn("Host:                 dsh (dsh-shell-session)", format_text_status(report))
+            data = json.loads(format_json_status(collect_team_status(self.repo, "codex")))
+            self.assertEqual(data["active_target"], "codex")
+            self.assertEqual(data["host"], "dsh")
+            self.assertEqual(data["host_source"], "dsh-shell-session")
+            self.assertNotIn("fixture-session", json.dumps(data))
+        for env in ({"DSH_PROFILE": "tui"}, {"DSH_SHELL": "1"}, {"DSH_SESSION_ID": "fixture"}):
+            with self.subTest(env=env), patch.dict(os.environ, {**base_env, **env}, clear=True):
+                report = collect_team_status(self.repo)
+                self.assertEqual((report.host, report.host_source), ("unknown", "incomplete-dsh-environment"))
+
     def test_format_text_status(self) -> None:
         # Add cross-tool runner to implementer
         team_toml = self.repo / ".agent-team" / "team.toml"

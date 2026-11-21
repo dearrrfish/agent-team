@@ -1,0 +1,14 @@
+{
+  "name": "@local/agent-team-dsh-presets",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "dsh": "0.2.2-rc.5" },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "exports": {
+    ".": "./role-policy.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": ["cordis.patch.yml", "spawn-binding.patch.yml", "role-policy.js", "locale", "icon.svg", "README.md"]
+}

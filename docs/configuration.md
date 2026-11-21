@@ -155,6 +155,11 @@ must not use AskHuman.`) into child prompt headers. This is a prompt instruction
 it does not install AskHuman or block tool execution. Override the effective
 configuration per command via `agent-team dispatch --askhuman` or `--no-askhuman`.
 
+`[compatibility]` accepts `dsh` as a boolean, defaulting to `false`. Setting it
+adds DeepSeek Harness guidance to rendered skills and agents for existing
+native targets. Reinstall the selected scope to update managed files.
+[DeepSeek Harness setup](dsh.md)
+
 Paths retain the defining scope as described above and cannot escape it.
 
 ## Roles

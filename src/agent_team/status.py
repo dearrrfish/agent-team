@@ -13,6 +13,7 @@ from agent_team.config import (
     load_team_config,
     resolve_target_profile,
 )
+from agent_team.host import detect_host
 from agent_team.models import TARGETS, TeamConfig
 from agent_team.recovery import discover_runs
 from agent_team.version import get_version
@@ -86,6 +87,8 @@ class TeamStatusReport:
     presets: list[PresetMapping]
     runs: list[RunSummary]
     worktrees: list[WorktreeSummary]
+    host: str = "unknown"
+    host_source: str = "none"
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -135,6 +138,7 @@ def _get_target_executable_and_version(target: str) -> tuple[str | None, str | N
 def collect_team_status(root: Path, requested_target: str | None = None) -> TeamStatusReport:
     config = load_team_config(root)
     active_target = detect_active_target(root, config, requested_target)
+    host, host_source = detect_host()
 
     user_config_path = Path.home() / ".agent-team" / "team.toml"
     project_config_path = root / ".agent-team" / "team.toml"
@@ -234,6 +238,8 @@ def collect_team_status(root: Path, requested_target: str | None = None) -> Team
         presets=presets_list,
         runs=runs_list,
         worktrees=worktrees_list,
+        host=host,
+        host_source=host_source,
     )
 
 
@@ -246,6 +252,7 @@ def _render_tab_overview(r: TeamStatusReport) -> list[str]:
         "== Agent Team Overview ==",
         "",
         f"Project Root:         {r.root}",
+        f"Host:                 {r.host} ({r.host_source})",
         f"Active Target:        {r.active_target}",
         f"Agent-Team Version:   v{r.version}",
         "",

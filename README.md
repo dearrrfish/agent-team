@@ -521,6 +521,9 @@ all builtin roles. It works without installed clients or a live catalog.
 See [partial routing overrides](docs/configuration.md#partial-routing-overrides)
 for inheritance and coordinator behavior.
 
+For DeepSeek Harness host detection, shared skills, and native role presets,
+see [DeepSeek Harness coexistence](docs/dsh.md).
+
 ## Generated native files
 
 | Target | Project agents | Project skills | User agents | User skills |

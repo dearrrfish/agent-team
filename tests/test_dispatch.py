@@ -280,6 +280,30 @@ class TestDispatch(unittest.TestCase):
         self.assertEqual(data["role"], "reviewer")
         self.assertTrue(data["report_path"].endswith("review.md"))
 
+    def test_dsh_cli_dispatch_refuses_execution_before_loading_run(self) -> None:
+        team_toml = self.repo / ".agent-team/team.toml"
+        config = team_toml.read_text(encoding="utf-8")
+        with patch.dict(os.environ, {"DSH_SHELL": "1", "DSH_SESSION_ID": "fixture-session"}):
+            disabled = self._run(
+                self.repo, "dispatch", "--slug", "missing-run", "--runner", "codex", "--format", "json",
+            )
+            self.assertEqual(disabled.returncode, 2)
+            self.assertNotIn("dsh-host", disabled.stderr)
+            team_toml.write_text(config + "\n[compatibility]\ndsh = true\n", encoding="utf-8")
+            result = self._run(
+                self.repo, "dispatch", "--slug", "missing-run", "--runner", "codex",
+                "--worktree", "--format", "json",
+            )
+            preview = self._run(
+                self.repo, "dispatch", "--slug", "dispatch-test-run", "--role", "reviewer",
+                "--runner", "codex", "--worktree", "--dry-run", "--format", "json",
+            )
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(json.loads(result.stderr)["diagnostics"][0]["code"], "dsh-host")
+        self.assertEqual(preview.returncode, 0, preview.stderr)
+        self.assertEqual(json.loads(preview.stdout)["runner"], "codex")
+        self.assertFalse((self.repo / ".worktrees").exists())
+
     def test_execute_dispatch_missing_executable(self) -> None:
         config = load_team_config(self.repo)
         req = DispatchRequest(

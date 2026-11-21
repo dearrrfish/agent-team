@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Agent Teams 角色预设",
+    "description": "为 DeepSeek Harness 提供六个 Agent Teams 角色预设。协调员可通过可选派发绑定调用工作角色。"
+  }
+}

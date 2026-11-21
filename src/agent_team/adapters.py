@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
 from pathlib import Path, PurePosixPath
 
 from agent_team.config import load_roles, resolve_target_profile
@@ -177,6 +176,8 @@ def _render_agent(target: str, role: RoleDefinition, profile: TargetProfile, pre
             f"- The `{target}` target does not support worktree isolation; use "
             "file-disjoint ownership for parallel writers.\n"
         )
+    if config is not None and config.dsh_compatibility:
+        instructions = asset_text("dsh", "agent-guidance.md").rstrip() + "\n\n" + instructions
     if target == "pi":
         instructions += (
             "- Pi tools are a requested allowlist, not an OS sandbox. MCP tools may "
@@ -243,25 +244,21 @@ def _render_agent(target: str, role: RoleDefinition, profile: TargetProfile, pre
     })
 
 
-def load_builtin_skills() -> tuple[tuple[str, str], ...]:
-    return tuple(
-        (skill_id, asset_text("skills", skill_id, "SKILL.md"))
-        for skill_id in (
-            "team-coordinate",
-            "team-debug",
-            "team-docs",
-            "team-ops",
-            "team-plan",
-            "team-research",
-            "team-review",
-            "team-status",
-            "team-workflow",
-        )
-    )
-
-
-def load_skills(config: TeamConfig, root: Path) -> Iterable[tuple[str, str]]:
-    return load_builtin_skills()
+def load_skills(config: TeamConfig, root: Path) -> tuple[tuple[PurePosixPath, str], ...]:
+    cli_workflows = ("team-coordinate", "team-ops", "team-plan", "team-review", "team-status", "team-workflow")
+    compatible = (*cli_workflows, "team-docs")
+    variant_root = ("dsh", "skills") if config.dsh_compatibility else ("skills",)
+    files = {
+        PurePosixPath(skill, "SKILL.md"): asset_text(*variant_root, skill, "SKILL.md")
+        for skill in compatible
+    }
+    for skill in ("team-debug", "team-research"):
+        files[PurePosixPath(skill, "SKILL.md")] = asset_text("skills", skill, "SKILL.md")
+    if config.dsh_compatibility:
+        for skill in cli_workflows:
+            reference = PurePosixPath(skill, "references", "agent-team-workflow.md")
+            files[reference] = asset_text("skills", *reference.parts)
+    return tuple(sorted(files.items()))
 
 
 def render_target(
@@ -297,8 +294,8 @@ def render_target(
             suffix = ".toml" if target == "codex" else ".md"
             relative = PurePosixPath(agent_destination, f"{role.role_id}{suffix}")
         output[relative] = _render_agent(target, role, profile, preset_name, pi_status, config)
-    for skill_id, content in load_skills(config, root):
-        relative = PurePosixPath(skill_destination, skill_id, "SKILL.md")
+    for skill_path, content in load_skills(config, root):
+        relative = PurePosixPath(skill_destination, skill_path)
         output[relative] = content
     return dict(sorted(output.items(), key=lambda item: str(item[0])))
 

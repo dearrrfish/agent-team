@@ -218,7 +218,7 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
         "schema_version", "id", "name", "description", "default_tier",
         "default_model_preset", "enabled_targets", "role_sources", "skill_sources",
         "target_profiles", "model_presets", "workflow", "review", "tiers", "install",
-        "inherit_user_defaults", "roles", "integrations",
+        "inherit_user_defaults", "roles", "integrations", "compatibility",
     }
     _unknown_keys(data, allowed, "", diagnostics)
     inherit_user_defaults = _boolean(data.get("inherit_user_defaults", True), "inherit_user_defaults", diagnostics)
@@ -548,6 +548,10 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
     askhuman = _boolean(integrations_data.get("askhuman", False), "integrations.askhuman", diagnostics)
     integrations = IntegrationsConfig(askhuman=askhuman)
 
+    compatibility = _mapping(data.get("compatibility", {}), "compatibility", diagnostics)
+    _unknown_keys(compatibility, {"dsh"}, "compatibility", diagnostics)
+    dsh_compatibility = _boolean(compatibility.get("dsh", False), "compatibility.dsh", diagnostics)
+
     if diagnostics:
         raise ValidationFailure(diagnostics)
     return TeamConfig(
@@ -560,6 +564,7 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
         role_overrides=role_overrides,
         target_role_overrides=target_role_overrides,
         enabled_targets=enabled_targets_tuple,
+        dsh_compatibility=dsh_compatibility,
     )
 
 

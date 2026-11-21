@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from agent_team import cli
 from agent_team.catalog import CatalogResult
+from agent_team.models import ROLE_IDS
 from agent_team.templates import asset_text
 from agent_team.version import __base_version__, get_version
 from tests.test_customization import CUSTOM_ROLE
@@ -38,6 +39,73 @@ class CliTests(unittest.TestCase):
             capture_output=True,
             check=False,
         )
+
+    def test_dsh_compatibility_updates_and_restores_managed_files(self) -> None:
+        for scope in ("project", "user"):
+            with self.subTest(scope=scope), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                scope_root = root if scope == "project" else root / "isolated-home"
+                config = scope_root / ".agent-team/team.toml"
+                session = {"DSH_SHELL": "", "DSH_SESSION_ID": ""}
+                result = self._run(root, "init", "--scope", scope)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                args = ("install", "--scope", scope, "--target", "codex")
+                result = self._run(root, *args, "--apply", environment_overrides=session)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                review = scope_root / ".agents/skills/team-review/SKILL.md"
+                reference = review.parent / "references/agent-team-workflow.md"
+                agent = scope_root / ".codex/agents/reviewer.toml"
+                standard_config = config.read_text(encoding="utf-8")
+                standard_skill = review.read_bytes()
+                standard_agent = agent.read_bytes()
+                self.assertFalse(reference.exists())
+                config.write_text(standard_config + "\n[compatibility]\ndsh = true\n", encoding="utf-8")
+                preview = self._run(root, *args, environment_overrides=session)
+                self.assertEqual(preview.returncode, 0, preview.stderr)
+                self.assertIn("update    .agents/skills/team-review/SKILL.md", preview.stdout)
+                self.assertIn("update    .codex/agents/reviewer.toml", preview.stdout)
+                self.assertEqual(review.read_bytes(), standard_skill)
+                self.assertEqual(agent.read_bytes(), standard_agent)
+                result = self._run(root, *args, "--apply", environment_overrides=session)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(b"DeepSeek Harness", review.read_bytes())
+                self.assertIn(b"DeepSeek Harness compatibility", agent.read_bytes())
+                self.assertIn(b"agent-team run prepare-review", reference.read_bytes())
+                self.assertNotIn(b"DSH", reference.read_bytes())
+                config.write_text(standard_config + "\n[compatibility]\ndsh = false\n", encoding="utf-8")
+                result = self._run(root, *args, "--apply", environment_overrides=session)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(review.read_bytes(), standard_skill)
+                self.assertEqual(agent.read_bytes(), standard_agent)
+
+    def test_dsh_scaffold_is_explicit_and_preserves_conflicts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            args = ("dsh", "scaffold", "--output", "bundle")
+            result = self._run(root, *args)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(list(root.iterdir()), [root / "bundle"])
+            bundle = root / "bundle"
+            manifest = json.loads((bundle / "package.json").read_text(encoding="utf-8"))
+            patch_path = bundle / manifest["dsh"]["bundle"]["patch"]
+            patch_text = patch_path.read_text(encoding="utf-8")
+            self.assertEqual(
+                [line.strip() for line in patch_text.splitlines() if line.startswith("        id: ")],
+                [f"id: agent-team-{role}" for role in ROLE_IDS],
+            )
+            self.assertNotIn("allowedAgentPresets", patch_text)
+            binding = (bundle / "spawn-binding.patch.yml").read_text(encoding="utf-8")
+            self.assertIn("allowedAgentPresets", binding)
+            self.assertEqual(
+                [line.strip() for line in binding.splitlines() if line.startswith("      - ")],
+                [f"- agent-team-{role}" for role in ROLE_IDS if role != "coordinator"],
+            )
+            self.assertNotIn("subagent_fork", binding)
+            self.assertEqual(self._run(root, *args).returncode, 0)
+            patch_path.write_text("custom patch\n", encoding="utf-8")
+            result = self._run(root, *args)
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertEqual(patch_path.read_text(encoding="utf-8"), "custom patch\n")
 
     def test_fresh_project_end_to_end(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
