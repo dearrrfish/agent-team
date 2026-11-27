@@ -275,13 +275,22 @@ def build_dispatch_plan(
             review_packet,
             "",
             "## Review Contract",
-            f"Save your completed review findings and verdict directly to `{report_rel}`.",
-            "Follow the review contract with ## Cycle, ## Verdict, ## Residual risks, and findings.",
+            f"Output the completed review (with ## Cycle, ## Verdict, ## Residual risks, and findings) to stdout; the dispatcher saves it to `{report_rel}` (do not modify workspace files).",
         ]
         if req.instruction:
             prompt_lines.append(f"\n## Additional Directives\n{req.instruction}\n")
         prompt = "\n".join(prompt_lines)
     else:
+        context_lines = [
+            "## Task Context",
+            f"- Run: {req.slug}",
+            f"- Task ID: {req.task_id or 'adhoc'}",
+            f"- Working directory: {cwd}",
+            f"- Write policy: {role.write_policy}",
+            f"- Report target: {report_rel}",
+        ]
+        if task_info and task_info.get("owned_paths"):
+            context_lines.append(f"- Owned paths: {', '.join(task_info['owned_paths'])}")
         prompt_lines = [
             f"# Role: {role.role_id}",
             "",
@@ -289,20 +298,23 @@ def build_dispatch_plan(
             "",
             f"{role.description}\n",
             f"## Instructions\n{role.instructions}\n",
-            "## Task Context",
-            f"- Run: {req.slug}",
-            f"- Task ID: {req.task_id or 'adhoc'}",
-            f"- Working directory: {cwd}",
-            f"- Write policy: {role.write_policy}",
-            f"- Report target: {report_rel}\n",
+            *context_lines,
+            "",
         ]
-        if task_info and task_info.get("owned_paths"):
-            prompt_lines.append(f"- Owned paths: {', '.join(task_info['owned_paths'])}\n")
         if req.instruction:
             prompt_lines.append(f"## Task Objective\n{req.instruction}\n")
+        if role.write_policy == "deny":
+            report_instruction = (
+                f"When you complete your work, output an agent-report formatted report to stdout; "
+                f"the dispatcher saves it to `{report_rel}` (do not write files)."
+            )
+        else:
+            report_instruction = (
+                f"When you complete your work, you MUST produce an agent-report formatted report and save it to `{report_rel}`."
+            )
         prompt_lines.extend([
             "## Report Contract",
-            f"When you complete your work, you MUST produce an agent-report formatted report and save it to `{report_rel}`.",
+            report_instruction,
             "The report MUST include sections: ## Status, ## Verification, ## Changed files, ## Residual risks.",
         ])
         prompt = "\n".join(prompt_lines)
@@ -332,10 +344,14 @@ def build_dispatch_plan(
             cmd.extend(["--tools", "read,grep,find,ls"])
         cmd.append(prompt)
     elif runner == "antigravity":
-        cmd = ["antigravity", "exec"]
-        if model:
+        mode = "plan" if role.write_policy == "deny" else "accept-edits"
+        cmd = ["agy", "--mode", mode, "--sandbox"]
+        # Built-in Antigravity presets use subagent tier aliases (pro/flash/inherit)
+        # which `agy -p --model` rejects; only pass --model for explicit overrides
+        # or concrete model slugs.
+        if model and (req.model or model not in {"inherit", "flash", "pro", "flash_lite"}):
             cmd.extend(["--model", model])
-        cmd.append(prompt)
+        cmd.extend(["-p", prompt])
     else:
         fail(f"unhandled runner '{runner}'")
 

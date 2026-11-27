@@ -60,6 +60,7 @@ class PiSupportTests(unittest.TestCase):
             output = render_target("pi", config, self.project)
             self.assertEqual(output, render_target("pi", config, self.project))
         explorer = output[Path(".pi/agents/explorer.md")]
+        coordinator = output[Path(".pi/agents/coordinator.md")]
         self.assertIn('model: "openai/', explorer)
         self.assertIn(':medium"', explorer)
         tools = explorer.split("tools: ")[1].splitlines()[0].split(", ")
@@ -77,7 +78,8 @@ class PiSupportTests(unittest.TestCase):
         )
         self.assertNotIn("subagentOnlyExtensions:", explorer)
         self.assertIn("MCP tools may remain available", explorer)
-        self.assertIn("worktree isolation is unconfirmed", explorer)
+        self.assertNotIn("worktree", explorer)
+        self.assertIn("worktree isolation is unconfirmed", coordinator)
         self.assertIn("max", resolve_target_profile(config, "pi", self.project).effort_levels)
         self.assertTrue(any(str(path).startswith(".agents/skills/") for path in output))
 
@@ -105,10 +107,11 @@ class PiSupportTests(unittest.TestCase):
                     self.assertNotIn("subagentOnlyExtensions:", content)
         coordinator = output[Path(".pi/agents/coordinator.md")]
         self.assertIn("subagent", coordinator.split("tools: ")[1].splitlines()[0])
+        self.assertIn("supports `worktree: true`", coordinator)
+        self.assertIn("only after verifying", coordinator)
         explorer = output[Path(".pi/agents/explorer.md")]
         self.assertIn("web_search, fetch_content, get_search_content, source_check", explorer)
-        self.assertIn("supports `worktree: true`", explorer)
-        self.assertIn("only after verifying", explorer)
+        self.assertNotIn("worktree", explorer)
 
     def test_flow_has_conditional_worktree_but_no_guessed_delegation_tool(self):
         config = load_team_config(self.project)

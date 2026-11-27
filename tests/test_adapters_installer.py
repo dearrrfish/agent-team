@@ -148,13 +148,23 @@ class AdapterAndInstallerTests(unittest.TestCase):
             )]
             self.assertIn("Antigravity supports worktree isolation", antigravity_coordinator)
             self.assertIn("`branch` workspace option", antigravity_coordinator)
+            self.assertIn("mainAgent: true", antigravity_coordinator)
             self.assertIn('"invoke_subagent"', antigravity_coordinator)
+            self.assertIn('"send_message"', antigravity_coordinator)
+            self.assertIn('"manage_subagents"', antigravity_coordinator)
             self.assertIn('"view_file"', antigravity_explorer)
             self.assertNotIn('"run_command"', antigravity_explorer)
             self.assertIn('"search_web"', antigravity_explorer)
             self.assertNotIn('"read"', antigravity_explorer)
             self.assertNotIn('"shell"', antigravity_explorer)
+            self.assertNotIn("worktree", antigravity_explorer)
             self.assertIn('"run_command"', antigravity_coordinator)
+            for worker in ("explorer", "design-agent", "implementer", "ops", "reviewer"):
+                rendered_worker = antigravity[next(
+                    path for path in antigravity if str(path).endswith(f"{worker}/agent.md")
+                )]
+                self.assertIn("mainAgent: false", rendered_worker)
+                self.assertIn("subagent: true", rendered_worker)
 
             antigravity_user = render_target("antigravity", config, root, scope="user")
             self.assertTrue(any(
@@ -505,6 +515,33 @@ deep = "turbo-deep"
             message = str(context.exception)
             self.assertIn("not defined by the codex profile", message)
             self.assertIn("available:", message)
+
+    def test_lean_role_contracts_no_contradictions_or_worktree_noise(self) -> None:
+        with self._project() as directory:
+            root = Path(directory)
+            config = load_team_config(root)
+            for target in ("codex", "claude", "antigravity", "pi"):
+                rendered = render_target(target, config, root)
+                agent_files = {
+                    path: content for path, content in rendered.items() if "agents" in path.parts
+                }
+                total_bytes = sum(len(content.encode("utf-8")) for content in agent_files.values())
+                self.assertLess(total_bytes, 15000, f"{target} agent bytes too large: {total_bytes}")
+                for role_id in ("explorer", "design-agent", "reviewer"):
+                    content = rendered[next(
+                        path for path in agent_files
+                        if (path.parent.name == role_id if target == "antigravity" else path.stem == role_id)
+                    )]
+                    body = (
+                        tomllib.loads(content)["developer_instructions"]
+                        if target == "codex"
+                        else content
+                    )
+                    self.assertNotIn("worktree", body, f"{target}/{role_id} leaked worktree note")
+                    cap_lines = [line for line in body.splitlines() if line.startswith("- Capabilities:")]
+                    self.assertEqual(len(cap_lines), 1, f"{target}/{role_id} missing Capabilities line")
+                    if target in {"claude", "antigravity", "pi"}:
+                        self.assertNotIn("shell", cap_lines[0], f"{target}/{role_id} contradicted omitted shell")
 
     def test_render_custom_preset_does_not_change_file_count(self) -> None:
         with self._project() as directory:

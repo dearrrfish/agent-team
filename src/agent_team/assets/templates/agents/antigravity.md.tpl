@@ -3,7 +3,7 @@ name: ${role_id}
 description: ${description}
 model: ${model}
 tools: ${tools}
-mainAgent: true
+mainAgent: ${main_agent}
 subagent: true
 commandExecutionPolicy: sandbox
 ---

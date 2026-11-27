@@ -440,6 +440,53 @@ class TestDispatch(unittest.TestCase):
             any("cannot recursively dispatch child agents" in d.message for d in ctx.exception.diagnostics)
         )
 
+    def test_build_dispatch_plan_antigravity_headless_and_readonly_contract(self) -> None:
+        config = load_team_config(self.repo)
+        explorer_plan = build_dispatch_plan(DispatchRequest(
+            root=self.repo,
+            config=config,
+            slug="dispatch-test-run",
+            role_id="explorer",
+            runner="antigravity",
+            instruction="Inspect entrypoint",
+        ))
+        self.assertEqual(explorer_plan.command[0], "agy")
+        self.assertIn("--sandbox", explorer_plan.command)
+        self.assertIn("-p", explorer_plan.command)
+        mode_idx = explorer_plan.command.index("--mode")
+        self.assertEqual(explorer_plan.command[mode_idx + 1], "plan")
+        self.assertNotIn("--model", explorer_plan.command)
+        self.assertIn("output an agent-report formatted report to stdout", explorer_plan.prompt)
+        self.assertIn("do not write files", explorer_plan.prompt)
+        self.assertNotIn("save it to", explorer_plan.prompt)
+
+        reviewer_plan = build_dispatch_plan(DispatchRequest(
+            root=self.repo,
+            config=config,
+            slug="dispatch-test-run",
+            role_id="reviewer",
+            runner="antigravity",
+        ))
+        self.assertEqual(reviewer_plan.command[0], "agy")
+        self.assertEqual(reviewer_plan.command[reviewer_plan.command.index("--mode") + 1], "plan")
+        self.assertNotIn("--model", reviewer_plan.command)
+        self.assertIn("to stdout", reviewer_plan.prompt)
+        self.assertIn("do not modify workspace files", reviewer_plan.prompt)
+
+        impl_plan = build_dispatch_plan(DispatchRequest(
+            root=self.repo,
+            config=config,
+            slug="dispatch-test-run",
+            role_id="implementer",
+            runner="antigravity",
+            model="gemini-4-neon-high",
+        ))
+        self.assertEqual(impl_plan.command[0], "agy")
+        self.assertEqual(impl_plan.command[impl_plan.command.index("--mode") + 1], "accept-edits")
+        model_idx = impl_plan.command.index("--model")
+        self.assertEqual(impl_plan.command[model_idx + 1], "gemini-4-neon-high")
+        self.assertIn("save it to", impl_plan.prompt)
+
 
 if __name__ == "__main__":
     unittest.main()
