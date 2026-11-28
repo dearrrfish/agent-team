@@ -9,24 +9,31 @@ at a stable path when linking it as an installed bundle.
 
 | Preset | Tool access |
 | --- | --- |
-| `agent-team-coordinator` | Read, write, shell, jobs, web, skills, native Team tasks, and fresh delegation to worker presets |
-| `agent-team-explorer` | Read, glob, grep, and web |
-| `agent-team-design-agent` | Read, glob, grep, and web |
-| `agent-team-implementer` | Read, write, shell, and jobs |
-| `agent-team-ops` | Read, write, shell, jobs, and web |
-| `agent-team-reviewer` | Read, glob, and grep |
+| `agent-team-coordinator` | Read, `read_image`, write, shell, jobs, web, skills, `ask_user_question`, native Team tasks, optional `delivery_*` coordinator tools, and fresh delegation to worker presets |
+| `agent-team-explorer` | Read, `read_image`, glob, grep, and web |
+| `agent-team-design-agent` | Read, `read_image`, glob, grep, and web |
+| `agent-team-implementer` | Read, `read_image`, write, shell, and jobs |
+| `agent-team-ops` | Read, `read_image`, write, shell, jobs, and web |
+| `agent-team-reviewer` | Read, `read_image`, glob, and grep |
 
-Host sandbox permissions and web provider readiness still govern tool access.
+Host sandbox permissions, attachment storage, model image support, and web
+provider readiness still govern tool access. `role-policy` allows non-child
+`delivery_*` tools on `agent-team-coordinator` by default (`allowDeliveryTools`,
+`extraTools`, and `extraToolPrefixes` can customize per-role access) while
+keeping `delivery_list`, `delivery_mkdir`, `delivery_read`, `delivery_write`,
+and `delivery_review_evidence` restricted to `dsh-delivery` child presets.
 
 1. Start with a disposable DSH profile. In **Plugins**, add the absolute path
    of this local bundle directory. Open a fresh session and verify all six
    preset IDs are available.
 2. Select `agent-team-coordinator` for the main session. The preset mounts its
-   own filesystem, shell, web, skill, Team, and delegation tools, so profiles
-   that scope tools to presets work without a separate profile patch.
+   filesystem, shell, web, skill, question, and delegation tools. Structured
+   questions require the Host `userQuestions` service and a client answerer.
+   The coordinator manages the shared task board when native Team mode is enabled.
 3. Check that `subagent` exposes `agent_preset` with the five worker presets,
    and set it explicitly on each call. Give each child its own instance name.
-   Verify the tool lists against the table before use. The coordinator loads
+   Verify that the coordinator can send and receive a structured question and
+   that the read-only roles expose no file mutation tools. The coordinator loads
    installed skills through the `skill` tool, including
    `dsh-delivery-feedback`; `/dsh-delivery-feedback` also works as a direct
    invocation.

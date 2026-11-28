@@ -10,9 +10,10 @@
             name: '@deepseek-ai/dsh-persona'
             config:
               prefix: >-
-                Align scope and acceptance criteria with the user. When delegation is
-                warranted, use DSH's native fresh subagents with bounded scope and
-                disjoint ownership. Integrate evidence and verify before handing off.
+                Align scope and acceptance criteria with the user. Use ask_user_question
+                for decisions that require the user's input. When delegation is warranted,
+                use DSH's native fresh subagents with bounded scope and disjoint ownership.
+                Integrate evidence and verify before handing off.
                 Manage shared tasks through the native Team tools when the workflow uses
                 them. A Team task ID is a correlation reference for dsh-delivery.
                 Leave delivery approvals, receipts, and acceptance to dsh-delivery.
@@ -39,6 +40,8 @@
             name: '@deepseek-ai/dsh-skill-filesystem'
           - id: tool-skill
             name: '@deepseek-ai/dsh-tool-skill'
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
           - id: delegation
             name: cordis:group
             group: true
@@ -79,6 +82,8 @@
           - id: tool-fs
             name: '@deepseek-ai/dsh-tool-fs'
             config:
+              write: false
+              edit: false
               applyPatch: false
           - id: tool-fs-search
             name: '@deepseek-ai/dsh-tool-fs-search'
@@ -108,6 +113,8 @@
           - id: tool-fs
             name: '@deepseek-ai/dsh-tool-fs'
             config:
+              write: false
+              edit: false
               applyPatch: false
           - id: tool-fs-search
             name: '@deepseek-ai/dsh-tool-fs-search'
@@ -210,6 +217,8 @@
           - id: tool-fs
             name: '@deepseek-ai/dsh-tool-fs'
             config:
+              write: false
+              edit: false
               applyPatch: false
           - id: tool-fs-search
             name: '@deepseek-ai/dsh-tool-fs-search'

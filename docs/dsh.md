@@ -65,10 +65,17 @@ TUI. Stock Web requires its own composition. Start in an
 isolated profile. The bundle declares `agent-team-coordinator`,
 `agent-team-explorer`, `agent-team-design-agent`, `agent-team-implementer`,
 `agent-team-ops`, and `agent-team-reviewer`. Choose the coordinator in the main
-session. It mounts its own tools, including the `skill` tool for installed
-skills such as `dsh-delivery-feedback`, and delegates through the native fresh
-spawn tool with the five worker presets. Each child has a separate instance
-name, and the coordinator requires an explicit worker preset on each call.
+session. It mounts the native `ask_user_question` and `skill` tools. The profile
+must provide the user-questions service and a client answerer for structured
+questions. The coordinator delegates through the native fresh spawn tool with
+an explicit worker preset and a separate instance name for each child. The
+explorer, design agent, and reviewer expose read-only repository tools. All six
+presets keep `read_image` available when the host mounts attachments and the
+active model route supports image input. The `role-policy` plugin admits
+non-child `delivery_*` coordinator tools for `agent-team-coordinator` by
+default and reserves `allowDeliveryTools`, `extraTools`, and
+`extraToolPrefixes` config overrides while blocking delivery child tools on all
+Agent Teams presets.
 
 The `team.toml` flag controls native client files. Preset deployment is a
 separate step in DSH. To upgrade an earlier bundle, install the new bundle

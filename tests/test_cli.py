@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -122,6 +123,17 @@ class CliTests(unittest.TestCase):
                 [line.strip() for line in patch_text.splitlines() if line.strip().startswith("- agent-team-")],
                 [f"- agent-team-{role}" for role in ROLE_IDS if role != "coordinator"],
             )
+            presets = dict(
+                entry.split("\n", 1) for entry in patch_text.split("\n    - id: preset-agent-team-")[1:]
+            )
+            ask_user_plugin = "'@deepseek-ai/dsh-tool-ask-user'"
+            read_only_roles = {"explorer", "design-agent", "reviewer"}
+            for role, preset in presets.items():
+                with self.subTest(role=role):
+                    self.assertEqual(ask_user_plugin in preset, role == "coordinator")
+                    self.assertEqual("write: false" in preset, role in read_only_roles)
+                    self.assertEqual("edit: false" in preset, role in read_only_roles)
+                    self.assertNotIn("readImage: false", preset)
             self.assertNotIn("subagent_fork", patch_text)
             self.assertFalse((bundle / "spawn-binding.patch.yml").exists())
             for preset_tool in (
@@ -136,6 +148,137 @@ class CliTests(unittest.TestCase):
             result = self._run(root, *args)
             self.assertEqual(result.returncode, 2, result.stderr)
             self.assertEqual(patch_path.read_text(encoding="utf-8"), "custom patch\n")
+
+    @unittest.skipUnless(shutil.which("node"), "node is required to execute DSH role-policy.js")
+    def test_dsh_role_policy_allows_read_image_and_delivery_extension(self) -> None:
+        script = r"""
+import assert from 'node:assert/strict';
+import { pathToFileURL } from 'node:url';
+
+const { apply } = await import(pathToFileURL(process.argv[1]).href);
+const shellTool = process.platform === 'win32' ? 'pwsh' : 'bash';
+const deliveryCoordinatorTools = [
+  'delivery_status', 'delivery_propose', 'delivery_execute', 'delivery_import_run',
+];
+const deliveryChildTools = [
+  'delivery_list', 'delivery_mkdir', 'delivery_read', 'delivery_write', 'delivery_review_evidence',
+];
+
+function createHarness(config) {
+  const registered = [
+    'read', 'read_image', 'glob', 'grep', 'edit', 'write', shellTool, 'job_list', 'job_output', 'job_kill',
+    'web_search', 'web_fetch', 'ask_user_question', 'skill', 'subagent', 'list_agents', 'send_message',
+    'wait_agent', 'team_task_create', 'team_task_list', 'team_task_get', 'team_task_update',
+    ...deliveryCoordinatorTools, ...deliveryChildTools, 'todo_write', 'apply_patch', 'custom_status',
+  ];
+  const denied = new Set();
+  const listeners = new Map();
+  let guardFn = null;
+  const ctx = {
+    on(event, fn) {
+      const list = listeners.get(event) ?? [];
+      list.push(fn);
+      listeners.set(event, list);
+    },
+    emit(event) {
+      for (const fn of listeners.get(event) ?? []) {
+        fn();
+      }
+    },
+    effect(fn) {
+      guardFn = fn();
+    },
+    tools: {
+      definitions: () => registered.map(name => ({ name })),
+      restrict({ deny = [] }) {
+        for (const name of deny) {
+          denied.add(name);
+        }
+        ctx.emit('tools/change');
+      },
+      guard: fn => fn,
+    },
+  };
+  apply(ctx, config);
+  return {
+    denied,
+    guard: (name, args) => guardFn({ name, arguments: args }),
+    addTool(name) {
+      registered.push(name);
+      ctx.emit('tools/change');
+    },
+  };
+}
+
+for (const role of ['coordinator', 'explorer', 'design-agent', 'implementer', 'ops', 'reviewer']) {
+  const harness = createHarness({ role });
+  assert.equal(harness.denied.has('read_image'), false, `${role} should not hide read_image`);
+  assert.equal(harness.guard('read_image'), undefined, `${role} should not block read_image`);
+}
+
+const coord = createHarness({ role: 'coordinator' });
+for (const tool of deliveryCoordinatorTools) {
+  assert.equal(coord.denied.has(tool), false, `coordinator should expose ${tool}`);
+  assert.equal(coord.guard(tool), undefined, `coordinator should allow ${tool}`);
+}
+for (const tool of [...deliveryChildTools, 'todo_write', 'apply_patch']) {
+  assert.equal(coord.denied.has(tool), true, `coordinator should hide ${tool}`);
+  assert.match(coord.guard(tool), /unavailable/);
+}
+coord.addTool('delivery_late');
+coord.addTool('blocked_late');
+assert.equal(coord.denied.has('delivery_late'), false);
+assert.equal(coord.guard('delivery_late'), undefined);
+assert.equal(coord.denied.has('blocked_late'), true);
+assert.match(coord.guard('blocked_late'), /unavailable/);
+assert.equal(coord.guard('subagent', { agent_preset: 'agent-team-explorer' }), undefined);
+assert.match(coord.guard('subagent', { agent_preset: 'delivery-v1-writer' }), /agent_preset/);
+assert.match(coord.guard('subagent', {}), /agent_preset/);
+
+const optOutCoord = createHarness({ role: 'coordinator', allowDeliveryTools: false });
+for (const tool of deliveryCoordinatorTools) {
+  assert.equal(optOutCoord.denied.has(tool), true);
+  assert.match(optOutCoord.guard(tool), /unavailable/);
+}
+
+for (const workerRole of ['explorer', 'design-agent', 'implementer', 'ops', 'reviewer']) {
+  const worker = createHarness({ role: workerRole });
+  for (const tool of [...deliveryCoordinatorTools, ...deliveryChildTools]) {
+    assert.equal(worker.denied.has(tool), true, `${workerRole} should hide ${tool}`);
+    assert.match(worker.guard(tool), /unavailable/);
+  }
+}
+
+const extended = createHarness({
+  role: 'reviewer',
+  extraTools: ['todo_write'],
+  extraToolPrefixes: ['custom_'],
+});
+assert.equal(extended.denied.has('todo_write'), false);
+assert.equal(extended.guard('todo_write'), undefined);
+assert.equal(extended.denied.has('custom_status'), false);
+assert.equal(extended.guard('custom_status'), undefined);
+
+for (const badConfig of [
+  { role: 'coordinator', allowDeliveryTools: 'yes' },
+  { role: 'coordinator', extraTools: [''] },
+  { role: 'coordinator', extraToolPrefixes: [123] },
+]) {
+  assert.throws(() => createHarness(badConfig));
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scaffold = self._run(root, "dsh", "scaffold", "--output", "bundle")
+            self.assertEqual(scaffold.returncode, 0, scaffold.stderr)
+            policy_path = root / "bundle" / "role-policy.js"
+            proc = subprocess.run(
+                ["node", "--input-type=module", "-e", script, str(policy_path)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr or proc.stdout)
 
     def test_fresh_project_end_to_end(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
