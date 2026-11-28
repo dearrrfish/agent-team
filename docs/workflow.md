@@ -378,9 +378,20 @@ agent-team dispatch --slug <slug> --role implementer --task T-001 --dry-run
 # Run implementer in an isolated worktree via Codex:
 agent-team dispatch --slug <slug> --role implementer --task T-001 --runner codex --worktree
 
+# Run explorer via Antigravity CLI (uses balanced.dispatch: gemini-3.8-flash + effort low):
+agent-team dispatch --slug <slug> --role explorer --runner antigravity --dry-run
+
+# Override runner model and reasoning effort explicitly:
+agent-team dispatch --slug <slug> --role reviewer --runner antigravity --model gemini-4-neon --effort xhigh
+
 # Run independent review via Claude:
 agent-team dispatch --slug <slug> --role reviewer --runner claude
 ```
+
+When `--runner antigravity` is used, rendered `agent.md` definitions retain
+tier aliases (`flash`, `pro`, `inherit`) with no `effort` frontmatter, while
+`agent-team dispatch` applies `[presets.<name>.dispatch]` (or explicit
+`--model` and `--effort`) for headless `agy` execution.
 
 Role runners can be permanently configured in `.agent-team/team.toml`:
 

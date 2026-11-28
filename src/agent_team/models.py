@@ -110,11 +110,20 @@ class RoleDefinition:
 
 
 @dataclass(frozen=True)
+class DispatchPreset:
+    coordinator_model: str | None = None
+    coordinator_effort: str | None = None
+    models: Mapping[str, str] = field(default_factory=dict)
+    effort: Mapping[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class TargetPreset:
     coordinator_model: str
     coordinator_effort: str | None
     models: Mapping[str, str]
     effort: Mapping[str, str]
+    dispatch: DispatchPreset | None = None
 
 
 @dataclass(frozen=True)
@@ -124,6 +133,7 @@ class TargetPresetOverride:
     models: Mapping[str, str]
     effort: Mapping[str, str]
     template: str | None = None
+    dispatch: DispatchPreset | None = None
 
 
 @dataclass(frozen=True)
@@ -140,3 +150,18 @@ class TargetProfile:
     team_runtime: str
     models_without_effort: tuple[str, ...]
     presets: Mapping[str, TargetPreset]
+    supports_dispatch_effort: bool | None = None
+    dispatch_effort_levels: tuple[str, ...] | None = None
+    dispatch_models_without_effort: tuple[str, ...] = ()
+
+    @property
+    def effective_supports_dispatch_effort(self) -> bool:
+        return self.supports_effort if self.supports_dispatch_effort is None else self.supports_dispatch_effort
+
+    @property
+    def effective_dispatch_effort_levels(self) -> tuple[str, ...]:
+        return self.effort_levels if self.dispatch_effort_levels is None else self.dispatch_effort_levels
+
+    @property
+    def effective_dispatch_models_without_effort(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys((*self.models_without_effort, *self.dispatch_models_without_effort)))

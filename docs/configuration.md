@@ -329,7 +329,50 @@ Balanced routing is:
 | Deep | `gpt-6-sol` | `sonnet` | `pro` |
 
 Role effort is mapped through each preset. Claude omits effort for Haiku;
-Antigravity profiles do not emit effort. Tool names and permission modes are
+Antigravity native `agent.md` files do not emit effort and keep subagent tier
+aliases (`flash`, `pro`, `inherit`).
+
+### Dual-track headless dispatch (`antigravity`)
+
+Headless `agent-team dispatch` resolves an optional `[presets.<name>.dispatch]`
+track when present, allowing targets whose native agent files require aliases
+to pass concrete `--model` and `--effort` CLI flags at dispatch time:
+
+```toml
+dispatch_models_without_effort = ["gemini-pro-orchestrator-neon"]
+
+[features]
+supports_effort = false
+effort_levels = []
+supports_dispatch_effort = true
+dispatch_effort_levels = ["low", "medium", "high", "xhigh", "max"]
+supports_worktree_isolation = true
+team_runtime = "subagents"
+
+[presets.balanced.dispatch]
+coordinator_model = "gemini-4-neon"
+coordinator_effort = "medium"
+[presets.balanced.dispatch.models]
+fast = "gemini-3.8-flash"
+balanced = "gemini-4-hydrogen"
+deep = "gemini-4-neon"
+[presets.balanced.dispatch.effort]
+low = "low"
+medium = "medium"
+high = "high"
+```
+
+- `supports_dispatch_effort`, `dispatch_effort_levels`, and
+  `dispatch_models_without_effort` control validation and effort emission
+  during `dispatch` separately from `agent.md` rendering (`supports_effort`).
+- In `team.toml`, sparse overrides can customize headless routing under
+  `[model_presets.<target>.<preset>.dispatch]`, `[...dispatch.models]`, and
+  `[...dispatch.effort]` without changing rendered `agent.md` tier aliases.
+- If a concrete Antigravity `--model` slug already encodes an effort suffix
+  (`gemini-4-neon-high`), `dispatch` preserves that suffix cleanly and rejects
+  conflicting explicit `--effort` values.
+
+Tool names and permission modes are
 owned by adapters and cannot be injected through project configuration. Native
 effort mappings may use `low`, `medium`, `high`, `xhigh`, `max`, or `ultra` when
 the target's explicit `effort_levels` allow that level. Adapters also emit

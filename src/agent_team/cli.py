@@ -12,7 +12,13 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 from agent_team import __version__
-from agent_team.adapters import _mapped_role, load_skills, render_target, write_rendered
+from agent_team.adapters import (
+    _mapped_dispatch_role,
+    _mapped_role,
+    load_skills,
+    render_target,
+    write_rendered,
+)
 from agent_team.catalog import fetch_catalog
 from agent_team.config import (
     effective_default_preset,
@@ -257,6 +263,7 @@ Examples:
     dispatch.add_argument("--task", help="task ID (e.g. T-001)")
     dispatch.add_argument("--runner", choices=TARGETS, help="target runner CLI (default: configured role runner or target profile)")
     dispatch.add_argument("--model", help="override model for the runner")
+    dispatch.add_argument("--effort", help="override reasoning effort for the runner")
     dispatch.add_argument("--instruction", help="specific instruction or prompt addition")
     dispatch.add_argument("--worktree", action="store_true", help="run task in an isolated git worktree")
     dispatch.add_argument("--dry-run", action="store_true", help="preview command and prompt without execution")
@@ -766,18 +773,20 @@ def _model_preset(root: Path, config: object, args: argparse.Namespace,
     return config.default_model_preset
 
 
-def _source_for_role(config: object, target: str, preset: str, role: object) -> tuple[str, str | None]:
-    override = config.model_presets.get(target, {}).get(preset)
-    profile_source = config.target_profiles[target]
-    origin = config.field_origins.get(f"target_profiles.{target}")
-    if origin in ("user", "ancestor"):
-        profile_source = f"{origin}:{profile_source}"
+def _resolve_override_sources(
+    config: object,
+    profile_source: str,
+    prefix: str,
+    override: object,
+    role: object,
+) -> tuple[str, str | None]:
     if override is None:
         return profile_source, profile_source
-    prefix = f"model_presets.{target}.{preset}"
+
     def source(key: str) -> str:
         field_origin = config.field_origins.get(key)
         return f"{field_origin}:{key}" if field_origin in ("user", "ancestor") else key
+
     if role.role_id == "coordinator" and override.coordinator_model and "model_class" not in role.routing_override_origins:
         model_source = source(f"{prefix}.coordinator_model")
     elif role.model_class in override.models:
@@ -792,6 +801,31 @@ def _source_for_role(config: object, target: str, preset: str, role: object) -> 
     else:
         effort_source = profile_source
     return model_source, effort_source
+
+
+def _profile_source_label(config: object, target: str) -> str:
+    profile_source = config.target_profiles[target]
+    origin = config.field_origins.get(f"target_profiles.{target}")
+    if origin in ("user", "ancestor"):
+        return f"{origin}:{profile_source}"
+    return profile_source
+
+
+def _source_for_role(config: object, target: str, preset: str, role: object) -> tuple[str, str | None]:
+    profile_source = _profile_source_label(config, target)
+    override = config.model_presets.get(target, {}).get(preset)
+    return _resolve_override_sources(
+        config, profile_source, f"model_presets.{target}.{preset}", override, role,
+    )
+
+
+def _source_for_dispatch_role(config: object, target: str, preset: str, role: object) -> tuple[str, str | None]:
+    profile_source = _profile_source_label(config, target)
+    preset_override = config.model_presets.get(target, {}).get(preset)
+    override = preset_override.dispatch if preset_override is not None else None
+    return _resolve_override_sources(
+        config, profile_source, f"model_presets.{target}.{preset}.dispatch", override, role,
+    )
 
 
 def _effective_routing(root: Path, args: argparse.Namespace) -> dict[str, object]:
@@ -811,6 +845,7 @@ def _effective_routing(root: Path, args: argparse.Namespace) -> dict[str, object
                 "model_preset", f"{preset_name} is not defined by the {target} profile", code="enum"
             ))
             continue
+        preset_def = profile.presets[preset_name]
         resolved_roles: list[dict[str, object]] = []
         for role in roles:
             model, effort = _mapped_role(profile, preset_name, role)
@@ -818,14 +853,26 @@ def _effective_routing(root: Path, args: argparse.Namespace) -> dict[str, object
             model_class = role.model_class
             if role.role_id == "coordinator" and "model_class" not in role.routing_override_origins:
                 model_class = "coordinator"
-            resolved_roles.append({
+            entry: dict[str, object] = {
                 "role_id": role.role_id,
                 "model_class": model_class,
                 "native_model": model,
                 "native_effort": effort,
                 "model_source": model_source,
                 "effort_source": effort_source if effort is not None else None,
-            })
+            }
+            if preset_def.dispatch is not None:
+                dispatch_model, dispatch_effort = _mapped_dispatch_role(profile, preset_name, role)
+                dispatch_model_source, dispatch_effort_source = _source_for_dispatch_role(
+                    config, target, preset_name, role,
+                )
+                entry.update({
+                    "dispatch_model": dispatch_model,
+                    "dispatch_effort": dispatch_effort,
+                    "dispatch_model_source": dispatch_model_source,
+                    "dispatch_effort_source": dispatch_effort_source if dispatch_effort is not None else None,
+                })
+            resolved_roles.append(entry)
         output.append({"target": target, "preset": preset_name, "roles": resolved_roles})
     if failures:
         raise ValidationFailure(failures)
@@ -847,19 +894,41 @@ def _models_show(root: Path, args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
     if args.format == "table":
-        rows = [(target["target"], target["preset"], role["role_id"], role["model_class"], role["native_model"], role["native_effort"], role["model_source"], role["effort_source"])
-                for target in payload["targets"] for role in target["roles"]]
-        _print_table(("Target", "Preset", "Role", "Class", "Model", "Effort", "Model source", "Effort source"), rows)
+        has_dispatch = any(
+            "dispatch_model" in role for target in payload["targets"] for role in target["roles"]
+        )
+        headers: tuple[str, ...] = (
+            "Target", "Preset", "Role", "Class", "Model", "Effort", "Model source", "Effort source",
+        )
+        if has_dispatch:
+            headers = (*headers, "Dispatch model", "Dispatch effort")
+        rows = []
+        for target in payload["targets"]:
+            for role in target["roles"]:
+                row: tuple[object, ...] = (
+                    target["target"], target["preset"], role["role_id"], role["model_class"],
+                    role["native_model"], role["native_effort"], role["model_source"], role["effort_source"],
+                )
+                if has_dispatch:
+                    row = (*row, role.get("dispatch_model"), role.get("dispatch_effort"))
+                rows.append(row)
+        _print_table(headers, rows)
         return 0
     for target in payload["targets"]:
         print(f"{target['target']} ({target['preset']})")
         for role in target["roles"]:
             effort = role["native_effort"] if role["native_effort"] is not None else "none"
-            print(
+            line = (
                 f"  {role['role_id']}: class={role['model_class']} model={role['native_model']} "
                 f"effort={effort} model_source={role['model_source']} "
                 f"effort_source={role['effort_source'] or 'none'}"
             )
+            if "dispatch_model" in role:
+                line += (
+                    f" dispatch_model={role['dispatch_model'] or 'none'}"
+                    f" dispatch_effort={role['dispatch_effort'] or 'none'}"
+                )
+            print(line)
     return 0
 
 
@@ -1167,6 +1236,7 @@ def _dispatch(root: Path, args: argparse.Namespace) -> int:
         timeout=args.timeout,
         dry_run=args.dry_run,
         askhuman=args.askhuman,
+        effort=args.effort,
     )
     plan = build_dispatch_plan(req)
 
@@ -1176,6 +1246,8 @@ def _dispatch(root: Path, args: argparse.Namespace) -> int:
                 "runner": plan.runner,
                 "role": plan.role_id,
                 "task": plan.task_id,
+                "model": plan.model,
+                "effort": plan.effort,
                 "command": list(plan.command),
                 "cwd": str(plan.cwd),
                 "report_path": str(plan.report_path),
@@ -1189,6 +1261,8 @@ def _dispatch(root: Path, args: argparse.Namespace) -> int:
             print(f"  Role:        {plan.role_id}")
             print(f"  Runner:      {plan.runner}")
             print(f"  Task ID:     {plan.task_id or '(adhoc)'}")
+            print(f"  Model:       {plan.model or '(runner default)'}")
+            print(f"  Effort:      {plan.effort or '(none)'}")
             print(f"  Working Dir: {plan.cwd}")
             print(f"  Report Path: {plan.report_path}")
             if plan.worktree_path:

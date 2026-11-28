@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
-from agent_team.adapters import _mapped_role
+from agent_team.adapters import _mapped_dispatch_role
 from agent_team.config import (
     effective_default_preset,
     load_roles,
@@ -17,6 +17,16 @@ from agent_team.models import TARGETS, RoleDefinition, TeamConfig
 from agent_team.recovery import discover_runs, select_run
 from agent_team.run_state import fail, prepare_review
 from agent_team.worktrees import sync_run_artifacts
+
+_ANTIGRAVITY_ALIAS_MODELS = frozenset({"inherit", "flash", "pro", "flash_lite"})
+_ANTIGRAVITY_CLI_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
+
+def _antigravity_model_effort_suffix(model_name: str) -> str | None:
+    for suffix in _ANTIGRAVITY_CLI_EFFORTS:
+        if model_name.endswith(f"-{suffix}") and len(model_name) > len(suffix) + 1:
+            return suffix
+    return None
 
 
 @dataclass(frozen=True)
@@ -33,6 +43,7 @@ class DispatchRequest:
     timeout: float = 600.0
     dry_run: bool = False
     askhuman: bool | None = None
+    effort: str | None = None
 
 
 @dataclass(frozen=True)
@@ -47,6 +58,8 @@ class DispatchPlan:
     role_id: str
     worktree_path: Path | None = None
     timeout: float = 600.0
+    model: str | None = None
+    effort: str | None = None
 
 
 @dataclass(frozen=True)
@@ -193,6 +206,10 @@ def build_dispatch_plan(
     role = roles[req.role_id]
 
     runner = resolve_runner_for_role(role, req.config, req.runner)
+    if runner in req.config.target_profiles:
+        target_roles = {r.role_id: r for r in load_roles(req.config, req.root, target=runner)}
+        if req.role_id in target_roles:
+            role = target_roles[req.role_id]
 
     # Resolve task details if provided
     task_info: dict | None = None
@@ -230,14 +247,64 @@ def build_dispatch_plan(
         worktree_path = (req.root / req.config.workflow.worktree_root / wt_name).resolve()
         cwd = worktree_path
 
-    # Resolve native model if not explicitly specified
-    model = req.model
-    if not model:
-        preset = effective_default_preset(req.config, runner)
-        profile = resolve_target_profile(req.config, runner, req.root)
-        if preset in profile.presets:
-            mapped_model, _ = _mapped_role(profile, preset, role)
-            model = mapped_model
+    # Resolve native dispatch model and effort
+    profile = resolve_target_profile(req.config, runner, req.root)
+    preset = effective_default_preset(req.config, runner)
+    mapped_model, mapped_effort = (
+        _mapped_dispatch_role(profile, preset, role) if preset in profile.presets else (None, None)
+    )
+
+    if req.effort is not None:
+        if not req.effort.strip() or any(not ch.isprintable() for ch in req.effort):
+            fail("effort must be a non-empty printable string")
+        allowed_efforts = profile.effective_dispatch_effort_levels or (
+            _ANTIGRAVITY_CLI_EFFORTS if runner == "antigravity" else ()
+        )
+        if not allowed_efforts:
+            fail(f"runner '{runner}' does not support --effort")
+        if req.effort not in allowed_efforts:
+            fail(
+                f"unsupported effort '{req.effort}' for runner '{runner}'; "
+                f"must be one of {', '.join(allowed_efforts)}"
+            )
+
+    effective_model = req.model if req.model is not None else mapped_model
+    effective_effort: str | None = None
+    if runner == "antigravity":
+        if effective_model and not req.model and effective_model in _ANTIGRAVITY_ALIAS_MODELS:
+            effective_model = None
+        candidate_effort = (
+            req.effort
+            if req.effort is not None
+            else (mapped_effort if effective_model is not None else None)
+        )
+        if candidate_effort is not None:
+            if effective_model is None:
+                fail(
+                    "antigravity --effort requires a concrete --model or a profile "
+                    "with [presets.<name>.dispatch] models"
+                )
+            if effective_model in profile.effective_dispatch_models_without_effort:
+                if req.effort is not None:
+                    fail(f"model '{effective_model}' does not support --effort on antigravity")
+                candidate_effort = None
+            else:
+                suffix = _antigravity_model_effort_suffix(effective_model)
+                if suffix is not None:
+                    if req.effort is not None:
+                        if req.effort != suffix:
+                            fail(
+                                f"antigravity model '{effective_model}' encodes effort '{suffix}' "
+                                f"and conflicts with --effort '{req.effort}'; "
+                                "use the bare model name or omit --effort"
+                            )
+                    else:
+                        candidate_effort = None
+        effective_effort = candidate_effort
+    elif req.effort is not None:
+        if effective_model and effective_model in profile.effective_dispatch_models_without_effort:
+            fail(f"model '{effective_model}' does not support --effort on {runner}")
+        effective_effort = req.effort
 
     # Construct prompt
     try:
@@ -324,33 +391,38 @@ def build_dispatch_plan(
     if runner == "codex":
         sandbox = "workspace-write" if role.write_policy == "workspace" else "read-only"
         cmd = ["codex", "exec", "-s", sandbox, "-C", str(cwd)]
-        if model:
-            cmd.extend(["-m", model])
+        if effective_model:
+            cmd.extend(["-m", effective_model])
+        if effective_effort:
+            cmd.extend(["-c", f'model_reasoning_effort="{effective_effort}"'])
         if req.worktree:
             cmd.append("--worktree")
         cmd.append(prompt)
     elif runner == "claude":
         cmd = ["claude", "-p", "--permission-mode", "dontAsk"]
-        if model:
-            cmd.extend(["--model", model])
+        if effective_model:
+            cmd.extend(["--model", effective_model])
+        if effective_effort:
+            cmd.extend(["--effort", effective_effort])
         if req.worktree:
             cmd.append("--worktree")
         cmd.append(prompt)
     elif runner == "pi":
         cmd = ["pi", "-p"]
-        if model:
-            cmd.extend(["--model", model])
+        if effective_model:
+            cmd.extend(["--model", effective_model])
+        if effective_effort:
+            cmd.extend(["--thinking", effective_effort])
         if role.write_policy == "deny":
             cmd.extend(["--tools", "read,grep,find,ls"])
         cmd.append(prompt)
     elif runner == "antigravity":
         mode = "plan" if role.write_policy == "deny" else "accept-edits"
         cmd = ["agy", "--mode", mode, "--sandbox"]
-        # Built-in Antigravity presets use subagent tier aliases (pro/flash/inherit)
-        # which `agy -p --model` rejects; only pass --model for explicit overrides
-        # or concrete model slugs.
-        if model and (req.model or model not in {"inherit", "flash", "pro", "flash_lite"}):
-            cmd.extend(["--model", model])
+        if effective_model:
+            cmd.extend(["--model", effective_model])
+        if effective_effort:
+            cmd.extend(["--effort", effective_effort])
         cmd.extend(["-p", prompt])
     else:
         fail(f"unhandled runner '{runner}'")
@@ -375,6 +447,8 @@ def build_dispatch_plan(
         role_id=req.role_id,
         worktree_path=worktree_path,
         timeout=req.timeout,
+        model=effective_model,
+        effort=effective_effort,
     )
 
 

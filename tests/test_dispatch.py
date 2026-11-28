@@ -451,11 +451,14 @@ class TestDispatch(unittest.TestCase):
             instruction="Inspect entrypoint",
         ))
         self.assertEqual(explorer_plan.command[0], "agy")
+        self.assertEqual(explorer_plan.model, "gemini-3.8-flash")
+        self.assertEqual(explorer_plan.effort, "low")
         self.assertIn("--sandbox", explorer_plan.command)
         self.assertIn("-p", explorer_plan.command)
         mode_idx = explorer_plan.command.index("--mode")
         self.assertEqual(explorer_plan.command[mode_idx + 1], "plan")
-        self.assertNotIn("--model", explorer_plan.command)
+        self.assertEqual(explorer_plan.command[explorer_plan.command.index("--model") + 1], "gemini-3.8-flash")
+        self.assertEqual(explorer_plan.command[explorer_plan.command.index("--effort") + 1], "low")
         self.assertIn("output an agent-report formatted report to stdout", explorer_plan.prompt)
         self.assertIn("do not write files", explorer_plan.prompt)
         self.assertNotIn("save it to", explorer_plan.prompt)
@@ -469,9 +472,32 @@ class TestDispatch(unittest.TestCase):
         ))
         self.assertEqual(reviewer_plan.command[0], "agy")
         self.assertEqual(reviewer_plan.command[reviewer_plan.command.index("--mode") + 1], "plan")
-        self.assertNotIn("--model", reviewer_plan.command)
+        self.assertEqual(reviewer_plan.command[reviewer_plan.command.index("--model") + 1], "gemini-4-neon")
+        self.assertEqual(reviewer_plan.command[reviewer_plan.command.index("--effort") + 1], "high")
         self.assertIn("to stdout", reviewer_plan.prompt)
         self.assertIn("do not modify workspace files", reviewer_plan.prompt)
+
+        hydrogen_plan = build_dispatch_plan(DispatchRequest(
+            root=self.repo,
+            config=config,
+            slug="dispatch-test-run",
+            role_id="implementer",
+            runner="antigravity",
+        ))
+        self.assertEqual(hydrogen_plan.command[0], "agy")
+        self.assertEqual(hydrogen_plan.command[hydrogen_plan.command.index("--mode") + 1], "accept-edits")
+        self.assertEqual(hydrogen_plan.command[hydrogen_plan.command.index("--model") + 1], "gemini-4-hydrogen")
+        self.assertEqual(hydrogen_plan.command[hydrogen_plan.command.index("--effort") + 1], "high")
+
+        coord_plan = build_dispatch_plan(DispatchRequest(
+            root=self.repo,
+            config=config,
+            slug="dispatch-test-run",
+            role_id="coordinator",
+            runner="antigravity",
+        ))
+        self.assertEqual(coord_plan.command[coord_plan.command.index("--model") + 1], "gemini-4-neon")
+        self.assertEqual(coord_plan.command[coord_plan.command.index("--effort") + 1], "medium")
 
         impl_plan = build_dispatch_plan(DispatchRequest(
             root=self.repo,
@@ -485,7 +511,225 @@ class TestDispatch(unittest.TestCase):
         self.assertEqual(impl_plan.command[impl_plan.command.index("--mode") + 1], "accept-edits")
         model_idx = impl_plan.command.index("--model")
         self.assertEqual(impl_plan.command[model_idx + 1], "gemini-4-neon-high")
+        self.assertNotIn("--effort", impl_plan.command)
+        self.assertIsNone(impl_plan.effort)
         self.assertIn("save it to", impl_plan.prompt)
+
+    def test_antigravity_dispatch_effort_suffix_and_orchestrator_guards(self) -> None:
+        config = load_team_config(self.repo)
+        suffixed_only = build_dispatch_plan(DispatchRequest(
+            root=self.repo,
+            config=config,
+            slug="dispatch-test-run",
+            role_id="reviewer",
+            runner="antigravity",
+            model="gemini-4-neon-medium",
+        ))
+        self.assertEqual(suffixed_only.command[suffixed_only.command.index("--model") + 1], "gemini-4-neon-medium")
+        self.assertNotIn("--effort", suffixed_only.command)
+
+        with self.assertRaises(ValidationFailure) as mismatch_ctx:
+            build_dispatch_plan(DispatchRequest(
+                root=self.repo,
+                config=config,
+                slug="dispatch-test-run",
+                role_id="reviewer",
+                runner="antigravity",
+                model="gemini-4-neon-medium",
+                effort="high",
+            ))
+        self.assertTrue(any("conflicts with --effort" in d.message for d in mismatch_ctx.exception.diagnostics))
+
+        matching = build_dispatch_plan(DispatchRequest(
+            root=self.repo,
+            config=config,
+            slug="dispatch-test-run",
+            role_id="reviewer",
+            runner="antigravity",
+            model="gemini-4-neon-high",
+            effort="high",
+        ))
+        self.assertEqual(matching.command[matching.command.index("--model") + 1], "gemini-4-neon-high")
+        self.assertEqual(matching.command[matching.command.index("--effort") + 1], "high")
+
+        orch = build_dispatch_plan(DispatchRequest(
+            root=self.repo,
+            config=config,
+            slug="dispatch-test-run",
+            role_id="coordinator",
+            runner="antigravity",
+            model="gemini-pro-orchestrator-neon",
+        ))
+        self.assertEqual(orch.command[orch.command.index("--model") + 1], "gemini-pro-orchestrator-neon")
+        self.assertNotIn("--effort", orch.command)
+        self.assertIsNone(orch.effort)
+
+        with self.assertRaises(ValidationFailure) as orch_ctx:
+            build_dispatch_plan(DispatchRequest(
+                root=self.repo,
+                config=config,
+                slug="dispatch-test-run",
+                role_id="coordinator",
+                runner="antigravity",
+                model="gemini-pro-orchestrator-neon",
+                effort="high",
+            ))
+        self.assertTrue(any("does not support --effort" in d.message for d in orch_ctx.exception.diagnostics))
+
+    def test_antigravity_dispatch_respects_target_role_overrides_and_sparse_dispatch(self) -> None:
+        team_toml = self.repo / ".agent-team" / "team.toml"
+        team_toml.write_text(
+            team_toml.read_text(encoding="utf-8")
+            + "\n[roles.implementer.targets.antigravity]\nmodel_class = \"deep\"\neffort = \"medium\"\n"
+            + "\n[model_presets.antigravity.balanced.dispatch.models]\ndeep = \"claude-opus-5-5\"\n"
+            + "\n[model_presets.antigravity.balanced.dispatch.effort]\nmedium = \"high\"\n",
+            encoding="utf-8",
+        )
+        config = load_team_config(self.repo)
+        plan = build_dispatch_plan(DispatchRequest(
+            root=self.repo,
+            config=config,
+            slug="dispatch-test-run",
+            role_id="implementer",
+            runner="antigravity",
+        ))
+        self.assertEqual(plan.model, "claude-opus-5-5")
+        self.assertEqual(plan.effort, "high")
+        self.assertEqual(plan.command[plan.command.index("--model") + 1], "claude-opus-5-5")
+        self.assertEqual(plan.command[plan.command.index("--effort") + 1], "high")
+
+    def test_antigravity_dispatch_legacy_profile_backwards_compatibility(self) -> None:
+        legacy_profile = '''
+schema_version = 1
+id = "antigravity"
+adapter = "antigravity"
+agent_destination = ".agents/agents"
+skill_destination = ".agents/skills"
+user_agent_destination = ".gemini/config/agents"
+user_skill_destination = ".gemini/antigravity-cli/skills"
+models_without_effort = []
+
+[features]
+supports_effort = false
+effort_levels = []
+supports_worktree_isolation = true
+team_runtime = "subagents"
+
+[presets.economy]
+coordinator_model = "flash"
+[presets.economy.models]
+fast = "flash"
+balanced = "flash"
+deep = "pro"
+
+[presets.balanced]
+coordinator_model = "pro"
+[presets.balanced.models]
+fast = "flash"
+balanced = "pro"
+deep = "pro"
+
+[presets.quality]
+coordinator_model = "pro"
+[presets.quality.models]
+fast = "flash"
+balanced = "pro"
+deep = "pro"
+'''
+        (self.repo / "legacy-agy.toml").write_text(legacy_profile, encoding="utf-8")
+        team_toml = self.repo / ".agent-team" / "team.toml"
+        team_toml.write_text(
+            team_toml.read_text(encoding="utf-8").replace(
+                'antigravity = "builtin:antigravity"',
+                'antigravity = "legacy-agy.toml"',
+            ),
+            encoding="utf-8",
+        )
+        config = load_team_config(self.repo)
+        default_plan = build_dispatch_plan(DispatchRequest(
+            root=self.repo,
+            config=config,
+            slug="dispatch-test-run",
+            role_id="explorer",
+            runner="antigravity",
+        ))
+        self.assertIsNone(default_plan.model)
+        self.assertIsNone(default_plan.effort)
+        self.assertNotIn("--model", default_plan.command)
+        self.assertNotIn("--effort", default_plan.command)
+
+        explicit_plan = build_dispatch_plan(DispatchRequest(
+            root=self.repo,
+            config=config,
+            slug="dispatch-test-run",
+            role_id="explorer",
+            runner="antigravity",
+            model="gemini-4-neon",
+            effort="high",
+        ))
+        self.assertEqual(explicit_plan.command[explicit_plan.command.index("--model") + 1], "gemini-4-neon")
+        self.assertEqual(explicit_plan.command[explicit_plan.command.index("--effort") + 1], "high")
+
+        with self.assertRaises(ValidationFailure) as missing_model_ctx:
+            build_dispatch_plan(DispatchRequest(
+                root=self.repo,
+                config=config,
+                slug="dispatch-test-run",
+                role_id="explorer",
+                runner="antigravity",
+                effort="high",
+            ))
+        self.assertTrue(any("requires a concrete --model" in d.message for d in missing_model_ctx.exception.diagnostics))
+
+    def test_cli_dispatch_effort_flag_across_runners_and_dry_run_formats(self) -> None:
+        res_json = self._run(
+            self.repo,
+            "dispatch",
+            "--slug", "dispatch-test-run",
+            "--role", "explorer",
+            "--runner", "antigravity",
+            "--effort", "xhigh",
+            "--dry-run",
+            "--format", "json",
+        )
+        self.assertEqual(res_json.returncode, 0, res_json.stderr)
+        data = json.loads(res_json.stdout)
+        self.assertEqual(data["model"], "gemini-3.8-flash")
+        self.assertEqual(data["effort"], "xhigh")
+        self.assertEqual(data["command"][data["command"].index("--effort") + 1], "xhigh")
+
+        res_text = self._run(
+            self.repo,
+            "dispatch",
+            "--slug", "dispatch-test-run",
+            "--role", "explorer",
+            "--runner", "antigravity",
+            "--dry-run",
+        )
+        self.assertEqual(res_text.returncode, 0, res_text.stderr)
+        self.assertIn("Model:       gemini-3.8-flash", res_text.stdout)
+        self.assertIn("Effort:      low", res_text.stdout)
+
+        config = load_team_config(self.repo)
+        for runner, expected_flag in (
+            ("claude", ("--effort", "high")),
+            ("pi", ("--thinking", "high")),
+            ("codex", ("-c", 'model_reasoning_effort="high"')),
+        ):
+            default_plan = build_dispatch_plan(DispatchRequest(
+                root=self.repo, config=config, slug="dispatch-test-run",
+                role_id="implementer", runner=runner,
+            ))
+            self.assertIsNone(default_plan.effort)
+            self.assertNotIn(expected_flag[0], default_plan.command)
+
+            with_effort = build_dispatch_plan(DispatchRequest(
+                root=self.repo, config=config, slug="dispatch-test-run",
+                role_id="implementer", runner=runner, effort="high",
+            ))
+            self.assertEqual(with_effort.effort, "high")
+            flag_idx = with_effort.command.index(expected_flag[0])
+            self.assertEqual(with_effort.command[flag_idx + 1], expected_flag[1])
 
 
 if __name__ == "__main__":

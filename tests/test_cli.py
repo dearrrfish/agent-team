@@ -347,6 +347,51 @@ for (const badConfig of [
             self.assertEqual(explorer["native_effort"], "high")
             self.assertEqual(explorer["effort_source"], "model_presets.codex.balanced.effort.low")
 
+    def test_models_show_reports_antigravity_dual_track_and_preserves_native_agent_aliases(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(self._run(root, "init", "--scope", "project").returncode, 0)
+            _append_team_config(
+                root,
+                '[model_presets.antigravity.balanced.dispatch.models]\n'
+                'deep = "claude-opus-5-5"\n'
+                '[model_presets.antigravity.balanced.dispatch.effort]\n'
+                'low = "medium"\n',
+            )
+            result = self._run(root, "models", "show", "--target", "antigravity", "--format", "json")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            target = payload["targets"][0]
+            self.assertEqual(target["target"], "antigravity")
+            roles = {item["role_id"]: item for item in target["roles"]}
+            self.assertEqual(roles["explorer"]["native_model"], "flash")
+            self.assertIsNone(roles["explorer"]["native_effort"])
+            self.assertEqual(roles["explorer"]["dispatch_model"], "gemini-3.8-flash")
+            self.assertEqual(roles["explorer"]["dispatch_effort"], "medium")
+            self.assertEqual(
+                roles["explorer"]["dispatch_effort_source"],
+                "model_presets.antigravity.balanced.dispatch.effort.low",
+            )
+            self.assertEqual(roles["implementer"]["native_model"], "pro")
+            self.assertIsNone(roles["implementer"]["native_effort"])
+            self.assertEqual(roles["implementer"]["dispatch_model"], "gemini-4-hydrogen")
+            self.assertEqual(roles["implementer"]["dispatch_effort"], "high")
+            self.assertEqual(roles["reviewer"]["native_model"], "pro")
+            self.assertEqual(roles["reviewer"]["dispatch_model"], "claude-opus-5-5")
+            self.assertEqual(
+                roles["reviewer"]["dispatch_model_source"],
+                "model_presets.antigravity.balanced.dispatch.models.deep",
+            )
+
+            render = self._run(root, "render", "--target", "antigravity", "--output", str(root / "rendered"))
+            self.assertEqual(render.returncode, 0, render.stderr)
+            explorer_agent = (root / "rendered" / ".agents" / "agents" / "explorer" / "agent.md").read_text(encoding="utf-8")
+            reviewer_agent = (root / "rendered" / ".agents" / "agents" / "reviewer" / "agent.md").read_text(encoding="utf-8")
+            self.assertIn('model: "flash"', explorer_agent)
+            self.assertIn('model: "pro"', reviewer_agent)
+            self.assertNotIn("effort:", explorer_agent)
+            self.assertNotIn("effort:", reviewer_agent)
+
     def test_models_fetch_reports_unavailable_source_with_nonzero_json_result(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

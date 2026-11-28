@@ -43,6 +43,40 @@ def _mapped_role(profile: TargetProfile, preset_name: str, role: RoleDefinition)
     return model, effort
 
 
+def _mapped_dispatch_role(
+    profile: TargetProfile, preset_name: str, role: RoleDefinition,
+) -> tuple[str | None, str | None]:
+    """Resolve role model and effort for headless dispatch commands."""
+    native_model, native_effort = _mapped_role(profile, preset_name, role)
+    preset = profile.presets[preset_name]
+    dispatch = preset.dispatch
+    if dispatch is None:
+        return native_model or None, native_effort
+    supports_effort = profile.effective_supports_dispatch_effort
+    if role.role_id == "coordinator":
+        model = (
+            dispatch.models.get(role.model_class)
+            if "model_class" in role.routing_override_origins
+            else (dispatch.coordinator_model or dispatch.models.get(role.model_class))
+        ) or native_model
+        if supports_effort:
+            effort = (
+                dispatch.effort.get(role.effort)
+                if "effort" in role.routing_override_origins
+                else (dispatch.coordinator_effort or dispatch.effort.get(role.effort))
+            )
+        else:
+            effort = None
+    else:
+        model = dispatch.models.get(role.model_class) or native_model
+        effort = dispatch.effort.get(role.effort) if supports_effort else None
+    if effort is None and native_effort is not None and supports_effort:
+        effort = native_effort
+    if model and model in profile.effective_dispatch_models_without_effort:
+        effort = None
+    return model or None, effort
+
+
 def _tools(role: RoleDefinition, target: str, pi_status: PiPluginStatus | None = None) -> str:
     readable = "filesystem.read" in role.capabilities
     writable = "filesystem.write" in role.capabilities

@@ -6,10 +6,17 @@ skill_destination = ".agents/skills"
 user_agent_destination = ".gemini/config/agents"
 user_skill_destination = ".gemini/antigravity-cli/skills"
 models_without_effort = []
+dispatch_models_without_effort = [
+  "gemini-pro-orchestrator-neon",
+  "gemini-pro-orchestrator",
+  "gemini-pro-orchestrator-argon",
+]
 
 [features]
 supports_effort = false
 effort_levels = []
+supports_dispatch_effort = true
+dispatch_effort_levels = ["low", "medium", "high", "xhigh", "max"]
 supports_worktree_isolation = true
 team_runtime = "subagents"
 
@@ -19,6 +26,17 @@ coordinator_model = "flash"
 fast = "flash"
 balanced = "flash"
 deep = "pro"
+[presets.economy.dispatch]
+coordinator_model = "gemini-4-hydrogen"
+coordinator_effort = "medium"
+[presets.economy.dispatch.models]
+fast = "gemini-3.8-flash"
+balanced = "gemini-4-hydrogen"
+deep = "gemini-4-hydrogen"
+[presets.economy.dispatch.effort]
+low = "low"
+medium = "medium"
+high = "medium"
 
 [presets.balanced]
 coordinator_model = "pro"
@@ -26,6 +44,17 @@ coordinator_model = "pro"
 fast = "flash"
 balanced = "pro"
 deep = "pro"
+[presets.balanced.dispatch]
+coordinator_model = "gemini-4-neon"
+coordinator_effort = "medium"
+[presets.balanced.dispatch.models]
+fast = "gemini-3.8-flash"
+balanced = "gemini-4-hydrogen"
+deep = "gemini-4-neon"
+[presets.balanced.dispatch.effort]
+low = "low"
+medium = "medium"
+high = "high"
 
 [presets.quality]
 coordinator_model = "pro"
@@ -33,3 +62,14 @@ coordinator_model = "pro"
 fast = "flash"
 balanced = "pro"
 deep = "pro"
+[presets.quality.dispatch]
+coordinator_model = "gemini-4-neon"
+coordinator_effort = "high"
+[presets.quality.dispatch.models]
+fast = "gemini-4-hydrogen"
+balanced = "gemini-4-neon"
+deep = "gemini-4-neon"
+[presets.quality.dispatch.effort]
+low = "medium"
+medium = "high"
+high = "xhigh"

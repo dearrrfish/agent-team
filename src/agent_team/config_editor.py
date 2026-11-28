@@ -160,7 +160,7 @@ def _choose_preset(
             choices = metadata[model].get("effort_options")
             if choices:
                 raise _fail(model, "model requires effort choices unsupported by the selected profile")
-        return TargetPreset(coordinator, None, models, {})
+        return TargetPreset(coordinator, None, models, {}, dispatch=old.dispatch)
     coordinator_options = _compatible_efforts(profile, (coordinator,), metadata, emit, coordinator=True)
     coordinator_effort = _menu(
         f"{prefix} / coordinator effort", coordinator_options, old.coordinator_effort, read, emit,
@@ -170,7 +170,7 @@ def _choose_preset(
         key: _menu(f"{prefix} / shared {key} effort", worker_options, old.effort[key], read, emit)
         for key in _EFFORTS
     }
-    return TargetPreset(coordinator, coordinator_effort, models, efforts)
+    return TargetPreset(coordinator, coordinator_effort, models, efforts, dispatch=old.dispatch)
 
 
 def _leaves(preset: TargetPreset) -> dict[tuple[str, ...], str]:

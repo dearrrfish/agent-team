@@ -19,7 +19,7 @@ from agent_team.config import (
     resolve_tier,
 )
 from agent_team.diagnostics import ValidationFailure
-from agent_team.models import PRESETS, TARGETS, TargetPreset
+from agent_team.models import PRESETS, TARGETS, DispatchPreset, TargetPreset
 from agent_team.templates import asset_text
 
 
@@ -485,11 +485,16 @@ deep = "quick-deep"
                 declared = tomllib.loads(asset_text("definitions", "targets", f"{target}.toml"))
                 for preset_name in PRESETS:
                     literal = declared["presets"][preset_name]
+                    dispatch = (
+                        DispatchPreset(**literal["dispatch"])
+                        if "dispatch" in literal else None
+                    )
                     self.assertEqual(profile.presets[preset_name], TargetPreset(
                         coordinator_model=literal["coordinator_model"],
                         coordinator_effort=literal.get("coordinator_effort"),
                         models=literal["models"],
                         effort=literal.get("effort", {}),
+                        dispatch=dispatch,
                     ))
                 quality = profile.presets["quality"]
                 self.assertEqual(
@@ -505,6 +510,153 @@ deep = "quick-deep"
         codex = load_target_profile("codex", "builtin:codex", Path(".").resolve())
         self.assertEqual(codex.presets["balanced"].coordinator_effort, "medium")
         self.assertEqual(codex.presets["balanced"].models["deep"], "gpt-6-sol")
+        antigravity = load_target_profile("antigravity", "builtin:antigravity", Path(".").resolve())
+        self.assertFalse(antigravity.supports_effort)
+        self.assertEqual(antigravity.effort_levels, ())
+        self.assertTrue(antigravity.effective_supports_dispatch_effort)
+        self.assertEqual(antigravity.dispatch_effort_levels, ("low", "medium", "high", "xhigh", "max"))
+        self.assertEqual(
+            antigravity.presets["balanced"].dispatch,
+            DispatchPreset(
+                coordinator_model="gemini-4-neon",
+                coordinator_effort="medium",
+                models={
+                    "fast": "gemini-3.8-flash",
+                    "balanced": "gemini-4-hydrogen",
+                    "deep": "gemini-4-neon",
+                },
+                effort={"low": "low", "medium": "medium", "high": "high"},
+            ),
+        )
+
+    def test_antigravity_dispatch_sparse_override_and_template_inheritance(self) -> None:
+        config_text = DEFAULT_TEAM_TOML + '''
+
+[model_presets.antigravity.balanced.dispatch]
+coordinator_model = "gemini-4-carbon"
+coordinator_effort = "low"
+[model_presets.antigravity.balanced.dispatch.models]
+fast = "gemini-4-hydrogen"
+[model_presets.antigravity.balanced.dispatch.effort]
+high = "xhigh"
+
+[model_presets.antigravity.custom-neon]
+template = "quality"
+[model_presets.antigravity.custom-neon.dispatch.models]
+fast = "gemini-3.8-flash"
+'''
+        with self._project() as directory:
+            root = Path(directory)
+            (root / ".agent-team" / "team.toml").write_text(config_text, encoding="utf-8")
+            config = load_team_config(root)
+            profile = resolve_target_profile(config, "antigravity", root)
+            balanced = profile.presets["balanced"]
+            self.assertEqual(balanced.coordinator_model, "pro")
+            self.assertEqual(balanced.models, {"fast": "flash", "balanced": "pro", "deep": "pro"})
+            self.assertEqual(balanced.dispatch, DispatchPreset(
+                coordinator_model="gemini-4-carbon",
+                coordinator_effort="low",
+                models={"fast": "gemini-4-hydrogen", "balanced": "gemini-4-hydrogen", "deep": "gemini-4-neon"},
+                effort={"low": "low", "medium": "medium", "high": "xhigh"},
+            ))
+            custom = profile.presets["custom-neon"]
+            self.assertEqual(custom.models["fast"], "flash")
+            self.assertIsNone(custom.coordinator_effort)
+            self.assertEqual(custom.dispatch, DispatchPreset(
+                coordinator_model="gemini-4-neon",
+                coordinator_effort="high",
+                models={"fast": "gemini-3.8-flash", "balanced": "gemini-4-neon", "deep": "gemini-4-neon"},
+                effort={"low": "medium", "medium": "high", "high": "xhigh"},
+            ))
+
+    def test_antigravity_dispatch_validation_errors_and_legacy_profile(self) -> None:
+        bad_team = tomllib.loads(DEFAULT_TEAM_TOML)
+        bad_team["model_presets"] = {
+            "antigravity": {
+                "balanced": {
+                    "dispatch": {
+                        "unknown_key": "x",
+                        "coordinator_model": "   ",
+                    },
+                },
+            },
+        }
+        with self.assertRaises(ValidationFailure) as team_ctx:
+            parse_team_config(bad_team, Path("/tmp/project"))
+        paths = {item.path for item in team_ctx.exception.diagnostics}
+        self.assertIn("model_presets.antigravity.balanced.dispatch.unknown_key", paths)
+        self.assertIn("model_presets.antigravity.balanced.dispatch.coordinator_model", paths)
+
+        with self._project() as directory:
+            root = Path(directory)
+            (root / ".agent-team" / "team.toml").write_text(
+                DEFAULT_TEAM_TOML
+                + '\n[model_presets.antigravity.balanced.dispatch]\ncoordinator_effort = "ultra"\n',
+                encoding="utf-8",
+            )
+            config = load_team_config(root)
+            with self.assertRaises(ValidationFailure) as enum_ctx:
+                resolve_target_profile(config, "antigravity", root)
+            self.assertTrue(any(
+                item.path == "model_presets.antigravity.balanced.dispatch.coordinator_effort"
+                and item.code == "enum"
+                for item in enum_ctx.exception.diagnostics
+            ))
+
+            legacy_profile = '''
+schema_version = 1
+id = "antigravity"
+adapter = "antigravity"
+agent_destination = ".agents/agents"
+skill_destination = ".agents/skills"
+user_agent_destination = ".gemini/config/agents"
+user_skill_destination = ".gemini/antigravity-cli/skills"
+models_without_effort = []
+
+[features]
+supports_effort = false
+effort_levels = []
+supports_worktree_isolation = true
+team_runtime = "subagents"
+
+[presets.economy]
+coordinator_model = "flash"
+[presets.economy.models]
+fast = "flash"
+balanced = "flash"
+deep = "pro"
+
+[presets.balanced]
+coordinator_model = "pro"
+[presets.balanced.models]
+fast = "flash"
+balanced = "pro"
+deep = "pro"
+
+[presets.quality]
+coordinator_model = "pro"
+[presets.quality.models]
+fast = "flash"
+balanced = "pro"
+deep = "pro"
+'''
+            (root / "legacy-agy.toml").write_text(legacy_profile, encoding="utf-8")
+            (root / ".agent-team" / "team.toml").write_text(
+                DEFAULT_TEAM_TOML.replace(
+                    'antigravity = "builtin:antigravity"',
+                    'antigravity = "legacy-agy.toml"',
+                )
+                + '\n[model_presets.antigravity.balanced.dispatch.effort]\nlow = "low"\n',
+                encoding="utf-8",
+            )
+            legacy_config = load_team_config(root)
+            with self.assertRaises(ValidationFailure) as inv_ctx:
+                resolve_target_profile(legacy_config, "antigravity", root)
+            self.assertTrue(any(
+                item.path == "model_presets.antigravity.balanced.dispatch.effort.low"
+                and item.code == "invariant"
+                for item in inv_ctx.exception.diagnostics
+            ))
 
 
 if __name__ == "__main__":

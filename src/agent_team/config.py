@@ -18,6 +18,7 @@ from agent_team.models import (
     ROLE_IDS,
     TARGETS,
     TIERS,
+    DispatchPreset,
     InstallConfig,
     IntegrationsConfig,
     ReviewConfig,
@@ -213,6 +214,101 @@ def _contained_path(root: Path, raw: str, path: str, diagnostics: list[Diagnosti
     return candidate
 
 
+def _parse_dispatch_preset(
+    raw: Any, path: str, diagnostics: list[Diagnostic],
+) -> DispatchPreset:
+    item = _mapping(raw, path, diagnostics)
+    _unknown_keys(
+        item,
+        {"coordinator_model", "coordinator_effort", "models", "effort"},
+        path,
+        diagnostics,
+    )
+    models = _mapping(item["models"], f"{path}.models", diagnostics) if "models" in item else {}
+    _unknown_keys(models, {"fast", "balanced", "deep"}, f"{path}.models", diagnostics)
+    effort = _mapping(item["effort"], f"{path}.effort", diagnostics) if "effort" in item else {}
+    _unknown_keys(effort, {"low", "medium", "high"}, f"{path}.effort", diagnostics)
+    return DispatchPreset(
+        coordinator_model=(
+            _nonempty_string(item["coordinator_model"], f"{path}.coordinator_model", diagnostics)
+            if "coordinator_model" in item else None
+        ),
+        coordinator_effort=(
+            _nonempty_string(item["coordinator_effort"], f"{path}.coordinator_effort", diagnostics)
+            if "coordinator_effort" in item else None
+        ),
+        models={
+            key: _nonempty_string(value, f"{path}.models.{key}", diagnostics)
+            for key, value in models.items()
+            if key in {"fast", "balanced", "deep"}
+        },
+        effort={
+            key: _nonempty_string(value, f"{path}.effort.{key}", diagnostics)
+            for key, value in effort.items()
+            if key in {"low", "medium", "high"}
+        },
+    )
+
+
+def _merge_dispatch_preset(
+    base: DispatchPreset | None, override: DispatchPreset | None,
+) -> DispatchPreset | None:
+    if base is None:
+        return override
+    if override is None:
+        return base
+    return DispatchPreset(
+        coordinator_model=(
+            override.coordinator_model
+            if override.coordinator_model is not None else base.coordinator_model
+        ),
+        coordinator_effort=(
+            override.coordinator_effort
+            if override.coordinator_effort is not None else base.coordinator_effort
+        ),
+        models={**base.models, **override.models},
+        effort={**base.effort, **override.effort},
+    )
+
+
+def _validate_dispatch_effort(
+    dispatch: DispatchPreset | None,
+    path: str,
+    supports_dispatch_effort: bool,
+    dispatch_effort_levels: Iterable[str],
+    diagnostics: list[Diagnostic],
+) -> None:
+    if dispatch is None:
+        return
+    supported = set(dispatch_effort_levels)
+    if dispatch.coordinator_effort is not None:
+        if not supports_dispatch_effort:
+            diagnostics.append(Diagnostic(
+                f"{path}.coordinator_effort",
+                "target does not support dispatch effort overrides",
+                code="invariant",
+            ))
+        elif dispatch.coordinator_effort not in supported:
+            diagnostics.append(Diagnostic(
+                f"{path}.coordinator_effort",
+                "unsupported native effort",
+                code="enum",
+            ))
+    for semantic, native_effort in dispatch.effort.items():
+        if not supports_dispatch_effort:
+            diagnostics.append(Diagnostic(
+                f"{path}.effort.{semantic}",
+                "target does not support dispatch effort overrides",
+                code="invariant",
+            ))
+        elif native_effort not in supported:
+            diagnostics.append(Diagnostic(
+                f"{path}.effort.{semantic}",
+                "unsupported native effort",
+                code="enum",
+            ))
+
+
 def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
     diagnostics: list[Diagnostic] = []
     allowed = {
@@ -297,7 +393,7 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
             item = _mapping(preset_override, preset_path, diagnostics)
             _unknown_keys(
                 item,
-                {"coordinator_model", "coordinator_effort", "models", "effort", "template"},
+                {"coordinator_model", "coordinator_effort", "models", "effort", "template", "dispatch"},
                 preset_path,
                 diagnostics,
             )
@@ -315,6 +411,10 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
             _unknown_keys(models, {"fast", "balanced", "deep"}, f"{preset_path}.models", diagnostics)
             effort = _mapping(item["effort"], f"{preset_path}.effort", diagnostics) if "effort" in item else {}
             _unknown_keys(effort, {"low", "medium", "high"}, f"{preset_path}.effort", diagnostics)
+            dispatch = (
+                _parse_dispatch_preset(item["dispatch"], f"{preset_path}.dispatch", diagnostics)
+                if "dispatch" in item else None
+            )
             parsed_presets[preset_name] = TargetPresetOverride(
                 coordinator_model=(
                     _nonempty_string(item["coordinator_model"], f"{preset_path}.coordinator_model", diagnostics)
@@ -335,6 +435,7 @@ def parse_team_config(data: dict[str, Any], root: Path) -> TeamConfig:
                     if key in {"low", "medium", "high"}
                 },
                 template=template,
+                dispatch=dispatch,
             )
         if parsed_presets:
             model_presets[target] = parsed_presets
@@ -979,8 +1080,8 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
         {
             "schema_version", "id", "adapter", "agent_destination",
             "skill_destination", "user_agent_destination",
-            "user_skill_destination", "models_without_effort", "features",
-            "presets",
+            "user_skill_destination", "models_without_effort",
+            "dispatch_models_without_effort", "features", "presets",
         },
         source, diagnostics,
     )
@@ -993,7 +1094,10 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
     features = _mapping(_required(data, "features", source, diagnostics), f"{source}.features", diagnostics)
     _unknown_keys(
         features,
-        {"supports_effort", "effort_levels", "supports_worktree_isolation", "team_runtime"},
+        {
+            "supports_effort", "effort_levels", "supports_dispatch_effort",
+            "dispatch_effort_levels", "supports_worktree_isolation", "team_runtime",
+        },
         f"{source}.features",
         diagnostics,
     )
@@ -1002,6 +1106,20 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
         _required(features, "effort_levels", f"{source}.features", diagnostics),
         f"{source}.features.effort_levels",
         diagnostics,
+    )
+    supports_dispatch_effort = (
+        _boolean(features["supports_dispatch_effort"], f"{source}.features.supports_dispatch_effort", diagnostics)
+        if "supports_dispatch_effort" in features else None
+    )
+    dispatch_effort_levels = (
+        _string_list(features["dispatch_effort_levels"], f"{source}.features.dispatch_effort_levels", diagnostics)
+        if "dispatch_effort_levels" in features else None
+    )
+    eff_dispatch_supports = (
+        supports_effort if supports_dispatch_effort is None else supports_dispatch_effort
+    )
+    eff_dispatch_levels = (
+        effort_levels if dispatch_effort_levels is None else dispatch_effort_levels
     )
     presets_data = _mapping(_required(data, "presets", source, diagnostics), f"{source}.presets", diagnostics)
     preset_names: list[str] = list(PRESETS)
@@ -1026,7 +1144,7 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
         literal = _mapping(raw, preset_path, diagnostics)
         _unknown_keys(
             literal,
-            {"coordinator_model", "coordinator_effort", "models", "effort", "template"},
+            {"coordinator_model", "coordinator_effort", "models", "effort", "template", "dispatch"},
             preset_path, diagnostics,
         )
         literals[preset_name] = literal
@@ -1085,6 +1203,10 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
                 key: _string(value, f"{preset_path}.effort.{key}", diagnostics)
                 for key, value in effort.items() if key in {"low", "medium", "high"}
             },
+            "dispatch": (
+                _parse_dispatch_preset(literal["dispatch"], f"{preset_path}.dispatch", diagnostics)
+                if "dispatch" in literal else None
+            ),
         }
 
     effective: dict[str, dict[str, Any]] = {}
@@ -1098,6 +1220,7 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
         blueprint = literals[template] if template is not None else {}
         inherited = declared[template] if template is not None else {
             "coordinator_model": None, "coordinator_effort": None, "models": {}, "effort": {},
+            "dispatch": None,
         }
         item: dict[str, Any] = {}
         coordinator_model = (
@@ -1119,6 +1242,12 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
                 dict(own["effort"]) if not supports_effort
                 else {**inherited["effort"], **own["effort"]}
             )
+        inherited_dispatch = inherited["dispatch"]
+        if inherited_dispatch is not None and not eff_dispatch_supports:
+            inherited_dispatch = replace(inherited_dispatch, coordinator_effort=None, effort={})
+        merged_dispatch = _merge_dispatch_preset(inherited_dispatch, own["dispatch"])
+        if merged_dispatch is not None:
+            item["dispatch"] = merged_dispatch
         effective[preset_name] = item
 
     presets: dict[str, TargetPreset] = {}
@@ -1139,6 +1268,7 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
             ),
             models={key: _string(value, f"{preset_path}.models.{key}", diagnostics) for key, value in models.items()},
             effort={key: _string(value, f"{preset_path}.effort.{key}", diagnostics) for key, value in effort.items()},
+            dispatch=item.get("dispatch"),
         )
     supports_worktree_isolation = _boolean(
         _required(features, "supports_worktree_isolation", f"{source}.features", diagnostics),
@@ -1146,6 +1276,11 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
     )
     models_without_effort = _string_list(
         data.get("models_without_effort", []), f"{source}.models_without_effort", diagnostics
+    )
+    dispatch_models_without_effort = _string_list(
+        data.get("dispatch_models_without_effort", []),
+        f"{source}.dispatch_models_without_effort",
+        diagnostics,
     )
     if supports_effort:
         for preset_name, preset in presets.items():
@@ -1182,8 +1317,13 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
         candidate = Path(destination)
         if not destination or candidate.is_absolute() or ".." in candidate.parts:
             diagnostics.append(Diagnostic(f"{source}.{destination_key}", "must be a contained relative path", code="path"))
-    valid_efforts = ({"off", "minimal", "low", "medium", "high", "xhigh", "max"} if adapter == "pi"
-                     else {"low", "medium", "high", "xhigh", "max", "ultra"})
+    valid_efforts = (
+        {"off", "minimal", "low", "medium", "high", "xhigh", "max"}
+        if adapter == "pi"
+        else {"low", "medium", "high", "xhigh", "max"}
+        if adapter == "antigravity"
+        else {"low", "medium", "high", "xhigh", "max", "ultra"}
+    )
     if len(effort_levels) != len(set(effort_levels)):
         diagnostics.append(Diagnostic(
             f"{source}.features.effort_levels", "effort levels must be unique", code="duplicate"
@@ -1207,6 +1347,32 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
             "targets without effort support must declare no effort levels",
             code="invariant",
         ))
+    if dispatch_effort_levels is not None:
+        if len(dispatch_effort_levels) != len(set(dispatch_effort_levels)):
+            diagnostics.append(Diagnostic(
+                f"{source}.features.dispatch_effort_levels",
+                "effort levels must be unique",
+                code="duplicate",
+            ))
+        for effort_level in dispatch_effort_levels:
+            if effort_level not in valid_efforts:
+                diagnostics.append(Diagnostic(
+                    f"{source}.features.dispatch_effort_levels",
+                    f"unsupported native effort {effort_level}",
+                    code="enum",
+                ))
+    if eff_dispatch_supports and not eff_dispatch_levels:
+        diagnostics.append(Diagnostic(
+            f"{source}.features.dispatch_effort_levels",
+            "dispatch-effort-capable targets must declare dispatch effort levels",
+            code="required",
+        ))
+    if not eff_dispatch_supports and dispatch_effort_levels:
+        diagnostics.append(Diagnostic(
+            f"{source}.features.dispatch_effort_levels",
+            "targets without dispatch effort support must declare no dispatch effort levels",
+            code="invariant",
+        ))
     supported_efforts = set(effort_levels)
     for preset_name, preset in presets.items():
         if preset.coordinator_effort is not None and preset.coordinator_effort not in supported_efforts:
@@ -1220,6 +1386,13 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
                     f"{source}.presets.{preset_name}.effort.{semantic}",
                     "unsupported native effort", code="enum",
                 ))
+        _validate_dispatch_effort(
+            preset.dispatch,
+            f"{source}.presets.{preset_name}.dispatch",
+            eff_dispatch_supports,
+            eff_dispatch_levels,
+            diagnostics,
+        )
     if diagnostics:
         raise ValidationFailure(diagnostics)
     return TargetProfile(
@@ -1235,6 +1408,9 @@ def parse_target_profile(data: dict[str, Any], source: str) -> TargetProfile:
         team_runtime=team_runtime,
         models_without_effort=models_without_effort,
         presets=presets,
+        supports_dispatch_effort=supports_dispatch_effort,
+        dispatch_effort_levels=dispatch_effort_levels,
+        dispatch_models_without_effort=dispatch_models_without_effort,
     )
 
 
@@ -1299,6 +1475,8 @@ def resolve_target_profile(
                 continue
             if not profile.supports_effort:
                 base = replace(base, coordinator_effort=None, effort={})
+            if not profile.effective_supports_dispatch_effort and base.dispatch is not None:
+                base = replace(base, dispatch=replace(base.dispatch, coordinator_effort=None, effort={}))
         elif override.template is not None:
             diagnostics.append(Diagnostic(
                 f"{preset_path}.template",
@@ -1331,6 +1509,13 @@ def resolve_target_profile(
                     "unsupported native effort",
                     code="enum",
                 ))
+        _validate_dispatch_effort(
+            override.dispatch,
+            f"{preset_path}.dispatch",
+            profile.effective_supports_dispatch_effort,
+            profile.effective_dispatch_effort_levels,
+            diagnostics,
+        )
         presets[preset_name] = TargetPreset(
             coordinator_model=(
                 override.coordinator_model
@@ -1342,6 +1527,7 @@ def resolve_target_profile(
             ),
             models={**base.models, **override.models},
             effort={**base.effort, **override.effort},
+            dispatch=_merge_dispatch_preset(base.dispatch, override.dispatch),
         )
     if validate_default and (target in config.enabled_targets or target in config.target_default_presets):
         selected = effective_default_preset(config, target)
