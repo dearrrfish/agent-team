@@ -252,7 +252,7 @@ coordinator_effort = "xhigh"
 [model_presets.codex.balanced.models]
 fast = "project-fast"
 [model_presets.codex.balanced.effort]
-medium = "high"
+low = "high"
 '''
         with self._project() as directory:
             root = Path(directory)

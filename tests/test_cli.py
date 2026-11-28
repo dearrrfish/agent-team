@@ -331,7 +331,7 @@ for (const badConfig of [
             config.write_text(
                 config.read_text(encoding="utf-8")
                 + '\n[model_presets.codex.balanced]\ncoordinator_model = "project-coordinator"\n'
-                + '[model_presets.codex.balanced.effort]\nmedium = "high"\n',
+                + '[model_presets.codex.balanced.effort]\nlow = "high"\n',
                 encoding="utf-8",
             )
             result = self._run(root, "models", "show", "--target", "codex", "--format", "json")
@@ -345,7 +345,7 @@ for (const badConfig of [
             self.assertEqual(coordinator["native_model"], "project-coordinator")
             self.assertEqual(coordinator["model_source"], "model_presets.codex.balanced.coordinator_model")
             self.assertEqual(explorer["native_effort"], "high")
-            self.assertEqual(explorer["effort_source"], "model_presets.codex.balanced.effort.medium")
+            self.assertEqual(explorer["effort_source"], "model_presets.codex.balanced.effort.low")
 
     def test_models_fetch_reports_unavailable_source_with_nonzero_json_result(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

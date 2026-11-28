@@ -62,7 +62,7 @@ class PiSupportTests(unittest.TestCase):
         explorer = output[Path(".pi/agents/explorer.md")]
         coordinator = output[Path(".pi/agents/coordinator.md")]
         self.assertIn('model: "openai/', explorer)
-        self.assertIn(':medium"', explorer)
+        self.assertIn(':low"', explorer)
         tools = explorer.split("tools: ")[1].splitlines()[0].split(", ")
         self.assertFalse(
             {
